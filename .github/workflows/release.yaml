@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libatk1.0-dev \
+            libgtk-4-dev \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libx11-dev
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.os }}
+
+      - name: Build kaspa-ng (release)
+        run: cargo build --release --bin kaspa-ng
+
+      - name: Package (macOS/Linux)
+        if: runner.os != 'Windows'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          OUT="kaspa-ng-${{ runner.os }}-${RELEASE_TAG}.tar.gz"
+          rm -rf dist
+          mkdir -p dist
+          cp target/release/kaspa-ng dist/
+          if [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge dist/
+          fi
+          cp README.md LICENSE dist/
+          tar -czf "${OUT}" -C dist .
+          echo "ASSET=${OUT}" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $out = "kaspa-ng-Windows-$env:RELEASE_TAG.zip"
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item target\release\kaspa-ng.exe dist\
+          if (Test-Path rusty-kaspa\target\release\stratum-bridge.exe) {
+            Copy-Item rusty-kaspa\target\release\stratum-bridge.exe dist\
+          }
+          Copy-Item README.md dist\
+          Copy-Item LICENSE dist\
+          if (Test-Path $out) { Remove-Item $out }
+          Compress-Archive -Path dist\* -DestinationPath $out
+          Add-Content -Path $env:GITHUB_ENV -Value "ASSET=$out"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaspa-ng-${{ runner.os }}-${{ github.ref_name }}
+          path: ${{ env.ASSET }}
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}

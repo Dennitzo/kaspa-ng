@@ -2,6 +2,7 @@
 /core/resources/fonts/*
 /target
 /macros/target
+**/target/
 /dist
 /dist-chrome
 /dist-firefox
