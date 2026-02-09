@@ -83,7 +83,10 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
     let router_config = explorer_root.join("react-router.config.ts");
     let app_dir = explorer_root.join("app");
     let public_dir = explorer_root.join("public");
-    let build_index = explorer_root.join("build").join("client").join("index.html");
+    let build_index = explorer_root
+        .join("build")
+        .join("client")
+        .join("index.html");
 
     println!("cargo:rerun-if-changed={}", package_json.display());
     println!("cargo:rerun-if-changed={}", router_config.display());
@@ -160,7 +163,11 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={}", rusty_toml.display());
     println!("cargo:rerun-if-changed={}", bridge_src.display());
 
-    let bin_name = if cfg!(windows) { "stratum-bridge.exe" } else { "stratum-bridge" };
+    let bin_name = if cfg!(windows) {
+        "stratum-bridge.exe"
+    } else {
+        "stratum-bridge"
+    };
     let bin_path = rusty_kaspa.join("target").join("release").join(bin_name);
 
     let latest_src = newest_mtime(&bridge_src)

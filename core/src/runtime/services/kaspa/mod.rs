@@ -1,6 +1,6 @@
 use crate::imports::*;
 use crate::runtime::Service;
-pub use futures::{future::FutureExt, select, Future};
+pub use futures::{Future, future::FutureExt, select};
 use kaspa_wallet_core::api::*;
 use kaspa_wallet_core::events::Events as CoreWalletEvents;
 #[allow(unused_imports)]
@@ -130,10 +130,7 @@ impl KaspaService {
             #[cfg(not(target_arch = "wasm32"))]
             kaspad: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
-            logs: Mutex::new(vec![Log::Info(format!(
-                "rusty-kaspa:v{}",
-                kaspa_version()
-            ))]),
+            logs: Mutex::new(vec![Log::Info(format!("rusty-kaspa:v{}", kaspa_version()))]),
         }
     }
 

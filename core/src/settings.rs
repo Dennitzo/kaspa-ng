@@ -77,13 +77,21 @@ impl KaspadNodeKind {
             KaspadNodeKind::Disable => i18n("Disables node connectivity (Offline Mode)."),
             KaspadNodeKind::Remote => i18n("Connects to a Remote Rusty Kaspa Node via wRPC."),
             #[cfg(not(target_arch = "wasm32"))]
-            KaspadNodeKind::IntegratedInProc => i18n("The node runs as a part of the Kaspa-NG application process. This reduces communication overhead (experimental)."),
+            KaspadNodeKind::IntegratedInProc => i18n(
+                "The node runs as a part of the Kaspa-NG application process. This reduces communication overhead (experimental).",
+            ),
             #[cfg(not(target_arch = "wasm32"))]
-            KaspadNodeKind::IntegratedAsDaemon => i18n("The node is spawned as a child daemon process (recommended)."),
+            KaspadNodeKind::IntegratedAsDaemon => {
+                i18n("The node is spawned as a child daemon process (recommended).")
+            }
             #[cfg(not(target_arch = "wasm32"))]
-            KaspadNodeKind::IntegratedAsPassiveSync => i18n("The node synchronizes in the background while Kaspa-NG is connected to a public node. Once the node is synchronized, you can switch to the 'Integrated Daemon' mode."),
+            KaspadNodeKind::IntegratedAsPassiveSync => i18n(
+                "The node synchronizes in the background while Kaspa-NG is connected to a public node. Once the node is synchronized, you can switch to the 'Integrated Daemon' mode.",
+            ),
             #[cfg(not(target_arch = "wasm32"))]
-            KaspadNodeKind::ExternalAsDaemon => i18n("A binary at another location is spawned a child process (experimental, for development purposes only)."),
+            KaspadNodeKind::ExternalAsDaemon => i18n(
+                "A binary at another location is spawned a child process (experimental, for development purposes only).",
+            ),
         }
     }
 
@@ -762,7 +770,8 @@ impl Settings {
 
                         let mut migrated = false;
                         if settings.node.stratum_bridge.coinbase_tag_suffix.is_empty() {
-                            settings.node.stratum_bridge.coinbase_tag_suffix = "KaspaNG".to_string();
+                            settings.node.stratum_bridge.coinbase_tag_suffix =
+                                "KaspaNG".to_string();
                             migrated = true;
                         }
                         if !settings.node.stratum_bridge.var_diff {

@@ -3,8 +3,8 @@ use egui_phosphor::light::*;
 use kaspa_consensus_core::tx::{TransactionInput, TransactionOutpoint, TransactionOutput};
 use kaspa_txscript::standard::extract_script_pub_key_address;
 use kaspa_wallet_core::storage::{
-    transaction::{TransactionData, UtxoRecord},
     TransactionKind,
+    transaction::{TransactionData, UtxoRecord},
 };
 
 pub trait AsColor {
