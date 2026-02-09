@@ -180,7 +180,7 @@ impl Welcome {
             ui.add_space(32.0);
             // ui.colored_label(theme_color().alert_color, "Please note - this is a beta release - Kaspa NG is still in early development and is not yet ready for production use.");
             // ui.add_space(32.0);
-            ui.label(format!("Kaspa NG v{}  •  Rusty Kaspa v{}", env!("CARGO_PKG_VERSION"), kaspa_wallet_core::version()));
+            ui.label(format!("Kaspa NG v{}  •  Rusty Kaspa v{}", env!("CARGO_PKG_VERSION"), kaspa_version()));
             ui.hyperlink_to(
                 "https://kaspa.org",
                 "https://kaspa.org",

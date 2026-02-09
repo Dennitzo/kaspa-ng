@@ -20,13 +20,13 @@ cfg_if! {
         impl System {
             pub fn new() -> Self {
 
-                use sysinfo::*;
-                let mut system = System::new();
+                use sysinfo::{CpuRefreshKind, System as SysinfoSystem};
+                let mut system = SysinfoSystem::new();
                 system.refresh_cpu_specifics(CpuRefreshKind::new().with_frequency());
                 system.refresh_memory();
                 let cpus = system.cpus();
                 let cpu_physical_core_count = system.physical_core_count();
-                let long_os_version = system.long_os_version();
+                let long_os_version = SysinfoSystem::long_os_version();
                 let total_memory = system.total_memory();
 
                 let (cpu_frequency,cpu_brand) = cpus

@@ -408,6 +408,15 @@ impl<'core> Menu<'core> {
 
         ui.separator();
 
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if ui.button(i18n("Explorer")).clicked() {
+                self.select::<modules::Explorer>();
+                ui.close_menu();
+            }
+            ui.separator();
+        }
+
         if ui.button(i18n("Settings")).clicked() {
             self.select::<modules::Settings>();
             ui.close_menu();
@@ -417,8 +426,14 @@ impl<'core> Menu<'core> {
         {
             if self.core.settings.node.node_kind.is_local() {
                 ui.separator();
-                if ui.button(i18n("Logs")).clicked() {
+                if ui.button(i18n("Rusty Kaspa")).clicked() {
                     self.select::<modules::Logs>();
+                    ui.close_menu();
+                }
+
+                ui.separator();
+                if ui.button(i18n("RK Bridge")).clicked() {
+                    self.select::<modules::RkBridgeLogs>();
                     ui.close_menu();
                 }
             }

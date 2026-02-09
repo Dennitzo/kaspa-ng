@@ -14,6 +14,9 @@ impl Logs {
 }
 
 impl ModuleT for Logs {
+    fn name(&self) -> Option<&'static str> {
+        Some(i18n("Rusty Kaspa"))
+    }
 
     fn render(
         &mut self,

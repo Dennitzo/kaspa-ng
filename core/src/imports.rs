@@ -90,7 +90,7 @@ pub use crate::runtime::{runtime, spawn, spawn_with_result, Payload, Runtime, Se
 pub use crate::settings::{
     EstimatorMode, EstimatorSettings, KaspadNodeKind, NetworkInterfaceConfig, NetworkInterfaceKind,
     NodeConnectionConfigKind, NodeMemoryScale, NodeSettings, RpcConfig, RpcOptions, Settings,
-    UserInterfaceSettings,
+    StratumBridgeSettings, UserInterfaceSettings,
 };
 pub use crate::state::State;
 pub use crate::status::Status;

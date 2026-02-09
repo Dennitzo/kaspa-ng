@@ -2,7 +2,19 @@ use crate::imports::*;
 use workflow_http::Request;
 
 pub fn kaspa_version() -> String {
-    kaspa_utils::git::version()
+    rusty_kaspa_workspace_version()
+}
+
+fn normalize_version(raw: &str) -> String {
+    raw.strip_prefix('v').unwrap_or(raw).to_string()
+}
+
+pub fn rusty_kaspa_workspace_version() -> String {
+    if let Some(version) = option_env!("RUSTY_KASPA_WORKSPACE_VERSION") {
+        normalize_version(version)
+    } else {
+        normalize_version(&kaspa_utils::git::version())
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -426,6 +426,10 @@ impl Settings {
                                     }
                                 }
 
+                                self.runtime
+                                    .stratum_bridge_service()
+                                    .update_settings(&core.settings.node);
+
                                 if restart {
                                     self.runtime.kaspa_service().update_services(&self.settings.node, None);
                                 }
@@ -601,6 +605,142 @@ impl Settings {
             .default_open(true)
             .show(ui, |ui| {
 
+                #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("RK Bridge"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let can_enable = core.settings.node.node_kind.is_local();
+                        let mut enabled = self.settings.node.stratum_bridge_enabled;
+
+                        let response = ui.add_enabled(
+                            can_enable,
+                            Checkbox::new(&mut enabled, i18n("Enable RK Bridge (Stratum)")),
+                        );
+
+                        if !can_enable {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("RK Bridge requires a local node."),
+                            );
+                        } else if !core.settings.node.enable_grpc {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Enable gRPC in Node settings to use RK Bridge."),
+                            );
+                        }
+
+                        if response.changed() {
+                            self.settings.node.stratum_bridge_enabled = enabled;
+                            core.settings.node.stratum_bridge_enabled = enabled;
+                            self.runtime
+                                .stratum_bridge_service()
+                                .enable(enabled, &core.settings.node);
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+
+                        let mut changed = false;
+                        let bridge = &mut self.settings.node.stratum_bridge;
+
+                        let mut extranonce_size = bridge.extranonce_size as u32;
+
+                        Grid::new("rk_bridge_settings_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(i18n("Stratum Port"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut bridge.stratum_port).desired_width(140.0))
+                                    .changed();
+                                ui.end_row();
+
+                                let local_ip = local_ip_for_stratum();
+                                let stratum_port = stratum_port_for_display(&bridge.stratum_port);
+                                let mut stratum_url = format!("stratum+tcp://{local_ip}:{stratum_port}");
+                                ui.label(i18n("Miner connection"));
+                                ui.add(
+                                    TextEdit::singleline(&mut stratum_url)
+                                        .desired_width(260.0)
+                                        .interactive(false),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Min Share Difficulty"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut bridge.min_share_diff).speed(1).range(1..=u32::MAX))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Var Diff"));
+                                changed |= ui.checkbox(&mut bridge.var_diff, i18n("Enabled")).changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Shares Per Min"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut bridge.shares_per_min).speed(1).range(1..=10_000))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Var Diff Stats"));
+                                changed |= ui.checkbox(&mut bridge.var_diff_stats, i18n("Enabled")).changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Pow2 Clamp"));
+                                changed |= ui.checkbox(&mut bridge.pow2_clamp, i18n("Enabled")).changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Block Wait (ms)"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut bridge.block_wait_time_ms).speed(50).range(1..=120_000))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Print Stats"));
+                                changed |= ui.checkbox(&mut bridge.print_stats, i18n("Enabled")).changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Log To File"));
+                                changed |= ui.checkbox(&mut bridge.log_to_file, i18n("Enabled")).changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Health Check Port"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut bridge.health_check_port).desired_width(140.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Extranonce Size"));
+                                let response = ui
+                                    .add(DragValue::new(&mut extranonce_size).speed(1).range(0..=3));
+                                if response.changed() {
+                                    changed = true;
+                                    bridge.extranonce_size = extranonce_size as u8;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n("Coinbase Tag Suffix"));
+                                changed |= ui
+                                    .add(
+                                        TextEdit::singleline(&mut bridge.coinbase_tag_suffix)
+                                            .desired_width(160.0)
+                                            .hint_text(i18n("optional")),
+                                    )
+                                    .changed();
+                                ui.end_row();
+                            });
+
+                        if changed {
+                            core.settings.node.stratum_bridge = bridge.clone();
+                            self.runtime
+                                .stratum_bridge_service()
+                                .update_settings(&core.settings.node);
+                            core.store_settings();
+                        }
+                    });
+
                 CollapsingHeader::new(i18n("Market Monitor"))
                     .default_open(true)
                     .show(ui, |ui| {
@@ -751,3 +891,47 @@ impl Settings {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn local_ip_for_stratum() -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            local_ip_address::local_ip()
+                .map(|ip| match ip {
+                    std::net::IpAddr::V4(v4) => v4.to_string(),
+                    std::net::IpAddr::V6(v6) => format!("[{v6}]"),
+                })
+                .unwrap_or_else(|_| "127.0.0.1".to_string())
+        })
+        .clone()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn local_ip_for_stratum() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn stratum_port_for_display(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "5555".to_string();
+    }
+
+    let candidate = trimmed.rsplit(':').next().unwrap_or(trimmed).trim();
+    if !candidate.is_empty() && candidate.chars().all(|c| c.is_ascii_digit()) {
+        return candidate.to_string();
+    }
+
+    if trimmed.starts_with(':') {
+        let rest = trimmed.trim_start_matches(':').trim();
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return rest.to_string();
+        }
+    }
+
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return trimmed.to_string();
+    }
+
+    "5555".to_string()
+}

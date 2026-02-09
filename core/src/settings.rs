@@ -358,6 +358,43 @@ impl NodeMemoryScale {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[serde(default)]
+pub struct StratumBridgeSettings {
+    pub stratum_port: String,
+    pub min_share_diff: u32,
+    pub var_diff: bool,
+    pub shares_per_min: u32,
+    pub var_diff_stats: bool,
+    pub pow2_clamp: bool,
+    pub block_wait_time_ms: u64,
+    pub print_stats: bool,
+    pub log_to_file: bool,
+    pub health_check_port: String,
+    pub extranonce_size: u8,
+    pub coinbase_tag_suffix: String,
+}
+
+impl Default for StratumBridgeSettings {
+    fn default() -> Self {
+        Self {
+            stratum_port: ":5555".to_string(),
+            min_share_diff: 2048,
+            var_diff: true,
+            shares_per_min: 20,
+            var_diff_stats: true,
+            pow2_clamp: true,
+            block_wait_time_ms: 1000,
+            print_stats: true,
+            log_to_file: false,
+            health_check_port: String::new(),
+            extranonce_size: 2,
+            coinbase_tag_suffix: "KaspaNG".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct NodeSettings {
     pub connection_config_kind: NodeConnectionConfigKind,
     pub rpc_kind: RpcKind,
@@ -383,6 +420,14 @@ pub struct NodeSettings {
     pub kaspad_daemon_storage_folder_enable: bool,
     #[serde(default)]
     pub kaspad_daemon_storage_folder: String,
+    #[serde(default)]
+    pub stratum_bridge: StratumBridgeSettings,
+    #[serde(default = "default_stratum_bridge_enabled")]
+    pub stratum_bridge_enabled: bool,
+}
+
+fn default_stratum_bridge_enabled() -> bool {
+    true
 }
 
 impl Default for NodeSettings {
@@ -407,6 +452,8 @@ impl Default for NodeSettings {
             kaspad_daemon_args_enable: false,
             kaspad_daemon_storage_folder_enable: false,
             kaspad_daemon_storage_folder: String::default(),
+            stratum_bridge: StratumBridgeSettings::default(),
+            stratum_bridge_enabled: default_stratum_bridge_enabled(),
         }
     }
 }
@@ -526,6 +573,8 @@ pub struct UserInterfaceSettings {
     pub balance_padding: bool,
     #[serde(default)]
     pub disable_frame: bool,
+    #[serde(default)]
+    pub explorer_last_path: String,
 }
 
 impl Default for UserInterfaceSettings {
@@ -545,6 +594,7 @@ impl Default for UserInterfaceSettings {
             metrics: MetricsSettings::default(),
             balance_padding: true,
             disable_frame: true,
+            explorer_last_path: "/".to_string(),
         }
     }
 }
@@ -708,6 +758,25 @@ impl Settings {
                         ) {
                             settings.node.connection_config_kind =
                                 NodeConnectionConfigKind::PublicServerRandom;
+                        }
+
+                        let mut migrated = false;
+                        if settings.node.stratum_bridge.coinbase_tag_suffix.is_empty() {
+                            settings.node.stratum_bridge.coinbase_tag_suffix = "KaspaNG".to_string();
+                            migrated = true;
+                        }
+                        if !settings.node.stratum_bridge.var_diff {
+                            settings.node.stratum_bridge.var_diff = true;
+                            migrated = true;
+                        }
+                        if !settings.node.stratum_bridge.var_diff_stats {
+                            settings.node.stratum_bridge.var_diff_stats = true;
+                            migrated = true;
+                        }
+                        if migrated {
+                            if let Err(err) = settings.store().await {
+                                log_warn!("Settings::load() migration store error: {}", err);
+                            }
                         }
 
                         Ok(settings)

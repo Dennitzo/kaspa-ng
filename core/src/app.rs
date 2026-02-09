@@ -103,7 +103,7 @@ cfg_if! {
 
                 let cmd = Command::new("kaspa-ng")
 
-                    .about(format!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (rusty-kaspa {})", kaspa_version()))
+                    .about(format!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (Rusty Kaspa v{})", kaspa_version()))
                     .arg(arg!(--version "Display software version"))
                     .arg(arg!(--disable "Disable node services when starting"))
                     .arg(arg!(--daemon "Run as Rusty Kaspa p2p daemon"))
@@ -215,7 +215,7 @@ cfg_if! {
 
                     workflow_log::set_colors_enabled(true);
 
-                    println!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (rusty-kaspa {})", kaspa_version());
+                    println!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (Rusty Kaspa v{})", kaspa_version());
 
                     // Log to stderr (if you run with `RUST_LOG=debug`).
                     env_logger::init();
