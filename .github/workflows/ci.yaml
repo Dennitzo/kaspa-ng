@@ -12,6 +12,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt install -y \
+            build-essential \
+            curl \
+            git \
+            libssl-dev \
             libglib2.0-dev \
             libatk1.0-dev \
             libgtk-4-dev \
@@ -20,7 +24,9 @@ jobs:
             libsoup-3.0-dev \
             libx11-dev \
             protobuf-compiler \
+            libprotobuf-dev \
             pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -55,6 +61,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt install -y \
+            build-essential \
+            curl \
+            git \
+            libssl-dev \
             libglib2.0-dev \
             libatk1.0-dev \
             libgtk-4-dev \
@@ -63,7 +73,9 @@ jobs:
             libsoup-3.0-dev \
             libx11-dev \
             protobuf-compiler \
+            libprotobuf-dev \
             pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -110,6 +122,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt install -y \
+            build-essential \
+            curl \
+            git \
+            libssl-dev \
             libglib2.0-dev \
             libatk1.0-dev \
             libgtk-4-dev \
@@ -118,7 +134,9 @@ jobs:
             libsoup-3.0-dev \
             libx11-dev \
             protobuf-compiler \
+            libprotobuf-dev \
             pkg-config
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -178,7 +196,7 @@ jobs:
         if: ${{ runner.os == 'Linux' }}
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: libglib2.0-dev libatk1.0-dev libgtk-4-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libx11-dev protobuf-compiler pkg-config
+          packages: build-essential curl git libssl-dev libglib2.0-dev libatk1.0-dev libgtk-4-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libx11-dev protobuf-compiler libprotobuf-dev pkg-config
           version: 1.0
 
       - name: Install stable toolchain

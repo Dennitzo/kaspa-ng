@@ -53,15 +53,15 @@ fn parse_workspace_version(contents: &str) -> Option<String> {
         if in_workspace_package && line.starts_with("version") {
             let (_, rhs) = line.split_once('=')?;
             let rhs = rhs.trim();
-            if let Some(stripped) = rhs.strip_prefix('"') {
-                if let Some(end) = stripped.find('"') {
-                    return Some(stripped[..end].to_string());
-                }
+            if let Some(stripped) = rhs.strip_prefix('"')
+                && let Some(end) = stripped.find('"')
+            {
+                return Some(stripped[..end].to_string());
             }
-            if let Some(stripped) = rhs.strip_prefix('\'') {
-                if let Some(end) = stripped.find('\'') {
-                    return Some(stripped[..end].to_string());
-                }
+            if let Some(stripped) = rhs.strip_prefix('\'')
+                && let Some(end) = stripped.find('\'')
+            {
+                return Some(stripped[..end].to_string());
             }
         }
     }
@@ -100,12 +100,11 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
         .chain(newest_mtime(&public_dir))
         .max();
 
-    if build_index.exists() {
-        if let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src) {
-            if bin_time >= src_time {
-                return Ok(());
-            }
-        }
+    if build_index.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src)
+        && bin_time >= src_time
+    {
+        return Ok(());
     }
 
     println!("cargo:warning=Building kaspa-explorer-ng (static)...");
@@ -176,12 +175,11 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
         .chain(newest_mtime(&rusty_toml))
         .max();
 
-    if bin_path.exists() {
-        if let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src) {
-            if bin_time >= src_time {
-                return Ok(());
-            }
-        }
+    if bin_path.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
+        && bin_time >= src_time
+    {
+        return Ok(());
     }
 
     println!("cargo:warning=Building kaspa-stratum-bridge (release)...");

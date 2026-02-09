@@ -39,7 +39,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
 
       - name: Install Protoc (macOS)
         if: runner.os == 'macOS'
@@ -54,13 +55,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            curl \
+            git \
+            libssl-dev \
             libglib2.0-dev \
             libatk1.0-dev \
             libgtk-4-dev \
             libwebkit2gtk-4.1-dev \
             libjavascriptcoregtk-4.1-dev \
             libsoup-3.0-dev \
-            libx11-dev
+            libx11-dev \
+            pkg-config
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
