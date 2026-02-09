@@ -22,6 +22,19 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: kaspa-explorer-ng/package-lock.json
+
+      - name: Build kaspa-explorer-ng
+        working-directory: kaspa-explorer-ng
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run build
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -64,6 +77,10 @@ jobs:
           if [ -f rusty-kaspa/target/release/stratum-bridge ]; then
             cp rusty-kaspa/target/release/stratum-bridge dist/
           fi
+          if [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p dist/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build dist/kaspa-explorer-ng/
+          fi
           cp README.md LICENSE dist/
           tar -czf "${OUT}" -C dist .
           echo "ASSET=${OUT}" >> "$GITHUB_ENV"
@@ -79,6 +96,10 @@ jobs:
           Copy-Item target\release\kaspa-ng.exe dist\
           if (Test-Path rusty-kaspa\target\release\stratum-bridge.exe) {
             Copy-Item rusty-kaspa\target\release\stratum-bridge.exe dist\
+          }
+          if (Test-Path kaspa-explorer-ng\build) {
+            New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
+            Copy-Item -Recurse -Force kaspa-explorer-ng\build dist\kaspa-explorer-ng\
           }
           Copy-Item README.md dist\
           Copy-Item LICENSE dist\

@@ -6,7 +6,7 @@ members = [
     "macros",
     "extensions/chrome",
 ]
-default-members = ["app"]
+default-members = ["app", "core"]
 
 [workspace.package]
 rust-version = "1.88.0"
