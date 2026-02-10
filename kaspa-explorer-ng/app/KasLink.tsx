@@ -19,6 +19,7 @@ interface KasLinkProps {
   shorten?: boolean;
   resolveName?: boolean;
   mono?: boolean;
+  newTab?: boolean;
 }
 
 const linkTypeToAddress: Record<KasLinkProps["linkType"], string> = {
@@ -27,7 +28,7 @@ const linkTypeToAddress: Record<KasLinkProps["linkType"], string> = {
   address: "/addresses/",
 };
 
-const KasLink = ({ to, linkType, copy, qr, link, shorten, resolveName, mono }: KasLinkProps) => {
+const KasLink = ({ to, linkType, copy, qr, link, shorten, resolveName, mono, newTab }: KasLinkProps) => {
   const [clicked, setClicked] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const linkHref = linkTypeToAddress[linkType] + to;
@@ -68,7 +69,12 @@ const KasLink = ({ to, linkType, copy, qr, link, shorten, resolveName, mono }: K
     <span>
       <span className={"break-all " + (mono ? "font-mono tracking-tighter" : "")}>
         {link && linkHref ? (
-          <Link className="text-link hover:underline" to={linkHref}>
+          <Link
+            className="text-link hover:underline"
+            to={linkHref}
+            target={newTab ? "_blank" : undefined}
+            rel={newTab ? "noopener noreferrer" : undefined}
+          >
             {displayValue}
           </Link>
         ) : (

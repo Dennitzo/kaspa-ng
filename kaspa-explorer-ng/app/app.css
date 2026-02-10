@@ -20,7 +20,7 @@
     --color-warning: #fc8908;
     --color-success: #13893e;
     --color-info: #1d6dcb;
-    --color-link: #2463ec;
+    --color-link: #70c7ba;
 
     --color-accent-red: #fbebe8;
     --color-accent-blue: #e9effd;
@@ -59,6 +59,16 @@ body {
     display: block;
     font-family: Rubik, system-ui, Avenir, Helvetica, Arial, sans-serif;
     font-size: 14px;
+}
+
+a,
+a:visited {
+    color: var(--color-link);
+}
+
+a:hover,
+a:focus-visible {
+    color: var(--color-primary-hover);
 }
 
 .link-container {

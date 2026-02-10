@@ -32,6 +32,8 @@ dayjs.extend(relativeTime);
 dayjs.extend(localeData);
 dayjs.extend(localizedFormat);
 
+const SAVED_ADDRESS_KEY = "kaspaExplorerSavedAddress";
+
 export function meta({ params }: Route.LoaderArgs) {
   return [
     { title: `Kaspa Address ${params.address} | Kaspa Explorer` },
@@ -53,12 +55,17 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
   const marketData = useContext(MarketDataContext);
   const [beforeAfter, setBeforeAfter] = useState<number[]>([0, 0]);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [isSavedAddress, setIsSavedAddress] = useState(false);
 
   const [expand, setExpand] = useState<string[]>([]);
 
   useEffect(() => {
     setBeforeAfter([0, 0]); // Reset beforeAfter state
     setCurrentPage(1); // Reset currentPage state
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem(SAVED_ADDRESS_KEY);
+      setIsSavedAddress(saved === address);
+    }
   }, [address]);
 
   // fetch transactions with resolve_previous_outpoints set to "light"
@@ -110,15 +117,44 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
     return params.get("tab") === tab;
   };
 
+  const txFilter = new URLSearchParams(location.search).get("tx") || "accepted";
+  const filteredTransactions =
+    isTabActive("transactions") && txFilter === "accepted"
+      ? transactions.filter((transaction) => transaction.is_accepted)
+      : transactions;
+
+  const toggleSavedAddress = () => {
+    if (typeof window === "undefined") return;
+    if (isSavedAddress) {
+      window.localStorage.removeItem(SAVED_ADDRESS_KEY);
+      setIsSavedAddress(false);
+      window.dispatchEvent(new CustomEvent("kaspa:saved-address", { detail: null }));
+    } else {
+      window.localStorage.setItem(SAVED_ADDRESS_KEY, address);
+      setIsSavedAddress(true);
+      window.dispatchEvent(new CustomEvent("kaspa:saved-address", { detail: address }));
+    }
+  };
+
   const balance = numeral((data?.balance || 0) / 1_0000_0000).format("0,0.00[000000]");
   const LoadingSpinner = () => <Spinner className="h-5 w-5" />;
 
   return (
     <>
       <div className="relative flex w-full flex-col rounded-4xl bg-white p-4 text-left text-black sm:p-8">
-        <div className="flex flex-row items-center text-2xl sm:col-span-2">
-          <AccountBalanceWallet className="mr-2 h-8 w-8" />
-          <span>Address details</span>
+        <div className="flex flex-row items-center justify-between text-2xl sm:col-span-2">
+          <div className="flex items-center">
+            <AccountBalanceWallet className="mr-2 h-8 w-8" />
+            <span>Address details</span>
+          </div>
+          <button
+            type="button"
+            onClick={toggleSavedAddress}
+            className="rounded-full border px-4 py-2 text-sm font-medium transition hover:bg-gray-50"
+            style={{ borderColor: "#70C7BA", backgroundColor: "transparent", color: "#70C7BA" }}
+          >
+            {isSavedAddress ? "Delete as my wallet address" : "Save as my wallet address"}
+          </button>
         </div>
 
         <span className="mt-4 mb-0">Balance</span>
@@ -164,7 +200,8 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
       </div>
 
       <div className="flex w-full flex-col gap-x-18 gap-y-6 rounded-4xl bg-white p-4 text-left text-black sm:p-8">
-        <div className="mr-auto flex w-auto flex-row items-center justify-around gap-x-1 rounded-full bg-gray-50 p-1 px-1">
+        <div className="flex w-full flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-auto flex-row items-center justify-around gap-x-1 rounded-full bg-gray-50 p-1 px-1">
           <NavLink
             to={`/addresses/${address}?tab=transactions`}
             preventScrollReset={true}
@@ -183,11 +220,34 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
           >
             UTXOs
           </NavLink>
+          </div>
+          {isTabActive("transactions") && (
+            <div className="flex w-auto flex-row items-center justify-around gap-x-1 rounded-full bg-gray-50 p-1 px-1">
+              <NavLink
+                to={`/addresses/${address}?tab=transactions&tx=all`}
+                preventScrollReset={true}
+                className={() =>
+                  `rounded-full px-4 py-1.5 hover:cursor-pointer hover:bg-white ${txFilter === "all" ? "bg-white" : ""}`
+                }
+              >
+                All
+              </NavLink>
+              <NavLink
+                to={`/addresses/${address}?tab=transactions&tx=accepted`}
+                preventScrollReset={true}
+                className={() =>
+                  `rounded-full px-4 py-1.5 hover:cursor-pointer hover:bg-white ${txFilter === "accepted" ? "bg-white" : ""}`
+                }
+              >
+                Accepted
+              </NavLink>
+            </div>
+          )}
         </div>
 
         {isTabActive("transactions") && (
           <div className="w-full">
-            {transactions && transactions.length > 0 ? (
+            {filteredTransactions && filteredTransactions.length > 0 ? (
               <>
                 <PageTable
                   alignTop
@@ -198,7 +258,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                     4: "md:w-40 lg:w-50",
                     3: "hidden md:table-cell",
                   }}
-                  rows={(transactions || []).map((transaction) => [
+                  rows={(filteredTransactions || []).map((transaction) => [
                     <Tooltip
                       message={dayjs(transaction.block_time).format("MMM D, YYYY h:mm A")}
                       display={TooltipDisplayMode.Hover}
@@ -252,8 +312,8 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                         </li>
                       ))}
                     </ul>,
-                    <>
-                      {numeral(
+                    (() => {
+                      const kasAmount =
                         ((transaction.inputs || []).reduce(
                           (acc, input) =>
                             acc -
@@ -267,10 +327,21 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                               acc + (address === output.script_public_key_address ? output.amount : 0),
                             0,
                           )) /
-                          1_0000_0000,
-                      ).format("+0,0.00[000000]")}
-                      <span className="text-gray-500 text-nowrap"> KAS</span>
-                    </>,
+                        1_0000_0000;
+                      const amountColor = kasAmount >= 0 ? "#70C7BA" : "#C7707D";
+                      const usdValue = kasAmount * (marketData?.price || 0);
+                      return (
+                        <>
+                          <div className="text-right text-nowrap" style={{ color: amountColor }}>
+                            {numeral(kasAmount).format("+0,0.00[000000]")}
+                            <span className="text-nowrap"> KAS</span>
+                          </div>
+                          <div className="text-xs text-right text-nowrap" style={{ color: amountColor }}>
+                            {numeral(usdValue).format("$0,0.00")}
+                          </div>
+                        </>
+                      );
+                    })(),
                     <span className="text-sm">{transaction.is_accepted ? <Accepted /> : <NotAccepted />}</span>,
                   ])}
                 />

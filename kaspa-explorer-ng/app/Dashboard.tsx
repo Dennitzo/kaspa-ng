@@ -1,5 +1,7 @@
 import Spinner from "./Spinner";
+import KasLink from "./KasLink";
 import AccountBalanceWallet from "./assets/account_balance_wallet.svg";
+import Kaspa from "./assets/kaspa.svg";
 import BackToTab from "./assets/back_to_tab.svg";
 import Box from "./assets/box.svg";
 import Coins from "./assets/coins.svg";
@@ -12,20 +14,28 @@ import Swap from "./assets/swap.svg";
 import Time from "./assets/time.svg";
 import Trophy from "./assets/trophy.svg";
 import VerifiedUser from "./assets/verified_user.svg";
+import { MarketDataContext } from "./context/MarketDataProvider";
 import SearchBox from "./header/SearchBox";
+import { useAddressBalance } from "./hooks/useAddressBalance";
 import { useAddressDistribution } from "./hooks/useAddressDistribution";
+import { useAddressTxCount } from "./hooks/useAddressTxCount";
+import { useAddressUtxos } from "./hooks/useAddressUtxos";
 import { useBlockdagInfo } from "./hooks/useBlockDagInfo";
 import { useBlockReward } from "./hooks/useBlockReward";
 import { useCoinSupply } from "./hooks/useCoinSupply";
 import { useHalving } from "./hooks/useHalving";
 import { useTransactionsCount } from "./hooks/useTransactionsCount";
 import numeral from "numeral";
-import { useState } from "react";
+import { NavLink } from "react-router";
+import { useContext, useEffect, useState } from "react";
 
 const TOTAL_SUPPLY = 28_700_000_000;
+const SAVED_ADDRESS_KEY = "kaspaExplorerSavedAddress";
 
 const Dashboard = () => {
   const [search, setSearch] = useState("");
+  const [savedAddress, setSavedAddress] = useState<string | null>(null);
+  const marketData = useContext(MarketDataContext);
 
   const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
   const { data: coinSupply, isLoading: isLoadingCoinSupply } = useCoinSupply();
@@ -37,6 +47,22 @@ const Dashboard = () => {
   const totalTxCount = isLoadingTxCount
     ? ""
     : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const loadSavedAddress = () => {
+      const value = window.localStorage.getItem(SAVED_ADDRESS_KEY);
+      setSavedAddress(value || null);
+    };
+    loadSavedAddress();
+    const handleSavedAddress = () => loadSavedAddress();
+    window.addEventListener("kaspa:saved-address", handleSavedAddress as EventListener);
+    window.addEventListener("storage", handleSavedAddress);
+    return () => {
+      window.removeEventListener("kaspa:saved-address", handleSavedAddress as EventListener);
+      window.removeEventListener("storage", handleSavedAddress);
+    };
+  }, []);
 
   const getAddressCountAbove1KAS = () => {
     if (!addressDistribution) return;
@@ -52,6 +78,11 @@ const Dashboard = () => {
             Kaspa is the fastest, open-source, decentralized & fully scalable Layer-1 PoW network in the world.
           </span>
           <SearchBox value={search} onChange={setSearch} className="w-full py-4" />
+          {savedAddress && (
+            <div className="mt-6 rounded-3xl border border-gray-200 bg-white">
+              <SavedAddressCard address={savedAddress} price={Number(marketData?.price ?? 0)} />
+            </div>
+          )}
         </div>
         <Dag className="w-full h-full md:ps-13 mt-2 md:mt-0" />
       </div>
@@ -186,6 +217,69 @@ const DashboardBox = (props: DashboardBoxProps) => {
         )}
         {props.unit ? <span className="text-gray-500 md:text-md xl:text-lg"> {props.unit}</span> : ""}
       </span>
+    </div>
+  );
+};
+
+const SavedAddressCard = ({ address, price }: { address: string; price: number }) => {
+  const { data, isLoading: isLoadingBalance } = useAddressBalance(address);
+  const { data: txCount, isLoading: isLoadingTxCount } = useAddressTxCount(address);
+  const { data: utxos, isLoading: isLoadingUtxos } = useAddressUtxos(address);
+  const balance = numeral((data?.balance || 0) / 1_0000_0000).format("0,0.00[000000]");
+  const usdValue = numeral(((data?.balance || 0) / 1_0000_0000) * (price || 0)).format("$0,0.00");
+  const LoadingSpinner = () => <Spinner className="h-5 w-5" />;
+
+  return (
+    <div className="flex w-full flex-col rounded-4xl bg-white p-4 text-left text-black sm:p-8">
+      <div className="flex flex-row items-center justify-between text-2xl sm:col-span-2">
+        <div className="flex items-center">
+          <AccountBalanceWallet className="mr-2 h-8 w-8" />
+          <span>My wallet address</span>
+        </div>
+        <NavLink
+          to={`/addresses/${address}`}
+          className="rounded-full border px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-50"
+          style={{ borderColor: "#70C7BA", backgroundColor: "transparent" }}
+        >
+          Open address details
+        </NavLink>
+      </div>
+
+      <span className="mt-4 mb-0">Balance</span>
+
+      {!isLoadingBalance ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex flex-row items-center text-[32px]">
+            {balance.split(".")[0]}.<span className="self-end pb-[0.4rem] text-2xl">{balance.split(".")[1]}</span>
+            <Kaspa className="fill-primary ml-1 h-8 w-8" />
+          </span>
+        </div>
+      ) : (
+        <LoadingSpinner />
+      )}
+      {!isLoadingBalance ? <span className="ml-1 text-gray-500">{usdValue}</span> : <LoadingSpinner />}
+      <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
+
+      <div className="grid grid-cols-1 gap-x-14 gap-y-2 sm:grid-cols-[auto_1fr]">
+        <div className="flex flex-row items-start fill-gray-500 text-gray-500 sm:col-start-1">
+          <span>Address</span>
+        </div>
+        <div className="break-all text-wrap">
+          <KasLink linkType="address" copy qr to={address} />
+        </div>
+        <div className="flex flex-row items-start fill-gray-500 text-gray-500 sm:col-start-1">
+          <span>Transactions</span>
+        </div>
+        <div className="break-all text-wrap">
+          {!isLoadingTxCount ? numeral(txCount?.total || 0).format("0,") : <LoadingSpinner />}
+        </div>
+        <div className="flex flex-row items-start fill-gray-500 text-gray-500 sm:col-start-1">
+          <span>UTXOs</span>
+        </div>
+        <div className="break-all text-wrap">
+          {!isLoadingUtxos ? numeral(utxos?.length || 0).format("0,") : <LoadingSpinner />}
+        </div>
+      </div>
     </div>
   );
 };

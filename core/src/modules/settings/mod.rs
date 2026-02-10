@@ -559,7 +559,25 @@ impl Settings {
                                 .show(ui, |ui| {
 
                                     ui.checkbox(&mut self.settings.user_interface.disable_frame, i18n("Disable Window Frame"));
-                                    if self.settings.user_interface.disable_frame != core.settings.user_interface.disable_frame {
+
+                                    ui.horizontal(|ui| {
+                                        ui.label(i18n("Explorer Port"));
+                                        let mut port = self.settings.user_interface.explorer_port as u32;
+                                        if ui
+                                            .add(DragValue::new(&mut port).speed(1).range(1024..=65535))
+                                            .changed()
+                                        {
+                                            self.settings.user_interface.explorer_port = port as u16;
+                                        }
+                                    });
+
+                                    let restart_required =
+                                        self.settings.user_interface.disable_frame
+                                            != core.settings.user_interface.disable_frame
+                                            || self.settings.user_interface.explorer_port
+                                                != core.settings.user_interface.explorer_port;
+
+                                    if restart_required {
                                         ui.vertical(|ui| {
                                             ui.add_space(4.);
                                             ui.label(RichText::new(i18n("Application must be restarted for this setting to take effect.")).color(theme_color().warning_color));
@@ -571,16 +589,21 @@ impl Settings {
                                     ui.add_space(1.);
                                 });
 
-                            if self.settings.user_interface.disable_frame != core.settings.user_interface.disable_frame {
+                            if self.settings.user_interface.disable_frame != core.settings.user_interface.disable_frame
+                                || self.settings.user_interface.explorer_port
+                                    != core.settings.user_interface.explorer_port
+                            {
                                 ui.add_space(16.);
                                 if let Some(response) = ui.confirm_medium_apply_cancel(Align::Max) {
                                     match response {
                                         Confirm::Ack => {
                                             core.settings.user_interface.disable_frame = self.settings.user_interface.disable_frame;
+                                            core.settings.user_interface.explorer_port = self.settings.user_interface.explorer_port;
                                             core.settings.store_sync().unwrap();
                                         },
                                         Confirm::Nack => {
                                             self.settings.user_interface.disable_frame = core.settings.user_interface.disable_frame;
+                                            self.settings.user_interface.explorer_port = core.settings.user_interface.explorer_port;
                                         }
                                     }
                                 }

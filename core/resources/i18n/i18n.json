@@ -4309,6 +4309,7 @@
       "Error processing mnemonic: {err}": "Error processing mnemonic: {err}",
       "Exit Full Screen": "Exit Full Screen",
       "Explorer": "Explorer",
+      "Explorer Port": "Explorer Port",
       "Export Wallet Data": "Export Wallet Data",
       "External Daemon": "External Daemon",
       "Extranonce Size": "Extranonce Size",

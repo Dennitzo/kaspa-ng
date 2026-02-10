@@ -13,14 +13,20 @@ export const useSocketRoom = <T>({ room, onMessage, eventName }: UseSocketRoomOp
   const { connected } = useSocketConnected();
 
   useEffect(() => {
-    roomReferences[room] = (roomReferences[room] || 0) + 1;
-    if (roomReferences[room] === 1) {
+    const handleConnect = () => {
       socket.emit("join-room", room);
+    };
+
+    roomReferences[room] = (roomReferences[room] || 0) + 1;
+    socket.on("connect", handleConnect);
+    if (socket.connected || connected) {
+      handleConnect();
     }
     socket.on(eventName, onMessage);
 
     return () => {
       socket.off(eventName, onMessage);
+      socket.off("connect", handleConnect);
 
       roomReferences[room]--;
       if (roomReferences[room] === 0) {

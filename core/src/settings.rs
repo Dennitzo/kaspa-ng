@@ -583,6 +583,8 @@ pub struct UserInterfaceSettings {
     pub disable_frame: bool,
     #[serde(default)]
     pub explorer_last_path: String,
+    #[serde(default)]
+    pub explorer_port: u16,
 }
 
 impl Default for UserInterfaceSettings {
@@ -603,6 +605,7 @@ impl Default for UserInterfaceSettings {
             balance_padding: true,
             disable_frame: true,
             explorer_last_path: "/".to_string(),
+            explorer_port: 51963,
         }
     }
 }
@@ -780,6 +783,10 @@ impl Settings {
                         }
                         if !settings.node.stratum_bridge.var_diff_stats {
                             settings.node.stratum_bridge.var_diff_stats = true;
+                            migrated = true;
+                        }
+                        if settings.user_interface.explorer_port == 0 {
+                            settings.user_interface.explorer_port = 51963;
                             migrated = true;
                         }
                         if migrated {

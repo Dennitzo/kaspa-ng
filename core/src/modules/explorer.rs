@@ -13,6 +13,8 @@ use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebV
 #[cfg(not(target_arch = "wasm32"))]
 const EXPLORER_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
+const DEFAULT_EXPLORER_PORT: u16 = 51963;
+#[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_COPY_JS: &str = r#"
 (() => {
   try {
@@ -157,11 +159,12 @@ impl ModuleT for Explorer {
         Some(i18n("Explorer"))
     }
 
-    fn activate(&mut self, _core: &mut Core) {
+    fn activate(&mut self, core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if self.server.is_none() && self.status.is_none() {
-                match ExplorerServer::start() {
+                let port = core.settings.user_interface.explorer_port;
+                match ExplorerServer::start(port) {
                     Ok(server) => {
                         self.server = Some(server);
                     }
@@ -328,14 +331,20 @@ struct ExplorerServer {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ExplorerServer {
-    fn start() -> std::result::Result<Self, String> {
+    fn start(port: u16) -> std::result::Result<Self, String> {
         let root = find_explorer_root().ok_or_else(|| {
             i18n("Explorer build not found. Run `npm install` and `npm run build` in `kaspa-explorer-ng`.")
                 .to_string()
         })?;
 
-        let listener = TcpListener::bind((EXPLORER_HOST, 0))
-            .map_err(|err| format!("Explorer server bind failed: {err}"))?;
+        let port = if port == 0 { DEFAULT_EXPLORER_PORT } else { port };
+        let listener = TcpListener::bind((EXPLORER_HOST, port))
+            .map_err(|err| {
+                format!(
+                    "Explorer server bind failed on {}:{} ({err}). Close other instances or free the port.",
+                    EXPLORER_HOST, port
+                )
+            })?;
         let port = listener
             .local_addr()
             .map_err(|err| format!("Explorer server address error: {err}"))?

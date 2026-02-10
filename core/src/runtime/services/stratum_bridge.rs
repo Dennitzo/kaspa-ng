@@ -14,6 +14,11 @@ cfg_if! {
         const DEFAULT_GRPC_PORT: u16 = 16110;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
 
+        fn is_bridge_table_line(line: &str) -> bool {
+            let trimmed = line.trim_start();
+            trimmed.starts_with('+') || trimmed.starts_with('|')
+        }
+
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
             static FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
             FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)))
@@ -82,7 +87,11 @@ cfg_if! {
                     if logs.len() > LOG_BUFFER_LINES {
                         logs.drain(0..LOG_BUFFER_MARGIN);
                     }
-                    logs.push(line.as_str().into());
+                    if is_bridge_table_line(&line) {
+                        logs.push(Log::Processed(line));
+                    } else {
+                        logs.push(line.as_str().into());
+                    }
                 }
 
                 if update_logs_flag().load(Ordering::SeqCst) && crate::runtime::try_runtime().is_some() {
