@@ -262,7 +262,7 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend=\"wasm_js\"
+      RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend="wasm_js"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
