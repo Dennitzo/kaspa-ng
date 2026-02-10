@@ -514,6 +514,12 @@ jobs:
       - name: Install and Test Debian Package
         if: runner.os == 'Linux'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-1 \
+            libwebkit2gtk-4.1-0 \
+            libjavascriptcoregtk-4.1-0 \
+            libsoup-3.0-0
           sudo dpkg -i "${{ steps.package_debian.outputs.file_name }}"
           kaspa-ng --version || echo "Failed to execute kaspa-ng --version"
           echo "Package test completed" >> "${{ env.CI_LOG_DIR }}/debian-test.log"
