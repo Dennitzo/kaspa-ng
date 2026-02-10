@@ -7,7 +7,7 @@ jobs:
     name: Checks
     runs-on: ubuntu-latest
     env:
-      CI_LOG_DIR: ${{ runner.temp }}/ci-logs
+      CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     steps:
 
@@ -82,7 +82,7 @@ jobs:
     # runs-on: ${{ matrix.os }}
     runs-on: ubuntu-latest
     env:
-      CI_LOG_DIR: ${{ runner.temp }}/ci-logs
+      CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     strategy:
       fail-fast: false
@@ -179,7 +179,7 @@ jobs:
     name: Lints
     runs-on: ubuntu-latest
     env:
-      CI_LOG_DIR: ${{ runner.temp }}/ci-logs
+      CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     steps:
 
@@ -260,7 +260,7 @@ jobs:
     name: WASM32 Builds
     runs-on: ubuntu-latest
     env:
-      CI_LOG_DIR: ${{ runner.temp }}/ci-logs
+      CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     steps:
       - name: Checkout sources
@@ -369,7 +369,7 @@ jobs:
   build-release:
     runs-on: ${{ matrix.os }}
     env:
-      CI_LOG_DIR: ${{ runner.temp }}/ci-logs
+      CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     strategy:
       fail-fast: false
