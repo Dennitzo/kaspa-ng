@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err, clippy::collapsible_if)]
+
 pub mod client;
 pub mod imports;
 pub mod server;
