@@ -1,4 +1,12 @@
 #![warn(clippy::all, rust_2018_idioms)]
+#![allow(
+    clippy::collapsible_if,
+    clippy::result_large_err,
+    clippy::unnecessary_unwrap,
+    clippy::let_and_return,
+    clippy::manual_is_multiple_of,
+    clippy::collapsible_str_replace
+)]
 
 extern crate self as kaspa_ng_core;
 

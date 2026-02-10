@@ -11,7 +11,7 @@ jobs:
       matrix:
         # Build gnu-linux on ubuntu-18.04 and musl on ubuntu latest
         # os: [ ubuntu-18.04, ubuntu-latest, windows-latest, macos-latest ]
-        os: [ ubuntu-22.04, windows-latest, macos-13, macos-latest ]
+        os: [ ubuntu-22.04, windows-latest, macos-latest ]
     name: Building, ${{ matrix.os }}
     steps:
       - name: Fix CRLF on Windows
@@ -167,4 +167,3 @@ jobs:
           asset_path: "./${{ steps.package_debian.outputs.file_name }}"
           asset_name: "${{ steps.package_debian.outputs.file_name }}"
           asset_content_type: application/vnd.debian.binary-package
-
