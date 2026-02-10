@@ -262,7 +262,6 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-      RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend="wasm_js"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -326,11 +325,15 @@ jobs:
       #   run: cargo clippy --target wasm32-unknown-unknown
 
       - name: Build Web App
+        env:
+          RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend="wasm_js"
         run: |
           set -o pipefail
           trunk build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/trunk-build.log"
 
       - name: Build Chrome Browser Extension
+        env:
+          RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend="wasm_js"
         run: |
           set -o pipefail
           rm -rf ./dist-chrome
