@@ -4029,7 +4029,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-addresses"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "borsh",
  "criterion",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-addressmanager"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "borsh",
  "igd-next",
@@ -4068,14 +4068,14 @@ dependencies = [
 
 [[package]]
 name = "kaspa-alloc"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "mimalloc",
 ]
 
 [[package]]
 name = "kaspa-bip32"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "borsh",
  "bs58",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-cli"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -4149,7 +4149,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-connectionmanager"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "duration-string",
  "futures-util",
@@ -4166,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensus"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "arc-swap",
  "async-channel 2.3.1",
@@ -4210,7 +4210,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensus-client"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "ahash",
  "cfg-if 1.0.0",
@@ -4238,7 +4238,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensus-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4278,7 +4278,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensus-notify"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "cfg-if 1.0.0",
@@ -4297,7 +4297,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensus-wasm"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "cfg-if 1.0.0",
  "faster-hex",
@@ -4321,7 +4321,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-consensusmanager"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "duration-string",
  "futures",
@@ -4340,7 +4340,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "anyhow",
  "cfg-if 1.0.0",
@@ -4359,7 +4359,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-daemon"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -4381,7 +4381,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-database"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "bincode",
  "enum-primitive-derive",
@@ -4403,7 +4403,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-grpc-client"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-stream",
@@ -4435,7 +4435,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-grpc-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-stream",
@@ -4466,7 +4466,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-grpc-server"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-stream",
@@ -4502,7 +4502,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-hashes"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "blake2b_simd",
  "borsh",
@@ -4523,7 +4523,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-index-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-trait",
@@ -4542,7 +4542,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-index-processor"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-trait",
@@ -4570,7 +4570,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-math"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "borsh",
  "criterion",
@@ -4591,14 +4591,14 @@ dependencies = [
 
 [[package]]
 name = "kaspa-merkle"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "kaspa-hashes",
 ]
 
 [[package]]
 name = "kaspa-metrics-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -4614,7 +4614,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-mining"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "criterion",
  "futures-util",
@@ -4641,7 +4641,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-mining-errors"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "kaspa-consensus-core",
  "thiserror 1.0.69",
@@ -4649,7 +4649,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-muhash"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "criterion",
  "kaspa-hashes",
@@ -4662,7 +4662,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-ng"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "cfg-if 1.0.0",
  "kaspa-alloc",
@@ -4674,7 +4674,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-ng-chrome"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -4697,7 +4697,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-ng-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "ahash",
  "async-trait",
@@ -4780,7 +4780,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-ng-macros"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "convert_case 0.6.0",
  "parse-variants",
@@ -4794,7 +4794,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-notify"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-trait",
@@ -4830,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-p2p-flows"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4862,7 +4862,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-p2p-lib"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "borsh",
  "ctrlc",
@@ -4893,7 +4893,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-p2p-mining"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "kaspa-consensus-core",
  "kaspa-consensusmanager",
@@ -4910,7 +4910,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-perf-monitor"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "kaspa-core",
  "log",
@@ -4922,7 +4922,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-pow"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "criterion",
  "js-sys",
@@ -4938,7 +4938,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-rpc-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "async-trait",
@@ -4981,7 +4981,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-rpc-macros"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro-error",
@@ -4993,7 +4993,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-rpc-service"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "kaspa-addresses",
@@ -5023,7 +5023,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-txscript"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "blake2b_simd",
  "borsh",
@@ -5055,7 +5055,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-txscript-errors"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "secp256k1",
  "thiserror 1.0.69",
@@ -5063,7 +5063,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-utils"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "arc-swap",
  "async-channel 2.3.1",
@@ -5099,7 +5099,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-utils-tower"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "bytes",
  "cfg-if 1.0.0",
@@ -5115,7 +5115,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-utxoindex"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "futures",
  "kaspa-consensus",
@@ -5136,7 +5136,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wallet-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "aes",
  "ahash",
@@ -5217,7 +5217,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wallet-keys"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -5250,7 +5250,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wallet-macros"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "convert_case 0.5.0",
  "proc-macro-error",
@@ -5263,7 +5263,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wallet-pskt"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "bincode",
  "derive_builder",
@@ -5293,7 +5293,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wasm-core"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "faster-hex",
  "hexplay",
@@ -5304,7 +5304,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wrpc-client"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-std",
  "async-trait",
@@ -5340,7 +5340,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wrpc-server"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-trait",
  "borsh",
@@ -5368,7 +5368,7 @@ dependencies = [
 
 [[package]]
 name = "kaspa-wrpc-wasm"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "ahash",
  "async-std",
@@ -5398,7 +5398,7 @@ dependencies = [
 
 [[package]]
 name = "kaspad"
-version = "1.0.3"
+version = "1.1.0-rc.3"
 dependencies = [
  "async-channel 2.3.1",
  "cfg-if 1.0.0",
