@@ -207,10 +207,14 @@ fn sync_explorer_build(explorer_root: &Path, repo_root: &Path) -> Result<(), Box
     let dist_root = explorer_root.join("dist");
 
     let (src_root, dest_root) = if build_root.join("client").join("index.html").exists() {
-        let dest = target_profile_dir(repo_root).join("kaspa-explorer-ng").join("build");
+        let dest = target_profile_dir(repo_root)
+            .join("kaspa-explorer-ng")
+            .join("build");
         (build_root, dest)
     } else if dist_root.join("index.html").exists() {
-        let dest = target_profile_dir(repo_root).join("kaspa-explorer-ng").join("dist");
+        let dest = target_profile_dir(repo_root)
+            .join("kaspa-explorer-ng")
+            .join("dist");
         (dist_root, dest)
     } else {
         return Ok(());
