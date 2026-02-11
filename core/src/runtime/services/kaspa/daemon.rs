@@ -71,6 +71,13 @@ impl super::Kaspad for Daemon {
             Command::new(path)
         };
 
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         let cmd = cmd
             .args(config)
             .env("KASPA_NG_DAEMON", "1")

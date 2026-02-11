@@ -48,19 +48,6 @@ sudo dnf install glib2-devel atk-devel gtk3-devel
 Once you have Rusty Kaspa built, you will be able to build and run this project as follows:
 
 ### From GitHub repository:
-
-#### Running as Native App
-```bash
-cargo run --release
-```
-
-#### Running as Web App
-```bash
-cargo install trunk
-trunk serve --release
-```
-Access via [https://localhost:8080](https://localhost:8080)
-
 #### Start Custom Build
 ```bash
 cd kaspa-explorer-ng
