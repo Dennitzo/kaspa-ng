@@ -5,7 +5,7 @@ on: [push, pull_request]
 jobs:
   check:
     name: Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
@@ -46,7 +46,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -80,7 +80,7 @@ jobs:
   test:
     name: Tests
     # runs-on: ${{ matrix.os }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
@@ -121,6 +121,8 @@ jobs:
       
       - name: Set up cache
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-22.04
       
       - name: Install cargo-nextest
         run: cargo install --locked cargo-nextest
@@ -134,7 +136,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -177,7 +179,7 @@ jobs:
 
   lints:
     name: Lints
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
@@ -220,7 +222,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -258,7 +260,7 @@ jobs:
 
   wasm32:
     name: WASM32 Builds
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
@@ -316,7 +318,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"

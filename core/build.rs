@@ -104,6 +104,7 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
         && let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src)
         && bin_time >= src_time
     {
+        sync_explorer_build(&explorer_root, &repo_root)?;
         return Ok(());
     }
 
@@ -130,6 +131,8 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
     if status.map(|s| !s.success()).unwrap_or(true) {
         println!("cargo:warning=kaspa-explorer-ng build failed; skipping");
     }
+
+    sync_explorer_build(&explorer_root, &repo_root)?;
 
     Ok(())
 }
@@ -179,6 +182,7 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
         && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
         && bin_time >= src_time
     {
+        sync_stratum_bridge_binary(&bin_path, &repo_root)?;
         return Ok(());
     }
 
@@ -193,6 +197,90 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
         return Err("failed to build kaspa-stratum-bridge".into());
     }
 
+    sync_stratum_bridge_binary(&bin_path, &repo_root)?;
+
+    Ok(())
+}
+
+fn sync_explorer_build(explorer_root: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    let build_root = explorer_root.join("build");
+    let dist_root = explorer_root.join("dist");
+
+    let (src_root, dest_root) = if build_root.join("client").join("index.html").exists() {
+        let dest = target_profile_dir(repo_root).join("kaspa-explorer-ng").join("build");
+        (build_root, dest)
+    } else if dist_root.join("index.html").exists() {
+        let dest = target_profile_dir(repo_root).join("kaspa-explorer-ng").join("dist");
+        (dist_root, dest)
+    } else {
+        return Ok(());
+    };
+
+    let src_time = newest_mtime(&src_root);
+    let dest_time = newest_mtime(&dest_root);
+    if dest_root.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    if dest_root.exists() {
+        std::fs::remove_dir_all(&dest_root)?;
+    }
+    copy_dir_all(&src_root, &dest_root)?;
+    Ok(())
+}
+
+fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    if !bin_path.exists() {
+        return Ok(());
+    }
+
+    let target_dir = target_profile_dir(repo_root);
+    std::fs::create_dir_all(&target_dir)?;
+    let dest_path = target_dir.join(
+        bin_path
+            .file_name()
+            .ok_or("failed to resolve stratum-bridge filename")?,
+    );
+
+    let src_time = mtime(bin_path);
+    let dest_time = mtime(&dest_path);
+    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    std::fs::copy(bin_path, dest_path)?;
+    Ok(())
+}
+
+fn target_profile_dir(repo_root: &Path) -> PathBuf {
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "release".to_string());
+    if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        return PathBuf::from(target_dir).join(profile);
+    }
+    let mut target_dir = repo_root.join("target");
+    if let Ok(build_target) = std::env::var("CARGO_BUILD_TARGET") {
+        if !build_target.is_empty() {
+            target_dir = target_dir.join(build_target);
+        }
+    }
+    target_dir.join(profile)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_all(&path, &target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&path, &target)?;
+        }
+    }
     Ok(())
 }
 
