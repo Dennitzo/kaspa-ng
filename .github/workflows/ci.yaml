@@ -517,29 +517,29 @@ jobs:
           VERSION="v${{ env.SHORT_SHA }}"
           VERSION="${VERSION#v}"
           cat > "$APP_DIR/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleDisplayName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key>
-  <string>org.kaspa.kaspa-ng</string>
-  <key>CFBundleExecutable</key>
-  <string>kaspa-ng</string>
-  <key>CFBundleVersion</key>
-  <string>${{ env.SHORT_SHA }}</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${VERSION}</string>
-  <key>CFBundleIconFile</key>
-  <string>${APP_NAME}</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>10.13</string>
-</dict>
-</plist>
-EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key>
+            <string>org.kaspa.kaspa-ng</string>
+            <key>CFBundleExecutable</key>
+            <string>kaspa-ng</string>
+            <key>CFBundleVersion</key>
+            <string>${{ env.SHORT_SHA }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleIconFile</key>
+            <string>${APP_NAME}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+          </dict>
+          </plist>
+          EOF
 
       - name: Upload MacOS (arm64) build to GitHub
         if: |
@@ -594,29 +594,29 @@ EOF
           VERSION="v${{ env.SHORT_SHA }}"
           VERSION="${VERSION#v}"
           cat > "$APP_DIR/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleDisplayName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key>
-  <string>org.kaspa.kaspa-ng</string>
-  <key>CFBundleExecutable</key>
-  <string>kaspa-ng</string>
-  <key>CFBundleVersion</key>
-  <string>${{ env.SHORT_SHA }}</string>
-  <key>CFBundleShortVersionString</key>
-  <string>${VERSION}</string>
-  <key>CFBundleIconFile</key>
-  <string>${APP_NAME}</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>10.13</string>
-</dict>
-</plist>
-EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key>
+            <string>org.kaspa.kaspa-ng</string>
+            <key>CFBundleExecutable</key>
+            <string>kaspa-ng</string>
+            <key>CFBundleVersion</key>
+            <string>${{ env.SHORT_SHA }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleIconFile</key>
+            <string>${APP_NAME}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+          </dict>
+          </plist>
+          EOF
 
       - name: Upload MacOS (x64) build to GitHub
         if: |
