@@ -111,22 +111,30 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
     println!("cargo:warning=Building kaspa-explorer-ng (static)...");
     let npm = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
     let node_modules = explorer_root.join("node_modules");
+    let lockfile = explorer_root.join("package-lock.json");
+
+    let npm_cmd = |args: &[&str]| {
+        let mut cmd = Command::new(&npm);
+        cmd.current_dir(&explorer_root)
+            .env("npm_config_audit", "false")
+            .env("npm_config_fund", "false")
+            .args(args);
+        cmd
+    };
 
     if !node_modules.exists() {
-        let status = Command::new(&npm)
-            .current_dir(&explorer_root)
-            .args(["install"])
-            .status();
+        let status = if lockfile.exists() {
+            npm_cmd(&["ci", "--no-audit", "--no-fund"]).status()
+        } else {
+            npm_cmd(&["install", "--no-audit", "--no-fund"]).status()
+        };
         if status.map(|s| !s.success()).unwrap_or(true) {
             println!("cargo:warning=kaspa-explorer-ng npm install failed; skipping build");
             return Ok(());
         }
     }
 
-    let status = Command::new(&npm)
-        .current_dir(&explorer_root)
-        .args(["run", "build"])
-        .status();
+    let status = npm_cmd(&["run", "build"]).status();
 
     if status.map(|s| !s.success()).unwrap_or(true) {
         println!("cargo:warning=kaspa-explorer-ng build failed; skipping");

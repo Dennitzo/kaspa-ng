@@ -14,6 +14,26 @@ impl<'core> Menu<'core> {
         Self { core }
     }
 
+    fn menu_tab_button(
+        &mut self,
+        ui: &mut Ui,
+        label: impl Into<WidgetText>,
+        active: bool,
+    ) -> Response {
+        let label = label.into();
+        if active {
+            let visuals = ui.visuals().widgets.hovered;
+            let text = label.color(visuals.fg_stroke.color);
+            ui.add(
+                Button::new(text)
+                    .fill(visuals.bg_fill)
+                    .stroke(visuals.bg_stroke),
+            )
+        } else {
+            ui.button(label)
+        }
+    }
+
     fn select<T>(&mut self)
     where
         T: ModuleT + 'static,
@@ -353,7 +373,12 @@ impl<'core> Menu<'core> {
     }
 
     pub fn render_desktop_menu(&mut self, ui: &mut Ui) {
-        if ui.button(i18n("Overview")).clicked() {
+        let active = self.core.module().type_id();
+
+        if self
+            .menu_tab_button(ui, i18n("Overview"), active == TypeId::of::<modules::Overview>())
+            .clicked()
+        {
             self.select::<modules::Overview>();
             ui.close_menu();
         }
@@ -361,12 +386,16 @@ impl<'core> Menu<'core> {
 
         #[allow(clippy::collapsible_else_if)]
         if self.core.state().is_open() {
-            if ui.button(i18n("Wallet")).clicked() {
+            let is_wallet = active == TypeId::of::<modules::AccountManager>()
+                || active == TypeId::of::<modules::WalletOpen>();
+            if self.menu_tab_button(ui, i18n("Wallet"), is_wallet).clicked() {
                 self.select::<modules::AccountManager>();
                 ui.close_menu();
             }
         } else {
-            if ui.button(i18n("Wallet")).clicked() {
+            let is_wallet = active == TypeId::of::<modules::AccountManager>()
+                || active == TypeId::of::<modules::WalletOpen>();
+            if self.menu_tab_button(ui, i18n("Wallet"), is_wallet).clicked() {
                 self.select::<modules::WalletOpen>();
                 ui.close_menu();
             }
@@ -383,13 +412,23 @@ impl<'core> Menu<'core> {
         #[cfg(not(feature = "lean"))]
         {
             ui.separator();
-            if ui.button(i18n("Metrics")).clicked() {
+            if self
+                .menu_tab_button(ui, i18n("Metrics"), active == TypeId::of::<modules::Metrics>())
+                .clicked()
+            {
                 self.select::<modules::Metrics>();
                 ui.close_menu();
             }
 
             ui.separator();
-            if ui.button(i18n("Block DAG")).clicked() {
+            if self
+                .menu_tab_button(
+                    ui,
+                    i18n("Block DAG"),
+                    active == TypeId::of::<modules::BlockDag>(),
+                )
+                .clicked()
+            {
                 self.select::<modules::BlockDag>();
                 ui.close_menu();
             }
@@ -399,7 +438,10 @@ impl<'core> Menu<'core> {
         {
             if self.core.settings.node.node_kind.is_local() {
                 ui.separator();
-                if ui.button(i18n("Node")).clicked() {
+                if self
+                    .menu_tab_button(ui, i18n("Node"), active == TypeId::of::<modules::Node>())
+                    .clicked()
+                {
                     self.select::<modules::Node>();
                     ui.close_menu();
                 }
@@ -408,32 +450,54 @@ impl<'core> Menu<'core> {
 
         ui.separator();
 
-        #[cfg(not(target_arch = "wasm32"))]
+        if self
+            .menu_tab_button(ui, i18n("Settings"), active == TypeId::of::<modules::Settings>())
+            .clicked()
         {
-            if ui.button(i18n("Explorer")).clicked() {
-                self.select::<modules::Explorer>();
-                ui.close_menu();
-            }
-            ui.separator();
-        }
-
-        if ui.button(i18n("Settings")).clicked() {
             self.select::<modules::Settings>();
             ui.close_menu();
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            ui.separator();
+            if self
+                .menu_tab_button(ui, i18n("Explorer"), active == TypeId::of::<modules::Explorer>())
+                .clicked()
+            {
+                self.select::<modules::Explorer>();
+                ui.close_menu();
+            }
+
             if self.core.settings.node.node_kind.is_local() {
                 ui.separator();
-                if ui.button(i18n("Rusty Kaspa")).clicked() {
+                if self
+                    .menu_tab_button(ui, i18n("Rusty Kaspa"), active == TypeId::of::<modules::Logs>())
+                    .clicked()
+                {
                     self.select::<modules::Logs>();
                     ui.close_menu();
                 }
 
                 ui.separator();
-                if ui.button(i18n("RK Bridge")).clicked() {
+                if self
+                    .menu_tab_button(
+                        ui,
+                        i18n("RK Bridge"),
+                        active == TypeId::of::<modules::RkBridgeLogs>(),
+                    )
+                    .clicked()
+                {
                     self.select::<modules::RkBridgeLogs>();
+                    ui.close_menu();
+                }
+
+                ui.separator();
+                if self
+                    .menu_tab_button(ui, i18n("Blocks"), active == TypeId::of::<modules::RkBlocks>())
+                    .clicked()
+                {
+                    self.select::<modules::RkBlocks>();
                     ui.close_menu();
                 }
             }

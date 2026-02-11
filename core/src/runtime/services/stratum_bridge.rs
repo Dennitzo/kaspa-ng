@@ -11,6 +11,8 @@ cfg_if! {
 
         const LOG_BUFFER_LINES: usize = 4096;
         const LOG_BUFFER_MARGIN: usize = 128;
+        const BLOCK_BUFFER_LINES: usize = 256;
+        const BLOCK_BUFFER_MARGIN: usize = 32;
         const DEFAULT_GRPC_PORT: u16 = 16110;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
 
@@ -22,6 +24,23 @@ cfg_if! {
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
             static FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
             FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)))
+        }
+
+        #[derive(Debug, Clone)]
+        pub struct BridgeBlock {
+            pub timestamp: Option<String>,
+            pub hash: String,
+            pub status: String,
+            pub worker: Option<String>,
+            pub wallet: Option<String>,
+            pub line: String,
+        }
+
+        #[derive(Debug, Clone)]
+        struct BlockDetails {
+            hash: Option<String>,
+            worker: Option<String>,
+            wallet: Option<String>,
         }
 
         #[derive(Debug, Clone)]
@@ -39,6 +58,8 @@ cfg_if! {
             starting: AtomicBool,
             restart_pending: AtomicBool,
             logs: Mutex<Vec<Log>>,
+            blocks: Mutex<Vec<BridgeBlock>>,
+            last_block_hash: Mutex<Option<String>>,
             node_settings: Mutex<NodeSettings>,
             child: Mutex<Option<Child>>,
         }
@@ -57,6 +78,8 @@ cfg_if! {
                         "rusty-kaspa:v{}",
                         kaspa_version()
                     ))]),
+                    blocks: Mutex::new(Vec::new()),
+                    last_block_hash: Mutex::new(None),
                     node_settings: Mutex::new(settings.node.clone()),
                     child: Mutex::new(None),
                 }
@@ -81,6 +104,10 @@ cfg_if! {
                 self.logs.lock().unwrap()
             }
 
+            pub fn blocks(&self) -> MutexGuard<'_, Vec<BridgeBlock>> {
+                self.blocks.lock().unwrap()
+            }
+
             async fn update_logs(&self, line: String) {
                 {
                     let mut logs = self.logs.lock().unwrap();
@@ -88,10 +115,19 @@ cfg_if! {
                         logs.drain(0..LOG_BUFFER_MARGIN);
                     }
                     if is_bridge_table_line(&line) {
-                        logs.push(Log::Processed(line));
+                        logs.push(Log::Processed(line.clone()));
                     } else {
                         logs.push(line.as_str().into());
                     }
+                }
+
+                if let Some(block_event) = Self::parse_block_event(&line) {
+                    self.set_last_block_hash(block_event.hash.as_str());
+                    self.record_block(block_event);
+                }
+
+                if let Some(details) = Self::parse_block_details(&line) {
+                    self.apply_block_details(details);
                 }
 
                 if update_logs_flag().load(Ordering::SeqCst) && crate::runtime::try_runtime().is_some() {
@@ -100,6 +136,174 @@ cfg_if! {
                         .send(Events::UpdateLogs)
                         .await
                         .unwrap();
+                }
+            }
+
+            fn record_block(&self, event: BridgeBlock) {
+                let mut blocks = self.blocks.lock().unwrap();
+                if blocks.len() > BLOCK_BUFFER_LINES {
+                    blocks.drain(0..BLOCK_BUFFER_MARGIN);
+                }
+
+                if let Some(existing) = blocks.iter_mut().rev().find(|block| block.hash == event.hash) {
+                    existing.status = event.status;
+                    if event.timestamp.is_some() {
+                        existing.timestamp = event.timestamp;
+                    }
+                    if event.worker.is_some() {
+                        existing.worker = event.worker;
+                    }
+                    if event.wallet.is_some() {
+                        existing.wallet = event.wallet;
+                    }
+                    existing.line = event.line;
+                } else {
+                    blocks.push(event);
+                }
+            }
+
+            fn set_last_block_hash(&self, hash: &str) {
+                *self.last_block_hash.lock().unwrap() = Some(hash.to_string());
+            }
+
+            fn apply_block_details(&self, details: BlockDetails) {
+                let mut hash = details.hash;
+                if hash.is_none() {
+                    hash = self.last_block_hash.lock().unwrap().clone();
+                }
+                let Some(hash) = hash else { return; };
+
+                let mut blocks = self.blocks.lock().unwrap();
+                if let Some(existing) = blocks.iter_mut().rev().find(|block| block.hash == hash) {
+                    if details.worker.is_some() {
+                        existing.worker = details.worker;
+                    }
+                    if details.wallet.is_some() {
+                        existing.wallet = details.wallet;
+                    }
+                } else {
+                    blocks.push(BridgeBlock {
+                        timestamp: None,
+                        hash,
+                        status: "Found".to_string(),
+                        worker: details.worker,
+                        wallet: details.wallet,
+                        line: String::new(),
+                    });
+                }
+            }
+
+            fn parse_block_event(line: &str) -> Option<BridgeBlock> {
+                let status = if line.contains("BLOCK FOUND!") {
+                    "Found".to_string()
+                } else if line.contains("BLOCK ACCEPTED BY KASPA NODE") {
+                    "Accepted".to_string()
+                } else if line.contains("BLOCK REJECTED BY KASPA NODE") {
+                    if line.contains("STALE") {
+                        "Rejected (Stale)".to_string()
+                    } else if line.contains("INVALID") {
+                        "Rejected (Invalid)".to_string()
+                    } else {
+                        "Rejected".to_string()
+                    }
+                } else {
+                    return None;
+                };
+
+                let hash = Self::extract_block_hash(line)?;
+                let timestamp = Self::extract_timestamp(line);
+                let details = Self::parse_block_details(line);
+
+                Some(BridgeBlock {
+                    timestamp,
+                    hash,
+                    status,
+                    worker: details.as_ref().and_then(|d| d.worker.clone()),
+                    wallet: details.and_then(|d| d.wallet),
+                    line: line.to_string(),
+                })
+            }
+
+            fn parse_block_details(line: &str) -> Option<BlockDetails> {
+                let hash = Self::extract_block_hash(line);
+                let worker = Self::extract_field_any(
+                    line,
+                    &["Worker:", "worker:", "Worker=", "worker="],
+                    &[
+                        " Wallet",
+                        " wallet",
+                        ",",
+                        " Nonce",
+                        " nonce",
+                        " Pow",
+                        " pow",
+                        " Hash",
+                        " hash",
+                    ],
+                );
+                let wallet = Self::extract_field_any(
+                    line,
+                    &["Wallet:", "wallet:", "Wallet=", "wallet="],
+                    &[",", " Nonce", " nonce", " Pow", " pow", " Hash", " hash"],
+                );
+
+                if hash.is_none() && worker.is_none() && wallet.is_none() {
+                    None
+                } else {
+                    Some(BlockDetails { hash, worker, wallet })
+                }
+            }
+
+            fn extract_field_any(line: &str, labels: &[&str], terminators: &[&str]) -> Option<String> {
+                labels
+                    .iter()
+                    .find_map(|label| Self::extract_field(line, label, terminators))
+            }
+
+            fn extract_field(line: &str, label: &str, terminators: &[&str]) -> Option<String> {
+                let idx = line.find(label)?;
+                let mut rest = line[idx + label.len()..].trim_start();
+                let mut end = rest.len();
+                for term in terminators {
+                    if let Some(pos) = rest.find(term) {
+                        end = end.min(pos);
+                    }
+                }
+                rest = rest[..end].trim();
+                let cleaned = rest.trim_matches(|c: char| c == ',' || c == ')' || c == ']' || c == '"');
+                if cleaned.is_empty() {
+                    None
+                } else {
+                    Some(cleaned.to_string())
+                }
+            }
+
+            fn extract_block_hash(line: &str) -> Option<String> {
+                let idx = line.find("Hash:")?;
+                let rest = &line[idx + "Hash:".len()..];
+                let hash = rest
+                    .trim()
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_matches(|c: char| c == '"' || c == ',' || c == ')' || c == ']');
+                if hash.is_empty() {
+                    None
+                } else {
+                    Some(hash.to_string())
+                }
+            }
+
+            fn extract_timestamp(line: &str) -> Option<String> {
+                let token = line.split_whitespace().next()?;
+                if token.contains(':')
+                    && token
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || matches!(c, ':' | '.' | '-' | 'T' | 'Z'))
+                {
+                    Some(token.to_string())
+                } else {
+                    None
                 }
             }
 
@@ -155,8 +359,7 @@ cfg_if! {
 
             fn escape_yaml_str(value: &str) -> String {
                 value
-                    .replace('\r', " ")
-                    .replace('\n', " ")
+                    .replace(['\r', '\n'], " ")
                     .replace('\\', "\\\\")
                     .replace('"', "\\\"")
             }
