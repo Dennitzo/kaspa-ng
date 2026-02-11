@@ -27,6 +27,19 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v3
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: kaspa-explorer-ng/package-lock.json
+
+      - name: Build kaspa-explorer-ng
+        working-directory: kaspa-explorer-ng
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run build
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -57,6 +70,17 @@ jobs:
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-windows-x64 || true
           cargo build --bin kaspa-ng --release
           cp target/release/kaspa-ng.exe kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          if [ -f target/release/stratum-bridge.exe ]; then
+            cp target/release/stratum-bridge.exe kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge.exe ]; then
+            cp rusty-kaspa/target/release/stratum-bridge.exe kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng/
+          fi
           cargo build --bin kaspa-ng --profile console --features console
           cp target/release/kaspa-ng.exe kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-console.exe
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
@@ -73,6 +97,17 @@ jobs:
           cargo build --bin kaspa-ng --release
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64 || true
           cp target/release/kaspa-ng kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-explorer-ng/
+          fi
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/*
@@ -87,6 +122,17 @@ jobs:
           cargo build --bin kaspa-ng --release
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-macos-x64 || true
           cp target/release/kaspa-ng kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-explorer-ng/
+          fi
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/*
@@ -101,6 +147,23 @@ jobs:
           cp target/release/kaspa-ng .debpkg/usr/bin/
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64 || true
           cp target/release/kaspa-ng kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp target/release/stratum-bridge .debpkg/usr/bin/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp rusty-kaspa/target/release/stratum-bridge .debpkg/usr/bin/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
+            cp -r target/release/kaspa-explorer-ng/* .debpkg/usr/bin/kaspa-explorer-ng/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-explorer-ng/
+            mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
+          fi
           archive="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/*

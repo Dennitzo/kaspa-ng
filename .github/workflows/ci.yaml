@@ -398,6 +398,19 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: kaspa-explorer-ng/package-lock.json
+
+      - name: Build kaspa-explorer-ng
+        working-directory: kaspa-explorer-ng
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run build
+
       - name: Setup Environment
         shell: bash
         run: echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
@@ -442,6 +455,17 @@ jobs:
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
+          if [ -f target/release/stratum-bridge.exe ]; then
+            cp target/release/stratum-bridge.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge.exe ]; then
+            cp rusty-kaspa/target/release/stratum-bridge.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng/
+          fi
           cargo build --bin kaspa-ng --profile console --features console 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-console-windows.log"
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng-console.exe
 
@@ -460,6 +484,18 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64 || true
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
+          cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64/kaspa-explorer-ng/
+          fi
 
       - name: Upload MacOS (arm64) build to GitHub
         if: |
@@ -468,7 +504,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
-          path: target/release/kaspa-ng
+          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
 
       - name: Build on MacOS (x64)
         if: |
@@ -479,6 +515,18 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-macos-x64 || true
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
+          cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-macos-x64/kaspa-explorer-ng/
+          fi
 
       - name: Upload MacOS (x64) build to GitHub
         if: |
@@ -487,7 +535,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
-          path: target/release/kaspa-ng
+          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
 
       - name: Build on Linux
         if: runner.os == 'Linux'
@@ -495,15 +543,39 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
+          cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng/
+          fi
           mkdir -p .debpkg/usr/bin
           cp target/release/kaspa-ng .debpkg/usr/bin/
+          if [ -f target/release/stratum-bridge ]; then
+            cp target/release/stratum-bridge .debpkg/usr/bin/
+          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
+            cp rusty-kaspa/target/release/stratum-bridge .debpkg/usr/bin/
+          fi
+          if [ -d target/release/kaspa-explorer-ng ]; then
+            mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
+            cp -r target/release/kaspa-explorer-ng/* .debpkg/usr/bin/kaspa-explorer-ng/
+          elif [ -d kaspa-explorer-ng/build ]; then
+            mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
+            cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
+          fi
 
       - name: Upload Linux build to GitHub 
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with: 
           name: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
-          path: target/release/kaspa-ng
+          path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
 
       - name: Package Debian Release
         if: runner.os == 'Linux'
