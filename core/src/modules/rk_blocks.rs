@@ -25,7 +25,7 @@ impl RkBlocks {
         };
 
         candidate = candidate.trim_end_matches('Z');
-        candidate = candidate.split(|c| c == '+' || c == '-').next().unwrap_or(candidate);
+        candidate = candidate.split(['+', '-']).next().unwrap_or(candidate);
 
         if candidate.contains(':') {
             Some(candidate.to_string())

@@ -282,7 +282,6 @@ cfg_if! {
                 let idx = line.find("Hash:")?;
                 let rest = &line[idx + "Hash:".len()..];
                 let hash = rest
-                    .trim()
                     .split_whitespace()
                     .next()
                     .unwrap_or("")
