@@ -399,7 +399,7 @@ export default function Analytics() {
               if (!block) return ["--:--:--", "", "", ""];
               return [
                 dayjs(parseInt(block.timestamp)).format("HH:mm:ss"),
-                <KasLink linkType="block" link to={block.block_hash} mono newTab />,
+                <KasLink linkType="block" link to={block.block_hash} mono />,
                 block.blueScore,
                 block.txCount,
               ];
@@ -447,7 +447,7 @@ export default function Analytics() {
               if (!transaction) return ["--:--:--", "", ""];
               return [
                 transaction.timestamp ? dayjs(parseInt(transaction.timestamp)).format("HH:mm:ss") : "--:--:--",
-                <KasLink linkType="transaction" link to={transaction.txId} mono newTab />,
+                <KasLink linkType="transaction" link to={transaction.txId} mono />,
                 <>
                   {numeral(
                     transaction.outputs.reduce((acc, output) => acc + Number(output[1]), 0) / 1_0000_0000,

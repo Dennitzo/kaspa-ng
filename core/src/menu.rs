@@ -376,7 +376,11 @@ impl<'core> Menu<'core> {
         let active = self.core.module().type_id();
 
         if self
-            .menu_tab_button(ui, i18n("Overview"), active == TypeId::of::<modules::Overview>())
+            .menu_tab_button(
+                ui,
+                i18n("Overview"),
+                active == TypeId::of::<modules::Overview>(),
+            )
             .clicked()
         {
             self.select::<modules::Overview>();
@@ -388,14 +392,20 @@ impl<'core> Menu<'core> {
         if self.core.state().is_open() {
             let is_wallet = active == TypeId::of::<modules::AccountManager>()
                 || active == TypeId::of::<modules::WalletOpen>();
-            if self.menu_tab_button(ui, i18n("Wallet"), is_wallet).clicked() {
+            if self
+                .menu_tab_button(ui, i18n("Wallet"), is_wallet)
+                .clicked()
+            {
                 self.select::<modules::AccountManager>();
                 ui.close_menu();
             }
         } else {
             let is_wallet = active == TypeId::of::<modules::AccountManager>()
                 || active == TypeId::of::<modules::WalletOpen>();
-            if self.menu_tab_button(ui, i18n("Wallet"), is_wallet).clicked() {
+            if self
+                .menu_tab_button(ui, i18n("Wallet"), is_wallet)
+                .clicked()
+            {
                 self.select::<modules::WalletOpen>();
                 ui.close_menu();
             }
@@ -413,7 +423,11 @@ impl<'core> Menu<'core> {
         {
             ui.separator();
             if self
-                .menu_tab_button(ui, i18n("Metrics"), active == TypeId::of::<modules::Metrics>())
+                .menu_tab_button(
+                    ui,
+                    i18n("Metrics"),
+                    active == TypeId::of::<modules::Metrics>(),
+                )
                 .clicked()
             {
                 self.select::<modules::Metrics>();
@@ -451,7 +465,11 @@ impl<'core> Menu<'core> {
         ui.separator();
 
         if self
-            .menu_tab_button(ui, i18n("Settings"), active == TypeId::of::<modules::Settings>())
+            .menu_tab_button(
+                ui,
+                i18n("Settings"),
+                active == TypeId::of::<modules::Settings>(),
+            )
             .clicked()
         {
             self.select::<modules::Settings>();
@@ -462,7 +480,11 @@ impl<'core> Menu<'core> {
         {
             ui.separator();
             if self
-                .menu_tab_button(ui, i18n("Explorer"), active == TypeId::of::<modules::Explorer>())
+                .menu_tab_button(
+                    ui,
+                    i18n("Explorer"),
+                    active == TypeId::of::<modules::Explorer>(),
+                )
                 .clicked()
             {
                 self.select::<modules::Explorer>();
@@ -472,7 +494,11 @@ impl<'core> Menu<'core> {
             if self.core.settings.node.node_kind.is_local() {
                 ui.separator();
                 if self
-                    .menu_tab_button(ui, i18n("Rusty Kaspa"), active == TypeId::of::<modules::Logs>())
+                    .menu_tab_button(
+                        ui,
+                        i18n("Rusty Kaspa"),
+                        active == TypeId::of::<modules::Logs>(),
+                    )
                     .clicked()
                 {
                     self.select::<modules::Logs>();
@@ -494,7 +520,11 @@ impl<'core> Menu<'core> {
 
                 ui.separator();
                 if self
-                    .menu_tab_button(ui, i18n("Blocks"), active == TypeId::of::<modules::RkBlocks>())
+                    .menu_tab_button(
+                        ui,
+                        i18n("Blocks"),
+                        active == TypeId::of::<modules::RkBlocks>(),
+                    )
                     .clicked()
                 {
                     self.select::<modules::RkBlocks>();
