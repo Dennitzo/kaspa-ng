@@ -262,10 +262,10 @@ fn target_profile_dir(repo_root: &Path) -> PathBuf {
         return PathBuf::from(target_dir).join(profile);
     }
     let mut target_dir = repo_root.join("target");
-    if let Ok(build_target) = std::env::var("CARGO_BUILD_TARGET") {
-        if !build_target.is_empty() {
-            target_dir = target_dir.join(build_target);
-        }
+    if let Ok(build_target) = std::env::var("CARGO_BUILD_TARGET")
+        && !build_target.is_empty()
+    {
+        target_dir = target_dir.join(build_target);
     }
     target_dir.join(profile)
 }
