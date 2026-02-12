@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kaspa-NG
+Comment=Kaspa NG desktop p2p node and wallet
+Exec=kaspa-ng
+Icon=kaspa-ng
+Terminal=false
+Categories=Network;Finance;
