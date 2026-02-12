@@ -482,64 +482,19 @@ jobs:
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
-          APP_NAME="Kaspa-NG"
-          APP_DIR="${ROOT}/${APP_NAME}.app"
-          MACOS_DIR="${APP_DIR}/Contents/MacOS"
-          RES_DIR="${APP_DIR}/Contents/Resources"
-          mkdir -p "$MACOS_DIR" "$RES_DIR"
-          cp target/release/kaspa-ng "$MACOS_DIR/"
+          mkdir -p "$ROOT"
+          cp target/release/kaspa-ng "$ROOT/"
           if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge "$MACOS_DIR/"
+            cp target/release/stratum-bridge "$ROOT/"
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge "$MACOS_DIR/"
+            cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
           fi
           if [ -d target/release/kaspa-explorer-ng ]; then
-            cp -r target/release/kaspa-explorer-ng "$MACOS_DIR/"
+            cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
-            mkdir -p "$MACOS_DIR/kaspa-explorer-ng"
-            cp -r kaspa-explorer-ng/build "$MACOS_DIR/kaspa-explorer-ng/"
+            mkdir -p "$ROOT/kaspa-explorer-ng"
+            cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
-          ICON_SRC="core/resources/icons/icon-1024.png"
-          ICONSET="${RES_DIR}/${APP_NAME}.iconset"
-          mkdir -p "$ICONSET"
-          sips -z 16 16 "$ICON_SRC" --out "$ICONSET/icon_16x16.png"
-          sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"
-          sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_32x32.png"
-          sips -z 64 64 "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"
-          sips -z 128 128 "$ICON_SRC" --out "$ICONSET/icon_128x128.png"
-          sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png"
-          sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_256x256.png"
-          sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png"
-          sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png"
-          sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png"
-          iconutil -c icns "$ICONSET" -o "$RES_DIR/${APP_NAME}.icns"
-          rm -rf "$ICONSET"
-          VERSION="v${{ env.SHORT_SHA }}"
-          VERSION="${VERSION#v}"
-          cat > "$APP_DIR/Contents/Info.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>${APP_NAME}</string>
-            <key>CFBundleDisplayName</key>
-            <string>${APP_NAME}</string>
-            <key>CFBundleIdentifier</key>
-            <string>org.kaspa.kaspa-ng</string>
-            <key>CFBundleExecutable</key>
-            <string>kaspa-ng</string>
-            <key>CFBundleVersion</key>
-            <string>${{ env.SHORT_SHA }}</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${VERSION}</string>
-            <key>CFBundleIconFile</key>
-            <string>${APP_NAME}</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>10.13</string>
-          </dict>
-          </plist>
-          EOF
 
       - name: Upload MacOS (arm64) build to GitHub
         if: |
@@ -559,64 +514,19 @@ jobs:
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
-          APP_NAME="Kaspa-NG"
-          APP_DIR="${ROOT}/${APP_NAME}.app"
-          MACOS_DIR="${APP_DIR}/Contents/MacOS"
-          RES_DIR="${APP_DIR}/Contents/Resources"
-          mkdir -p "$MACOS_DIR" "$RES_DIR"
-          cp target/release/kaspa-ng "$MACOS_DIR/"
+          mkdir -p "$ROOT"
+          cp target/release/kaspa-ng "$ROOT/"
           if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge "$MACOS_DIR/"
+            cp target/release/stratum-bridge "$ROOT/"
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge "$MACOS_DIR/"
+            cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
           fi
           if [ -d target/release/kaspa-explorer-ng ]; then
-            cp -r target/release/kaspa-explorer-ng "$MACOS_DIR/"
+            cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
-            mkdir -p "$MACOS_DIR/kaspa-explorer-ng"
-            cp -r kaspa-explorer-ng/build "$MACOS_DIR/kaspa-explorer-ng/"
+            mkdir -p "$ROOT/kaspa-explorer-ng"
+            cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
-          ICON_SRC="core/resources/icons/icon-1024.png"
-          ICONSET="${RES_DIR}/${APP_NAME}.iconset"
-          mkdir -p "$ICONSET"
-          sips -z 16 16 "$ICON_SRC" --out "$ICONSET/icon_16x16.png"
-          sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"
-          sips -z 32 32 "$ICON_SRC" --out "$ICONSET/icon_32x32.png"
-          sips -z 64 64 "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"
-          sips -z 128 128 "$ICON_SRC" --out "$ICONSET/icon_128x128.png"
-          sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png"
-          sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_256x256.png"
-          sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png"
-          sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png"
-          sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png"
-          iconutil -c icns "$ICONSET" -o "$RES_DIR/${APP_NAME}.icns"
-          rm -rf "$ICONSET"
-          VERSION="v${{ env.SHORT_SHA }}"
-          VERSION="${VERSION#v}"
-          cat > "$APP_DIR/Contents/Info.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>${APP_NAME}</string>
-            <key>CFBundleDisplayName</key>
-            <string>${APP_NAME}</string>
-            <key>CFBundleIdentifier</key>
-            <string>org.kaspa.kaspa-ng</string>
-            <key>CFBundleExecutable</key>
-            <string>kaspa-ng</string>
-            <key>CFBundleVersion</key>
-            <string>${{ env.SHORT_SHA }}</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${VERSION}</string>
-            <key>CFBundleIconFile</key>
-            <string>${APP_NAME}</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>10.13</string>
-          </dict>
-          </plist>
-          EOF
 
       - name: Upload MacOS (x64) build to GitHub
         if: |
