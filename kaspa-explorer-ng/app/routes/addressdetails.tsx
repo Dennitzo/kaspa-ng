@@ -68,10 +68,12 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
     }
   }, [address]);
 
+  const pageSize = 25;
+
   // fetch transactions with resolve_previous_outpoints set to "light"
   const { data: txData } = useTransactions(
     address,
-    10,
+    pageSize,
     currentPage === 1 ? 0 : beforeAfter[0],
     currentPage === 1 ? 0 : beforeAfter[1],
     "",
@@ -94,7 +96,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
       setCurrentPage((currentPage) => currentPage - 1);
     } else if (page === 3) {
       setBeforeAfter([0, 1]);
-      setCurrentPage(Math.ceil(txCount!.total / 10));
+      setCurrentPage(Math.ceil(txCount!.total / pageSize));
     }
   };
 
@@ -349,7 +351,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                   {!isLoadingTxCount && (
                     <PageSelector
                       currentPage={currentPage}
-                      totalPages={Math.ceil(txCount!.total / 10)}
+                      totalPages={Math.ceil(txCount!.total / pageSize)}
                       onPageChange={pageChange}
                     />
                   )}

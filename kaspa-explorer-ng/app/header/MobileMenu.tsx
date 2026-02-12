@@ -21,6 +21,7 @@ const MobileMenu = ({ showMenu, onCloseRequest }: Props) => {
         <MenuItem name="Blocks" linkTo="/blocks" />
         <MenuItem name="Transactions" linkTo="/transactions" />
         <MenuItem name="Addresses" linkTo="/addresses" />
+        <MenuItem name="Miners" linkTo="/miners" />
         <div className="h-[1px] my-4 bg-gray-100 mx-4"></div>
         <MenuItem name="Analytics" linkTo="/analytics" />
       </div>

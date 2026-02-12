@@ -19,6 +19,10 @@ const MAIN_MENU = [
         name: "Addresses",
         linkTo: "/addresses",
       },
+      {
+        name: "Miners",
+        linkTo: "/miners",
+      },
     ],
   },
   {
