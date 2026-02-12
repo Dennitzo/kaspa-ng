@@ -46,24 +46,8 @@ sips -z 256 256 "$ICON_SRC" --out "$ICONSET/icon_256x256.png" >/dev/null
 sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
 sips -z 512 512 "$ICON_SRC" --out "$ICONSET/icon_512x512.png" >/dev/null
 sips -z 1024 1024 "$ICON_SRC" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
-if iconutil -c icns "$ICONSET" -o "$RES_DIR/${APP_NAME}.icns"; then
-  rm -rf "$ICONSET"
-else
-  echo "iconutil failed to create .icns."
-  if command -v png2icns >/dev/null 2>&1; then
-    echo "Falling back to png2icns..."
-    png2icns "$RES_DIR/${APP_NAME}.icns" \
-      "$ICONSET/icon_16x16.png" \
-      "$ICONSET/icon_32x32.png" \
-      "$ICONSET/icon_128x128.png" \
-      "$ICONSET/icon_256x256.png" \
-      "$ICONSET/icon_512x512.png" \
-      "$ICONSET/icon_512x512@2x.png" || true
-  else
-    echo "png2icns not found. Install with: brew install icnsutils"
-  fi
-  rm -rf "$ICONSET"
-fi
+iconutil -c icns "$ICONSET" -o "$RES_DIR/${APP_NAME}.icns"
+rm -rf "$ICONSET"
 
 if [ ! -f "$RES_DIR/${APP_NAME}.icns" ]; then
   echo "Warning: .icns was not generated. Finder icon may appear blank."
