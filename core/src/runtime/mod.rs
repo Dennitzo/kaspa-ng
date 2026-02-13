@@ -86,14 +86,10 @@ impl Runtime {
             application_events.clone(),
             settings,
         ));
-        let cpu_miner_service = Arc::new(CpuMinerService::new(
-            application_events.clone(),
-            settings,
-        ));
-        let rothschild_service = Arc::new(RothschildService::new(
-            application_events.clone(),
-            settings,
-        ));
+        let cpu_miner_service =
+            Arc::new(CpuMinerService::new(application_events.clone(), settings));
+        let rothschild_service =
+            Arc::new(RothschildService::new(application_events.clone(), settings));
 
         let update_monitor_service = Arc::new(UpdateMonitorService::new(
             application_events.clone(),

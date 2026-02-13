@@ -89,8 +89,8 @@ pub use crate::result::Result;
 pub use crate::runtime::{Payload, Runtime, Service, runtime, spawn, spawn_with_result};
 pub use crate::settings::{
     CpuMinerSettings, EstimatorMode, EstimatorSettings, KaspadNodeKind, NetworkInterfaceConfig,
-    NetworkInterfaceKind, NodeConnectionConfigKind, NodeMemoryScale, NodeSettings, RpcConfig,
-    RpcOptions, RothschildSettings, Settings, UserInterfaceSettings,
+    NetworkInterfaceKind, NodeConnectionConfigKind, NodeMemoryScale, NodeSettings,
+    RothschildSettings, RpcConfig, RpcOptions, Settings, UserInterfaceSettings,
 };
 pub use crate::state::State;
 pub use crate::status::Status;

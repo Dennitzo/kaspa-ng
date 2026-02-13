@@ -781,27 +781,35 @@ impl Core {
                 self.select::<modules::AccountManager>();
                 self.get_mut::<modules::WalletOpen>().state = Default::default();
 
-                let wallet_address = if let Some(account_collection) = self.account_collection.as_ref() {
-                    let mut account_manager = self
-                        .modules
-                        .get(&TypeId::of::<modules::AccountManager>())
-                        .unwrap()
-                        .clone();
-                    account_manager
-                        .get_mut::<modules::AccountManager>()
-                        .update(account_collection);
+                let wallet_address =
+                    if let Some(account_collection) = self.account_collection.as_ref() {
+                        let mut account_manager = self
+                            .modules
+                            .get(&TypeId::of::<modules::AccountManager>())
+                            .unwrap()
+                            .clone();
+                        account_manager
+                            .get_mut::<modules::AccountManager>()
+                            .update(account_collection);
 
-                    account_collection
-                        .first()
-                        .map(|account| account.receive_address().to_string())
-                } else {
-                    None
-                };
+                        account_collection
+                            .first()
+                            .map(|account| account.receive_address().to_string())
+                    } else {
+                        None
+                    };
 
                 if let Some(wallet_address) = wallet_address {
                     let mut settings_changed = false;
 
-                    if self.settings.node.cpu_miner.mining_address.trim().is_empty() {
+                    if self
+                        .settings
+                        .node
+                        .cpu_miner
+                        .mining_address
+                        .trim()
+                        .is_empty()
+                    {
                         self.settings.node.cpu_miner.mining_address = wallet_address.clone();
                         settings_changed = true;
                     }
