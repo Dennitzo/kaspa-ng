@@ -7,6 +7,7 @@ interface PageTableProps {
   className?: string;
   alignTop?: boolean;
   rowClassName?: (index: number) => string;
+  rowKeys?: React.Key[];
 }
 
 const PageTable = (props: PageTableProps) => {
@@ -16,6 +17,7 @@ const PageTable = (props: PageTableProps) => {
         <tr>
           {props.headers.map((headerName, i) => (
             <td
+              key={i}
               className={`block md:table-cell py-2 ps-4 text-gray-500 last:text-right md:last:pe-4 md:pe-4" : ""}
               ${(props.additionalClassNames && props.additionalClassNames[i]) || ""}`}
             >
@@ -27,12 +29,13 @@ const PageTable = (props: PageTableProps) => {
       <tbody>
         {props.rows.map((row, rowIndex) => (
           <tr
+            key={(props.rowKeys && props.rowKeys[rowIndex]) ?? rowIndex}
             className={`grid grid-cols-1 gap-x-10 hover:bg-gray-25
              transition-colors duration-200 ease-out
              md:table-row pt-2 md:pt-0 border-t first:border-t-0 border-gray-100 ${props.rowClassName ? props.rowClassName(rowIndex) : ""}`}
           >
             {row.map((cell, cellNr) => (
-              <>
+              <React.Fragment key={cellNr}>
                 {props.headers[cellNr] && (
                   <td
                     className={`pt-2 md:hidden text-gray-500 ${
@@ -47,7 +50,7 @@ const PageTable = (props: PageTableProps) => {
                 >
                   {cell}
                 </td>
-              </>
+              </React.Fragment>
             ))}
           </tr>
         ))}

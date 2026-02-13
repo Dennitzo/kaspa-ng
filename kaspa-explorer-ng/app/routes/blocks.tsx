@@ -58,6 +58,7 @@ export default function Blocks() {
   const totalTxCount = isLoadingTxCount
     ? ""
     : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
+  const displayedBlocks = blocks.slice(0, 10);
 
   return (
     <>
@@ -88,14 +89,13 @@ export default function Blocks() {
           className="text-black"
           headers={["Timestamp", "Hash", "BlueScore", "TX Count"]}
           additionalClassNames={{ 1: "overflow-hidden " }}
-          rows={blocks
-            .slice(0, 10)
-            .map((block) => [
-              dayjs(parseInt(block.timestamp)).format("HH:mm:ss"),
-              <KasLink linkType="block" link to={block.block_hash} mono />,
-              block.blueScore,
-              block.txCount,
-            ])}
+          rowKeys={displayedBlocks.map((block) => block.block_hash)}
+          rows={displayedBlocks.map((block) => [
+            dayjs(parseInt(block.timestamp)).format("HH:mm:ss"),
+            <KasLink linkType="block" link to={block.block_hash} mono />,
+            block.blueScore,
+            block.txCount,
+          ])}
         />
       </div>
       <FooterHelper icon={Box}>

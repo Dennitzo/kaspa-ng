@@ -3,11 +3,17 @@ use crate::runtime::services::kaspa::logs::Log;
 
 pub struct RkBlocks {
     runtime: Runtime,
+    header_prefix: Option<String>,
+    empty_prefix: Option<String>,
 }
 
 impl RkBlocks {
     pub fn new(runtime: Runtime) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            header_prefix: None,
+            empty_prefix: None,
+        }
     }
 
     fn short_time(timestamp: &str) -> Option<String> {
@@ -35,10 +41,14 @@ impl RkBlocks {
     }
 
     fn time_prefix(&self, timestamp: Option<&str>) -> String {
-        timestamp
+        let time = timestamp
             .and_then(Self::short_time)
-            .map(|time| format!("{time:<12} "))
-            .unwrap_or_default()
+            .unwrap_or_else(Self::now_time);
+        format!("{time:<12} ")
+    }
+
+    fn now_time() -> String {
+        chrono::Local::now().format("%H:%M:%S%.3f").to_string()
     }
 
     fn status_log(&self, status: &str, line: String) -> Log {
@@ -75,26 +85,40 @@ impl ModuleT for RkBlocks {
             i18n("The status is updated as Accepted or Rejected after submission."),
         ];
 
-        let blocks = self.runtime.stratum_bridge_service().blocks();
+        let blocks = self.runtime.stratum_bridge_service().blocks().clone();
 
         egui::ScrollArea::vertical()
             .id_salt("rk_blocks")
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .show(ui, |ui| {
+                let header_prefix = self.header_prefix.get_or_insert_with(|| {
+                    let time = Self::now_time();
+                    format!("{time:<12} ")
+                });
                 for line in header_lines {
-                    ui.label(RichText::from(&Log::Info(line.to_string())));
+                    ui.label(RichText::from(&Log::Info(format!("{header_prefix}{line}"))));
                 }
 
-                ui.label(RichText::from(&Log::Processed("------".to_string())));
+                ui.label(RichText::from(&Log::Processed(format!("{header_prefix}------"))));
 
                 if blocks.is_empty() {
-                    ui.label(RichText::from(&Log::Info(i18n("No blocks are mined yet.").to_string())));
-                    ui.label(RichText::from(&Log::Info(i18n(
-                        "When a miner connected to RK Stratum finds a valid block, it will appear here with its hash and status.",
-                    ).to_string())));
+                    let prefix = self.empty_prefix.get_or_insert_with(|| {
+                        let time = Self::now_time();
+                        format!("{time:<12} ")
+                    });
+                    ui.label(RichText::from(&Log::Info(format!(
+                        "{prefix}{}",
+                        i18n("No blocks are mined yet.")
+                    ))));
+                    ui.label(RichText::from(&Log::Info(format!(
+                        "{prefix}{}",
+                        i18n("When a miner connected to RK Stratum finds a valid block, it will appear here with its hash and status.")
+                    ))));
                     return;
                 }
+
+                self.empty_prefix = None;
 
                 for (index, block) in blocks.iter().enumerate() {
                     let prefix = self.time_prefix(block.timestamp.as_deref());
@@ -107,8 +131,20 @@ impl ModuleT for RkBlocks {
                     let status_log = self.status_log(block.status.as_str(), status_line);
                     ui.label(RichText::from(&status_log));
 
-                    let hash_log = Log::Processed(format!("{prefix}Hash: {}", block.hash));
-                    ui.label(RichText::from(&hash_log));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::from(&Log::Processed(format!("{prefix}Hash: "))));
+                        let link_text = RichText::new(block.hash.as_str())
+                            .font(FontId::monospace(theme_style().node_log_font_size))
+                            .color(theme_color().logs_processed_color)
+                            .underline();
+                        let response = ui.add(egui::Label::new(link_text).sense(Sense::click()));
+                        if response.clicked() {
+                            core.settings.user_interface.explorer_last_path =
+                                format!("/blocks/{}", block.hash);
+                            core.store_settings();
+                            core.select::<modules::Explorer>();
+                        }
+                    });
 
                     if let Some(worker) = block.worker.as_deref() {
                         if !worker.is_empty() {
