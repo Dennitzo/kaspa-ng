@@ -226,7 +226,6 @@ export default function Blocks({ params }: Route.ComponentProps) {
         <FieldValue
           value={
             <div className="flex flex-col">
-              <span>{blockTime.fromNow()}</span>
               <span className="text-gray-500">{blockTime.format("ll LTS")}</span>
             </div>
           }
