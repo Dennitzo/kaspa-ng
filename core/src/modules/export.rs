@@ -9,6 +9,7 @@ pub enum State {
     Error { error : Arc<Error> },
     Exporting,
     Mnemonic { mnemonic : String },
+    PrivateKey { private_key : String },
     Transportable { data : Arc<Vec<u8>> },
 }
 
@@ -46,6 +47,7 @@ impl Zeroize for ExportKind {
 pub enum ExportResult {
     Transportable(Arc<Vec<u8>>),
     Mnemonic(String),
+    PrivateKey(String),
 }
 
 
@@ -273,8 +275,14 @@ impl ModuleT for Export {
 
                                 if let Some(prv_key_data_info) = prv_key_data_info {
                                     let prv_key_data = wallet.prv_key_data_get(*prv_key_data_info.id(), wallet_secret).await?;
-                                    let mnemonic = prv_key_data.as_mnemonic(payment_secret.as_ref())?.ok_or(Error::custom("No mnemonic available"))?;
-                                    Ok(ExportResult::Mnemonic(mnemonic.phrase_string()))
+                                    if let Some(secret_key) = prv_key_data.as_secret_key(payment_secret.as_ref())? {
+                                        let private_key = secret_key.secret_bytes().to_vec().to_hex();
+                                        Ok(ExportResult::PrivateKey(private_key))
+                                    } else if let Some(mnemonic) = prv_key_data.as_mnemonic(payment_secret.as_ref())? {
+                                        Ok(ExportResult::Mnemonic(mnemonic.phrase_string()))
+                                    } else {
+                                        Err(Error::custom("No private key data available"))
+                                    }
                                 } else {
                                     Err(Error::custom("No private key data available"))
                                 }
@@ -302,6 +310,31 @@ impl ModuleT for Export {
                                 match kind {
                                     ExportResult::Mnemonic(mnemonic) => {
                                         self.state = State::Mnemonic { mnemonic };
+                                    }
+                                    ExportResult::PrivateKey(private_key) => {
+                                        core.settings.node.rothschild.private_key = private_key.clone();
+                                        if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(&private_key) {
+                                            core.settings.node.rothschild.mnemonic = mnemonic;
+                                        }
+                                        if let Ok(address) = rothschild_address_from_private_key(
+                                            core.settings.node.network,
+                                            &private_key,
+                                        ) {
+                                            core.settings.node.rothschild.address = address.clone();
+                                            if core.settings.node.cpu_miner.mining_address.trim().is_empty() {
+                                                core.settings.node.cpu_miner.mining_address = address;
+                                            }
+                                        }
+
+                                        self.runtime
+                                            .rothschild_service()
+                                            .update_settings(&core.settings.node.rothschild);
+                                        self.runtime
+                                            .cpu_miner_service()
+                                            .update_settings(&core.settings.node.cpu_miner);
+                                        core.store_settings();
+
+                                        self.state = State::PrivateKey { private_key };
                                     }
                                     ExportResult::Transportable(data) => {
                                         self.state = State::Transportable { data };
@@ -350,6 +383,26 @@ impl ModuleT for Export {
                                     
                         })
                         .with_footer(|this,ui| {
+                            if ui.large_button(i18n("Continue")).clicked() {
+                                this.context.zeroize();
+                                this.state = State::Select;
+                                core.select::<modules::AccountManager>();
+                            }
+                        })
+                        .render(ui);
+                }
+
+                State::PrivateKey { private_key } => {
+                    Panel::new(self)
+                        .with_caption("Private Key Export")
+                        .with_body(|_this, ui| {
+                            ui.label(i18n("Never share your private key with anyone!"));
+                            ui.label(" ");
+                            ui.label(i18n("Your private key is:"));
+                            ui.add_space(6.);
+                            ui.label(RichText::new(private_key).monospace());
+                        })
+                        .with_footer(|this, ui| {
                             if ui.large_button(i18n("Continue")).clicked() {
                                 this.context.zeroize();
                                 this.state = State::Select;

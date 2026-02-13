@@ -12,7 +12,7 @@ export const useTransactions = (
   useQuery({
     queryKey: ["transaction", { address, before, after, limit, fields, resolve_previous_outpoints }],
     queryFn: async () => {
-      const response = await axios.get(`https://api.kaspa.org/addresses/${address}/full-transactions-page`, {
+      const response = await axios.get(`https://api-tn12.kaspa.org/addresses/${address}/full-transactions-page`, {
         params: {
           limit,
           before,

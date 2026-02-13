@@ -8,7 +8,13 @@
 
 mod script_public_key;
 
+use crate::mass::{ContextualMasses, Mass, MassCofactors, NonContextualMasses};
+use crate::{
+    hashing,
+    subnets::{self, SubnetworkId},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
+use js_sys::Object;
 use kaspa_utils::hex::ToHex;
 use kaspa_utils::mem_size::MemSizeEstimator;
 use kaspa_utils::{serde_bytes, serde_bytes_fixed_ref};
@@ -26,12 +32,12 @@ use std::{
     str::{self},
 };
 use wasm_bindgen::prelude::*;
+use workflow_wasm::convert::{Cast, TryCastFromJs, TryCastJsInto};
+use workflow_wasm::extensions::ObjectExtension;
+use workflow_wasm::prelude::CastFromJs;
 
-use crate::mass::{ContextualMasses, NonContextualMasses};
-use crate::{
-    hashing,
-    subnets::{self, SubnetworkId},
-};
+use crate::hashing::tx::seq_commit_tx_digest;
+use kaspa_hashes::Hash;
 
 /// COINBASE_TRANSACTION_INDEX is the index of the coinbase transaction in every block
 pub const COINBASE_TRANSACTION_INDEX: usize = 0;
@@ -54,11 +60,19 @@ pub struct UtxoEntry {
     pub block_daa_score: u64,
     #[wasm_bindgen(js_name = isCoinbase)]
     pub is_coinbase: bool,
+    #[wasm_bindgen(js_name = covenantId)]
+    pub covenant_id: Option<Hash>,
 }
 
 impl UtxoEntry {
-    pub fn new(amount: u64, script_public_key: ScriptPublicKey, block_daa_score: u64, is_coinbase: bool) -> Self {
-        Self { amount, script_public_key, block_daa_score, is_coinbase }
+    pub fn new(
+        amount: u64,
+        script_public_key: ScriptPublicKey,
+        block_daa_score: u64,
+        is_coinbase: bool,
+        covenant_id: Option<Hash>,
+    ) -> Self {
+        Self { amount, script_public_key, block_daa_score, is_coinbase, covenant_id }
     }
 }
 
@@ -121,11 +135,49 @@ impl std::fmt::Debug for TransactionInput {
 pub struct TransactionOutput {
     pub value: u64,
     pub script_public_key: ScriptPublicKey,
+    pub covenant: Option<CovenantBinding>,
 }
 
 impl TransactionOutput {
     pub fn new(value: u64, script_public_key: ScriptPublicKey) -> Self {
-        Self { value, script_public_key }
+        Self { value, script_public_key, covenant: None }
+    }
+
+    pub fn with_covenant(value: u64, script_public_key: ScriptPublicKey, covenant: Option<CovenantBinding>) -> Self {
+        Self { value, script_public_key, covenant }
+    }
+}
+
+/// Binds a transaction output to the covenant and input authorizing its creation.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Copy, CastFromJs)]
+#[serde(rename_all = "camelCase")]
+#[wasm_bindgen(inspectable)]
+pub struct CovenantBinding {
+    pub authorizing_input: u16,
+    pub covenant_id: Hash,
+}
+type CastErr = workflow_wasm::error::Error;
+impl TryCastFromJs for CovenantBinding {
+    type Error = CastErr;
+
+    fn try_cast_from<'a, R>(value: &'a R) -> Result<Cast<'a, Self>, Self::Error>
+    where
+        R: AsRef<JsValue> + 'a,
+    {
+        Self::resolve(value, || {
+            let Some(object) = Object::try_from(value.as_ref()) else { return Err(CastErr::NotAnObject) };
+            let value = object.get_u16("authorizing_input")?;
+            let covenant_id = object.get_value("covenant_id")?.try_into_owned()?;
+            Ok(Self { authorizing_input: value, covenant_id })
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl CovenantBinding {
+    #[wasm_bindgen(constructor)]
+    pub fn new(authorizing_input: u16, covenant_id: Hash) -> Self {
+        Self { authorizing_input, covenant_id }
     }
 }
 
@@ -262,6 +314,14 @@ impl Transaction {
         self.set_mass(mass);
         self
     }
+
+    pub fn payload_digest(&self) -> Hash {
+        hashing::tx::payload_digest(&self.payload)
+    }
+
+    pub fn seq_commit_digest(&self) -> Hash {
+        seq_commit_tx_digest(self.id(), self.version)
+    }
 }
 
 impl MemSizeEstimator for Transaction {
@@ -313,6 +373,18 @@ pub trait VerifiableTransaction {
     }
 
     fn utxo(&self, index: usize) -> Option<&UtxoEntry>;
+
+    fn payload_digest(&self) -> Hash {
+        self.tx().payload_digest()
+    }
+
+    fn seq_commit_digest(&self) -> Hash {
+        self.tx().seq_commit_digest()
+    }
+
+    fn version(&self) -> u16 {
+        self.tx().version
+    }
 }
 
 /// A custom iterator written only so that `populated_inputs` has a known return type and can de defined on the trait level
@@ -475,9 +547,9 @@ impl<T: AsRef<Transaction>> MutableTransaction<T> {
     /// transactions pays per gram of the aggregated contextual mass (max over compute, transient
     /// and storage masses). The function returns a value when calculated fee and calculated masses
     /// exist, otherwise `None` is returned.
-    pub fn calculated_feerate(&self) -> Option<f64> {
+    pub fn calculated_feerate(&self, cofactors: &MassCofactors) -> Option<f64> {
         self.calculated_non_contextual_masses
-            .map(|non_contextual_masses| ContextualMasses::new(self.tx.as_ref().mass()).max(non_contextual_masses))
+            .map(|non_contextual| Mass::new(non_contextual, ContextualMasses::new(self.tx.as_ref().mass())).normalized_max(cofactors))
             .and_then(|max_mass| self.calculated_fee.map(|fee| fee as f64 / max_mass as f64))
     }
 
@@ -566,8 +638,9 @@ pub enum TransactionQueryResult {
 
 #[cfg(test)]
 mod tests {
+    use crate::subnets::SUBNETWORK_ID_NATIVE;
+
     use super::*;
-    use consensus_core::subnets::SUBNETWORK_ID_COINBASE;
     use smallvec::smallvec;
 
     fn test_transaction() -> Transaction {
@@ -579,7 +652,7 @@ mod tests {
             ],
         );
         Transaction::new(
-            1,
+            0,
             vec![
                 TransactionInput {
                     previous_outpoint: TransactionOutpoint {
@@ -613,11 +686,11 @@ mod tests {
                 },
             ],
             vec![
-                TransactionOutput { value: 6, script_public_key: script_public_key.clone() },
-                TransactionOutput { value: 7, script_public_key },
+                TransactionOutput { value: 6, script_public_key: script_public_key.clone(), covenant: None },
+                TransactionOutput { value: 7, script_public_key, covenant: None },
             ],
             8,
-            SUBNETWORK_ID_COINBASE,
+            SUBNETWORK_ID_NATIVE,
             9,
             vec![
                 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12,
@@ -634,25 +707,24 @@ mod tests {
     fn test_transaction_bincode() {
         let tx = test_transaction();
         let bts = bincode::serialize(&tx).unwrap();
-
         // standard, based on https://github.com/kaspanet/rusty-kaspa/commit/7e947a06d2434daf4bc7064d4cd87dc1984b56fe
         let expected_bts = vec![
-            1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 22, 94, 56, 232, 179, 145, 69, 149, 217, 198, 65, 243, 184, 238, 194, 243, 70, 17, 137, 107,
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 22, 94, 56, 232, 179, 145, 69, 149, 217, 198, 65, 243, 184, 238, 194, 243, 70, 17, 137, 107,
             130, 26, 104, 59, 122, 78, 222, 254, 44, 0, 0, 0, 250, 255, 255, 255, 32, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8,
             9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 2, 0, 0, 0, 0, 0, 0, 0, 3, 75,
             176, 117, 53, 223, 213, 142, 11, 60, 214, 79, 215, 21, 82, 128, 135, 42, 4, 113, 188, 248, 48, 149, 82, 106, 206, 14, 56,
             198, 0, 0, 0, 251, 255, 255, 255, 32, 0, 0, 0, 0, 0, 0, 0, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
             48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 4, 0, 0, 0, 0, 0, 0, 0, 5, 2, 0, 0, 0, 0, 0, 0, 0, 6, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 118, 169, 33, 3, 47, 126, 67, 10, 164, 201, 209, 89, 67, 126, 132, 185,
-            117, 220, 118, 217, 0, 59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            117, 220, 118, 217, 0, 59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             36, 0, 0, 0, 0, 0, 0, 0, 118, 169, 33, 3, 47, 126, 67, 10, 164, 201, 209, 89, 67, 126, 132, 185, 117, 220, 118, 217, 0,
-            59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-            13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-            43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72,
-            73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 0, 0, 0, 0, 0,
-            0, 0, 0, 69, 146, 193, 64, 98, 49, 45, 0, 77, 32, 25, 122, 77, 15, 211, 252, 61, 210, 82, 177, 39, 153, 127, 33, 188, 172,
-            138, 38, 67, 75, 241, 176,
+            59, 240, 146, 44, 243, 170, 69, 40, 70, 75, 171, 120, 13, 186, 94, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+            12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+            42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
+            72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 0, 0, 0,
+            0, 0, 0, 0, 0, 50, 200, 4, 55, 147, 193, 14, 39, 3, 248, 207, 196, 68, 249, 136, 99, 48, 134, 161, 29, 52, 181, 205, 113,
+            128, 141, 219, 202, 72, 208, 223, 66,
         ];
         assert_eq!(expected_bts, bts);
         assert_eq!(tx, bincode::deserialize(&bts).unwrap());
@@ -663,7 +735,7 @@ mod tests {
         let tx = test_transaction();
         let str = serde_json::to_string_pretty(&tx).unwrap();
         let expected_str = r#"{
-  "version": 1,
+  "version": 0,
   "inputs": [
     {
       "previousOutpoint": {
@@ -687,19 +759,21 @@ mod tests {
   "outputs": [
     {
       "value": 6,
-      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e"
+      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e",
+      "covenant": null
     },
     {
       "value": 7,
-      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e"
+      "scriptPublicKey": "000076a921032f7e430aa4c9d159437e84b975dc76d9003bf0922cf3aa4528464bab780dba5e",
+      "covenant": null
     }
   ],
   "lockTime": 8,
-  "subnetworkId": "0100000000000000000000000000000000000000",
+  "subnetworkId": "0000000000000000000000000000000000000000",
   "gas": 9,
   "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263",
   "mass": 0,
-  "id": "4592c14062312d004d20197a4d0fd3fc3dd252b127997f21bcac8a26434bf1b0"
+  "id": "32c8043793c10e2703f8cfc444f988633086a11d34b5cd71808ddbca48d0df42"
 }"#;
         assert_eq!(expected_str, str);
         assert_eq!(tx, serde_json::from_str(&str).unwrap());

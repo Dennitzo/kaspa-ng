@@ -4,7 +4,6 @@ import IconMessageBox from "./IconMessageBox";
 import "./app.css";
 import ErrorIcon from "./assets/error.svg";
 import Info from "./assets/info.svg";
-import { MarketDataProvider } from "./context/MarketDataProvider";
 import Footer from "./footer/Footer";
 import Header from "./header/Header";
 import MainBox from "./layout/MainBox";
@@ -47,17 +46,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Analytics />
         <div className="flex h-screen w-full flex-col items-center justify-start text-base">
           <QueryClientProvider client={queryClient}>
-            <MarketDataProvider>
-              <Header expanded={expanded} setExpanded={setExpanded} />
-              {!expanded && (
-                <>
-                  <div className="flex w-full max-w-[1600px] grow flex-col items-center justify-start gap-y-2 py-2 sm:px-2">
-                    {children}
-                  </div>
-                  <Footer />
-                </>
-              )}
-            </MarketDataProvider>
+            <Header expanded={expanded} setExpanded={setExpanded} />
+            {!expanded && (
+              <>
+                <div className="flex w-full max-w-[1600px] grow flex-col items-center justify-start gap-y-2 py-2 sm:px-2">
+                  {children}
+                </div>
+                <Footer />
+              </>
+            )}
           </QueryClientProvider>
         </div>
         <ScrollRestoration />

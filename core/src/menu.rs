@@ -509,12 +509,12 @@ impl<'core> Menu<'core> {
                 if self
                     .menu_tab_button(
                         ui,
-                        i18n("RK Bridge"),
-                        active == TypeId::of::<modules::RkBridgeLogs>(),
+                        i18n("CPU Miner"),
+                        active == TypeId::of::<modules::CpuMinerLogs>(),
                     )
                     .clicked()
                 {
-                    self.select::<modules::RkBridgeLogs>();
+                    self.select::<modules::CpuMinerLogs>();
                     ui.close_menu();
                 }
 
@@ -522,12 +522,12 @@ impl<'core> Menu<'core> {
                 if self
                     .menu_tab_button(
                         ui,
-                        i18n("Blocks"),
-                        active == TypeId::of::<modules::RkBlocks>(),
+                        i18n("Rothschild"),
+                        active == TypeId::of::<modules::RothschildLogs>(),
                     )
                     .clicked()
                 {
-                    self.select::<modules::RkBlocks>();
+                    self.select::<modules::RothschildLogs>();
                     ui.close_menu();
                 }
             }

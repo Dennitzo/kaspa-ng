@@ -21,8 +21,11 @@ pub use update_monitor::UpdateMonitorService;
 pub mod metrics_monitor;
 pub use metrics_monitor::MetricsService;
 
-pub mod stratum_bridge;
-pub use stratum_bridge::StratumBridgeService;
+pub mod cpu_miner;
+pub use cpu_miner::CpuMinerService;
+
+pub mod rothschild;
+pub use rothschild::RothschildService;
 cfg_if! {
     if #[cfg(not(feature = "lean"))] {
 

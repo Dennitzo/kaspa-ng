@@ -5,7 +5,7 @@ export const useAddressDistribution = () =>
   useQuery({
     queryKey: ["addressDistribution"],
     queryFn: async () => {
-      const { data } = await axios.get(`https://api.kaspa.org/addresses/distribution`);
+      const { data } = await axios.get(`https://api-tn12.kaspa.org/addresses/distribution`);
       return data as AddressDistribution[];
     },
   });

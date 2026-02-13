@@ -17,7 +17,7 @@ export const useBlockdagInfo = () =>
   useQuery({
     queryKey: ["blockdagInfo"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/blockdag");
+      const { data } = await axios.get("https://api-tn12.kaspa.org/info/blockdag");
       return data as BlockdagInfo;
     },
     refetchInterval: 20000,

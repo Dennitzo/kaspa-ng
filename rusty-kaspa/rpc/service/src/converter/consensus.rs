@@ -145,7 +145,7 @@ impl ConsensusConverter {
                 inputs: transaction.inputs.iter().map(|x| self.get_transaction_input(x)).collect(),
                 outputs: transaction.outputs.iter().map(|x| self.get_transaction_output(x)).collect(),
                 lock_time: transaction.lock_time,
-                subnetwork_id: transaction.subnetwork_id.clone(),
+                subnetwork_id: transaction.subnetwork_id,
                 gas: transaction.gas,
                 payload: transaction.payload.clone(),
                 mass: transaction.mass(),
@@ -165,7 +165,12 @@ impl ConsensusConverter {
         let address = extract_script_pub_key_address(&output.script_public_key, self.config.prefix()).ok();
         let verbose_data =
             address.map(|address| RpcTransactionOutputVerboseData { script_public_key_type, script_public_key_address: address });
-        RpcTransactionOutput { value: output.value, script_public_key: output.script_public_key.clone(), verbose_data }
+        RpcTransactionOutput {
+            value: output.value,
+            script_public_key: output.script_public_key.clone(),
+            verbose_data,
+            covenant: output.covenant.map(Into::into),
+        }
     }
 
     pub async fn get_virtual_chain_accepted_transaction_ids(
@@ -254,6 +259,7 @@ impl ConsensusConverter {
             } else {
                 Default::default()
             },
+            covenant_id: utxo.covenant_id,
         })
     }
 
@@ -357,6 +363,7 @@ impl ConsensusConverter {
             } else {
                 Default::default()
             },
+            covenant: if verbosity.include_covenant.is_some_and(|v| v) { output.covenant.map(Into::into) } else { Default::default() },
         })
     }
 
@@ -417,7 +424,7 @@ impl ConsensusConverter {
             },
             lock_time: if verbosity.include_lock_time.unwrap_or(false) { Some(transaction.lock_time) } else { Default::default() },
             subnetwork_id: if verbosity.include_subnetwork_id.unwrap_or(false) {
-                Some(transaction.subnetwork_id.clone())
+                Some(transaction.subnetwork_id)
             } else {
                 Default::default()
             },
@@ -470,7 +477,7 @@ impl ConsensusConverter {
                 Default::default()
             },
             lock_time: if verbosity.include_lock_time.unwrap_or(false) { Some(transaction.tx.lock_time) } else { Default::default() },
-            subnetwork_id: Some(transaction.tx.subnetwork_id.clone()),
+            subnetwork_id: Some(transaction.tx.subnetwork_id),
             gas: Some(transaction.tx.gas),
             payload: Some(transaction.tx.payload.clone()),
             mass: Some(transaction.tx.mass()),

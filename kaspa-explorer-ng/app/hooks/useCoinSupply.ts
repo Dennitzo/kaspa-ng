@@ -10,7 +10,7 @@ export const useCoinSupply = () =>
   useQuery({
     queryKey: ["coinSupply"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/coinsupply");
+      const { data } = await axios.get("https://api-tn12.kaspa.org/info/coinsupply");
       return data as CoinSupplyInfo;
     },
     refetchInterval: 60000,

@@ -38,7 +38,8 @@ pub struct Inner {
     feerate_monitor_service: Arc<FeerateMonitorService>,
     update_monitor_service: Arc<UpdateMonitorService>,
     market_monitor_service: Arc<MarketMonitorService>,
-    stratum_bridge_service: Arc<StratumBridgeService>,
+    cpu_miner_service: Arc<CpuMinerService>,
+    rothschild_service: Arc<RothschildService>,
 
     // #[cfg(not(feature = "lean"))]
     metrics_service: Arc<MetricsService>,
@@ -85,7 +86,11 @@ impl Runtime {
             application_events.clone(),
             settings,
         ));
-        let stratum_bridge_service = Arc::new(StratumBridgeService::new(
+        let cpu_miner_service = Arc::new(CpuMinerService::new(
+            application_events.clone(),
+            settings,
+        ));
+        let rothschild_service = Arc::new(RothschildService::new(
             application_events.clone(),
             settings,
         ));
@@ -116,7 +121,8 @@ impl Runtime {
             peer_monitor_service.clone(),
             feerate_monitor_service.clone(),
             market_monitor_service.clone(),
-            stratum_bridge_service.clone(),
+            cpu_miner_service.clone(),
+            rothschild_service.clone(),
             update_monitor_service.clone(),
             // #[cfg(not(feature = "lean"))]
             metrics_service.clone(),
@@ -133,7 +139,8 @@ impl Runtime {
                 feerate_monitor_service,
                 peer_monitor_service,
                 market_monitor_service,
-                stratum_bridge_service,
+                cpu_miner_service,
+                rothschild_service,
                 update_monitor_service,
                 egui_ctx: egui_ctx.clone(),
                 is_running: Arc::new(AtomicBool::new(false)),
@@ -266,8 +273,12 @@ impl Runtime {
         &self.inner.market_monitor_service
     }
 
-    pub fn stratum_bridge_service(&self) -> &Arc<StratumBridgeService> {
-        &self.inner.stratum_bridge_service
+    pub fn cpu_miner_service(&self) -> &Arc<CpuMinerService> {
+        &self.inner.cpu_miner_service
+    }
+
+    pub fn rothschild_service(&self) -> &Arc<RothschildService> {
+        &self.inner.rothschild_service
     }
 
     pub fn update_monitor_service(&self) -> &Arc<UpdateMonitorService> {

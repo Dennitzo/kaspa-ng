@@ -2,7 +2,7 @@ use crate::imports::*;
 use kaspa_wallet_core::{api::{AccountsDiscoveryKind, AccountsDiscoveryRequest}, encryption::EncryptionKind, storage::keydata::PrvKeyDataVariantKind, wallet::{AccountCreateArgs, PrvKeyDataCreateArgs, WalletCreateArgs}};
 use slug::slugify;
 use kaspa_bip32::{WordCount, Mnemonic, Language};
-use crate::utils::{secret_score, secret_score_to_text};
+use crate::utils::{secret_score, secret_score_to_text, generate_rothschild_credentials};
 
 #[derive(Default, Debug, Clone, Copy, Eq, PartialEq)]
 enum Focus {
@@ -75,6 +75,7 @@ struct Context {
     import_private_key_file: bool,
     import_private_key_mnemonic : String,
     import_private_key_mnemonic_error : Option<String>,
+    import_rothschild_mnemonic : bool,
     import_with_bip39_passphrase : bool,
     import_legacy : bool,
     import_advanced : bool,
@@ -96,6 +97,7 @@ impl Zeroize for Context {
         self.import_private_key.zeroize();
         self.import_private_key_mnemonic.zeroize();
         self.import_private_key_mnemonic_error.zeroize();
+        self.import_rothschild_mnemonic = false;
         self.import_with_bip39_passphrase.zeroize();
         self.decrypt_wallet_secret.zeroize();
         self.import_legacy.zeroize();
@@ -124,7 +126,7 @@ impl WalletCreate {
         }
     }
     
-    pub fn import_selection<M>(context:&mut M, word_count: &mut WordCount, import_legacy: &mut bool, bip39_passphrase: &mut bool, ui: &mut Ui, back_callback:Option<impl FnOnce(&mut M)>)->bool{
+    pub fn import_selection<M>(context:&mut M, word_count: &mut WordCount, import_legacy: &mut bool, import_rothschild_mnemonic: &mut bool, bip39_passphrase: &mut bool, ui: &mut Ui, back_callback:Option<impl FnOnce(&mut M)>)->bool{
         let mut submit = false;
         if *import_legacy {
             *bip39_passphrase = false;
@@ -144,6 +146,7 @@ impl WalletCreate {
                 if ui.large_button(i18n("12 word mnemonic")).clicked() {
                     *word_count = WordCount::Words12;
                     *import_legacy = false;
+                    *import_rothschild_mnemonic = false;
                     submit = true;
                 }
                 ui.label("");
@@ -152,6 +155,7 @@ impl WalletCreate {
                 if ui.large_button(i18n("24 word mnemonic")).clicked() {
                     *word_count = WordCount::Words24;
                     *import_legacy = false;
+                    *import_rothschild_mnemonic = false;
                     submit = true;
                 }
                 ui.label("");
@@ -170,6 +174,18 @@ impl WalletCreate {
                 if ui.large_button_enabled(!*bip39_passphrase,format!("    {}    ", i18n("Legacy 12 word mnemonic"))).clicked() {
                     *word_count = WordCount::Words12;
                     *import_legacy = true;
+                    *import_rothschild_mnemonic = false;
+                    *bip39_passphrase = false;
+                    submit = true;
+                }
+                ui.label("");
+                ui.medium_separator();
+                ui.label("");
+                ui.label(i18n("Rothschild private key mnemonic (24 words)"));
+                if ui.large_button(i18n("Rothschild 24 word mnemonic")).clicked() {
+                    *word_count = WordCount::Words24;
+                    *import_legacy = false;
+                    *import_rothschild_mnemonic = true;
                     *bip39_passphrase = false;
                     submit = true;
                 }
@@ -387,14 +403,16 @@ impl ModuleT for WalletCreate {
                     .render(ui);
             }
             State::ImportSelection => {
-                let submit = Self::import_selection::<State>(&mut self.state,
+                let submit = Self::import_selection::<State>(
+                    &mut self.state,
                     &mut self.context.word_count,
                     &mut self.context.import_legacy,
+                    &mut self.context.import_rothschild_mnemonic,
                     &mut self.context.import_with_bip39_passphrase,
                     ui,
                     Some(|state : &mut State|{
                         *state = State::KeySelection
-                    })
+                    }),
                 );
                 if submit {
                     self.context.import_private_key = true;
@@ -1124,7 +1142,10 @@ impl ModuleT for WalletCreate {
                     .render(ui);
 
                 let mut args = self.context.clone();
-                let wallet_import_result = Payload::<Result<Vec<AccountDescriptor>>>::new("wallet_import_result");
+                let wallet_import_result =
+                    Payload::<Result<(Vec<AccountDescriptor>, Option<(String, String)>)>>::new(
+                        "wallet_import_result",
+                    );
                 if !wallet_import_result.is_pending() {
 
                     let wallet = self.runtime.wallet().clone();
@@ -1150,6 +1171,57 @@ impl ModuleT for WalletCreate {
                             bip39_passphrase: payment_secret.clone(),
                             bip39_mnemonic: mnemonic.clone(),
                         };
+
+                        if args.import_rothschild_mnemonic {
+                            let mnemonic_phrase = mnemonic
+                                .as_str()
+                                .map_err(|err| Error::custom(err.to_string()))?
+                                .trim()
+                                .to_string();
+                            let parsed = Mnemonic::new(mnemonic_phrase.trim(), Language::English)?;
+                            let entropy = parsed.entropy().clone();
+                            if entropy.len() != 32 {
+                                return Err(Error::custom("Rothschild mnemonic must be 24 words"));
+                            }
+
+                            wallet.clone().batch().await?;
+
+                            let wallet_args = WalletCreateArgs::new(
+                                args.wallet_name.is_not_empty().then_some(args.wallet_name.clone()),
+                                args.wallet_filename.is_not_empty().then_some(args.wallet_filename.clone()),
+                                EncryptionKind::XChaCha20Poly1305,
+                                args.enable_phishing_hint.then_some(args.phishing_hint.as_str().into()),
+                                false
+                            );
+                            
+                            wallet.clone().wallet_create(wallet_secret.clone(), wallet_args).await?;
+
+                            let prv_key_data_args = PrvKeyDataCreateArgs::new(
+                                None,
+                                None,
+                                Secret::from(entropy.clone()),
+                                PrvKeyDataVariantKind::SecretKey,
+                            );
+                            let prv_key_data_id =
+                                wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?;
+
+                            let account_create_args = AccountCreateArgs::new_keypair_key(
+                                prv_key_data_id,
+                                args.account_name.is_not_empty().then_some(args.account_name.clone()),
+                                false,
+                            );
+
+                            let account_descriptor =
+                                wallet.clone().accounts_create(wallet_secret.clone(), account_create_args).await?;
+
+                            wallet.clone().flush(wallet_secret).await?;
+
+                            let private_key_hex = entropy.to_hex();
+                            let mnemonic_phrase = parsed.phrase_string();
+                            args.zeroize();
+
+                            return Ok((vec![account_descriptor], Some((private_key_hex, mnemonic_phrase))));
+                        }
 
                         let response = wallet.clone().accounts_discovery_call(request).await?;
                         let number_of_accounts = (response.last_account_index_found + 1) as usize;
@@ -1201,15 +1273,36 @@ impl ModuleT for WalletCreate {
 
                         args.zeroize();
 
-                        Ok(account_descriptors)
+                        Ok((account_descriptors, None))
                     });
                 }
 
                 if let Some(result) = wallet_import_result.take() {
                     match result {
-                        Ok(account_descriptors) => {
+                        Ok((account_descriptors, rothschild_import)) => {
                             self.context.zeroize();
                             core.handle_account_creation(account_descriptors);
+                            if let Some((private_key, mnemonic)) = rothschild_import {
+                                core.settings.node.rothschild.private_key = private_key.clone();
+                                core.settings.node.rothschild.mnemonic = mnemonic;
+                                if let Ok(address) = rothschild_address_from_private_key(
+                                    core.settings.node.network,
+                                    &private_key,
+                                ) {
+                                    core.settings.node.rothschild.address = address.clone();
+                                    if core.settings.node.cpu_miner.mining_address.trim().is_empty() {
+                                        core.settings.node.cpu_miner.mining_address = address;
+                                    }
+                                }
+
+                                self.runtime
+                                    .rothschild_service()
+                                    .update_settings(&core.settings.node.rothschild);
+                                self.runtime
+                                    .cpu_miner_service()
+                                    .update_settings(&core.settings.node.cpu_miner);
+                                core.store_settings();
+                            }
                             self.state = State::Finish;
                         }
                         Err(err) => {
@@ -1238,10 +1331,69 @@ impl ModuleT for WalletCreate {
                     .render(ui);
 
                 let args = self.context.clone();
-                let wallet_create_result = Payload::<Result<(String,AccountDescriptor)>>::new("wallet_create_result");
+
+                let mut rothschild_private_key = core.settings.node.rothschild.private_key.trim().to_string();
+                let mut rothschild_address = core.settings.node.rothschild.address.trim().to_string();
+                let mut settings_changed = false;
+
+                if rothschild_private_key.is_empty() {
+                    let (private_key, address) =
+                        generate_rothschild_credentials(core.settings.node.network);
+                    rothschild_private_key = private_key.clone();
+                    rothschild_address = address.clone();
+                    core.settings.node.rothschild.private_key = private_key;
+                    core.settings.node.rothschild.address = address;
+                    settings_changed = true;
+                    if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                        &core.settings.node.rothschild.private_key,
+                    ) {
+                        core.settings.node.rothschild.mnemonic = mnemonic;
+                    }
+                } else if rothschild_address.is_empty() {
+                    if let Ok(address) = rothschild_address_from_private_key(
+                        core.settings.node.network,
+                        &rothschild_private_key,
+                    ) {
+                        rothschild_address = address.clone();
+                        core.settings.node.rothschild.address = address;
+                        settings_changed = true;
+                    }
+                }
+
+                if core.settings.node.rothschild.mnemonic.trim().is_empty()
+                    && rothschild_private_key.is_not_empty()
+                {
+                    if let Ok(mnemonic) =
+                        rothschild_mnemonic_from_private_key(&rothschild_private_key)
+                    {
+                        core.settings.node.rothschild.mnemonic = mnemonic;
+                        settings_changed = true;
+                    }
+                }
+
+                if core.settings.node.cpu_miner.mining_address.trim().is_empty()
+                    && rothschild_address.is_not_empty()
+                {
+                    core.settings.node.cpu_miner.mining_address = rothschild_address;
+                    settings_changed = true;
+                }
+
+                if settings_changed {
+                    self.runtime
+                        .rothschild_service()
+                        .update_settings(&core.settings.node.rothschild);
+                    self.runtime
+                        .cpu_miner_service()
+                        .update_settings(&core.settings.node.cpu_miner);
+                    core.store_settings();
+                }
+
+                let wallet_create_result =
+                    Payload::<Result<(Option<String>, AccountDescriptor)>>::new("wallet_create_result");
                 if !wallet_create_result.is_pending() {
 
                     let wallet = self.runtime.wallet().clone();
+                    let rothschild_private_key = rothschild_private_key.clone();
                     spawn_with_result(&wallet_create_result, async move {
 
                         if args.enable_payment_secret && args.payment_secret.is_empty() {
@@ -1267,38 +1419,62 @@ impl ModuleT for WalletCreate {
                         
                         wallet.clone().wallet_create(wallet_secret.clone(), wallet_args).await?;
 
-                        let mnemonic = Mnemonic::random(args.word_count, Language::default())?;
-                        let mnemonic_phrase_string = mnemonic.phrase_string();
-                        let prv_key_data_args = PrvKeyDataCreateArgs::new(
-                            None,
-                            payment_secret.clone(),
-                            Secret::from(mnemonic_phrase_string.clone()),
-                            PrvKeyDataVariantKind::Mnemonic,
-                        );
-
-                        let prv_key_data_id = wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?;
-
-                        let account_create_args = AccountCreateArgs::new_bip32(
-                            prv_key_data_id,
-                            payment_secret.clone(),
-                            args.account_name.is_not_empty().then_some(args.account_name),
-                            None,
-                        );
+                        let (maybe_mnemonic, account_create_args) =
+                            if rothschild_private_key.trim().is_not_empty() {
+                                let key_bytes = Vec::from_hex(rothschild_private_key.trim())
+                                    .map_err(|err| Error::custom(err.to_string()))?;
+                                let prv_key_data_args = PrvKeyDataCreateArgs::new(
+                                    None,
+                                    payment_secret.clone(),
+                                    Secret::from(key_bytes),
+                                    PrvKeyDataVariantKind::SecretKey,
+                                );
+                                let prv_key_data_id =
+                                    wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?;
+                                let account_create_args = AccountCreateArgs::new_keypair_key(
+                                    prv_key_data_id,
+                                    args.account_name.is_not_empty().then_some(args.account_name),
+                                    false,
+                                );
+                                (None, account_create_args)
+                            } else {
+                                let mnemonic = Mnemonic::random(args.word_count, Language::default())?;
+                                let mnemonic_phrase_string = mnemonic.phrase_string();
+                                let prv_key_data_args = PrvKeyDataCreateArgs::new(
+                                    None,
+                                    payment_secret.clone(),
+                                    Secret::from(mnemonic_phrase_string.clone()),
+                                    PrvKeyDataVariantKind::Mnemonic,
+                                );
+                                let prv_key_data_id =
+                                    wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?;
+                                let account_create_args = AccountCreateArgs::new_bip32(
+                                    prv_key_data_id,
+                                    payment_secret.clone(),
+                                    args.account_name.is_not_empty().then_some(args.account_name),
+                                    None,
+                                );
+                                (Some(mnemonic_phrase_string), account_create_args)
+                            };
 
                         let account_descriptor = wallet.clone().accounts_create(wallet_secret.clone(), account_create_args).await?;
 
                         wallet.clone().flush(wallet_secret).await?;
 
-                        Ok((mnemonic_phrase_string, account_descriptor))
+                        Ok((maybe_mnemonic, account_descriptor))
                     });
                 }
 
                 if let Some(result) = wallet_create_result.take() {
                     match result {
-                        Ok((mnemonic,account_descriptor)) => {
+                        Ok((maybe_mnemonic,account_descriptor)) => {
                             self.context.zeroize();
                             core.handle_account_creation(vec![account_descriptor]);
-                            self.state = State::PresentMnemonic(mnemonic);
+                            if let Some(mnemonic) = maybe_mnemonic {
+                                self.state = State::PresentMnemonic(mnemonic);
+                            } else {
+                                self.state = State::Finish;
+                            }
                         }
                         Err(err) => {
                             log_error!("{} {}",i18n("Wallet creation error:"), err);
@@ -1382,6 +1558,34 @@ impl ModuleT for WalletCreate {
             }
 
             State::Finish => {
+                let mut settings_changed = false;
+
+                if core.settings.node.rothschild.private_key.trim().is_empty()
+                    && core.settings.node.rothschild.address.trim().is_empty()
+                {
+                    let (private_key, address) = generate_rothschild_credentials(core.settings.node.network);
+                    core.settings.node.rothschild.private_key = private_key;
+                    core.settings.node.rothschild.address = address;
+                    settings_changed = true;
+                }
+
+                if core.settings.node.cpu_miner.mining_address.trim().is_empty()
+                    && core.settings.node.rothschild.address.trim().is_not_empty()
+                {
+                    core.settings.node.cpu_miner.mining_address =
+                        core.settings.node.rothschild.address.clone();
+                    settings_changed = true;
+                }
+
+                if settings_changed {
+                    self.runtime
+                        .rothschild_service()
+                        .update_settings(&core.settings.node.rothschild);
+                    self.runtime
+                        .cpu_miner_service()
+                        .update_settings(&core.settings.node.cpu_miner);
+                    core.store_settings();
+                }
 
                 Panel::new(self)
                     .with_caption(i18n("Wallet Created"))

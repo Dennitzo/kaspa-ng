@@ -14,7 +14,7 @@ use workflow_i18n::*;
 use workflow_wasm::callback::CallbackMap;
 pub const TRANSACTION_PAGE_SIZE: u64 = 20;
 pub const MAINNET_EXPLORER: &str = "https://explorer.kaspa.org";
-pub const TESTNET10_EXPLORER: &str = "https://explorer-tn10.kaspa.org";
+pub const TESTNET12_EXPLORER: &str = "https://explorer-tn12.kaspa.org";
 
 pub enum Exception {
     #[allow(dead_code)]
@@ -272,9 +272,12 @@ impl Core {
                 let type_id = self.module.type_id();
                 crate::runtime::services::kaspa::update_logs_flag()
                     .store(type_id == TypeId::of::<modules::Logs>(), Ordering::Relaxed);
-                crate::runtime::services::stratum_bridge::update_logs_flag().store(
-                    type_id == TypeId::of::<modules::RkBridgeLogs>()
-                        || type_id == TypeId::of::<modules::RkBlocks>(),
+                crate::runtime::services::cpu_miner::update_logs_flag().store(
+                    type_id == TypeId::of::<modules::CpuMinerLogs>(),
+                    Ordering::Relaxed,
+                );
+                crate::runtime::services::rothschild::update_logs_flag().store(
+                    type_id == TypeId::of::<modules::RothschildLogs>(),
                     Ordering::Relaxed,
                 );
             }
@@ -778,7 +781,7 @@ impl Core {
                 self.select::<modules::AccountManager>();
                 self.get_mut::<modules::WalletOpen>().state = Default::default();
 
-                if let Some(account_collection) = self.account_collection.as_ref() {
+                let wallet_address = if let Some(account_collection) = self.account_collection.as_ref() {
                     let mut account_manager = self
                         .modules
                         .get(&TypeId::of::<modules::AccountManager>())
@@ -787,6 +790,36 @@ impl Core {
                     account_manager
                         .get_mut::<modules::AccountManager>()
                         .update(account_collection);
+
+                    account_collection
+                        .first()
+                        .map(|account| account.receive_address().to_string())
+                } else {
+                    None
+                };
+
+                if let Some(wallet_address) = wallet_address {
+                    let mut settings_changed = false;
+
+                    if self.settings.node.cpu_miner.mining_address.trim().is_empty() {
+                        self.settings.node.cpu_miner.mining_address = wallet_address.clone();
+                        settings_changed = true;
+                    }
+
+                    if self.settings.node.rothschild.address.trim().is_empty() {
+                        self.settings.node.rothschild.address = wallet_address;
+                        settings_changed = true;
+                    }
+
+                    if settings_changed {
+                        self.runtime
+                            .cpu_miner_service()
+                            .update_settings(&self.settings.node.cpu_miner);
+                        self.runtime
+                            .rothschild_service()
+                            .update_settings(&self.settings.node.rothschild);
+                        self.store_settings();
+                    }
                 }
             }
             Events::Notify {

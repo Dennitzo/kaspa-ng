@@ -1,5 +1,6 @@
 use crate::protowire;
 use crate::{from, try_from};
+use kaspa_consensus_core::Hash;
 use kaspa_rpc_core::{FromRpcHex, RpcAddress, RpcError, RpcResult, RpcScriptClass, RpcSubnetworkId, ToRpcHex};
 use std::str::FromStr;
 
@@ -36,7 +37,12 @@ from!(item: &kaspa_rpc_core::RpcOptionalTransactionOutput, protowire::RpcOptiona
         value: item.value,
         script_public_key: item.script_public_key.as_ref().map(|x| x.into()),
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
+        covenant: item.covenant.as_ref().map(|x| x.into()),
     }
+});
+
+from!(item: &kaspa_rpc_core::RpcNullableCovenantBinding, protowire::RpcNullableCovenantBinding, {
+    Self{covenant: item.0.as_ref().map(Into::into)}
 });
 
 from!(item: &kaspa_rpc_core::RpcOptionalTransactionOutpoint, protowire::RpcOptionalTransactionOutpoint, {
@@ -76,6 +82,7 @@ from!(item: &kaspa_rpc_core::RpcOptionalUtxoEntry, protowire::RpcOptionalUtxoEnt
         block_daa_score: item.block_daa_score,
         is_coinbase: item.is_coinbase,
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
+        covenant_id: item.covenant_id.as_ref().map(|x| x.to_string()),
     }
 });
 
@@ -119,7 +126,12 @@ try_from!(item: &protowire::RpcOptionalTransactionOutput, kaspa_rpc_core::RpcOpt
         value: item.value,
         script_public_key: item.script_public_key.as_ref().map(kaspa_rpc_core::RpcScriptPublicKey::try_from).transpose()?,
         verbose_data: item.verbose_data.as_ref().map(kaspa_rpc_core::RpcOptionalTransactionOutputVerboseData::try_from).transpose()?,
+        covenant: item.covenant.as_ref().map(kaspa_rpc_core::RpcNullableCovenantBinding::try_from).transpose()?,
     }
+});
+
+try_from!(item: &protowire::RpcNullableCovenantBinding, kaspa_rpc_core::RpcNullableCovenantBinding, {
+    Self(item.covenant.as_ref().map(kaspa_rpc_core::RpcCovenantBinding::try_from).transpose()?)
 });
 
 try_from!(item: &protowire::RpcOptionalTransactionOutpoint, kaspa_rpc_core::RpcOptionalTransactionOutpoint, {
@@ -152,6 +164,10 @@ try_from!(item: &protowire::RpcOptionalTransactionOutputVerboseData, kaspa_rpc_c
     }
 });
 
+try_from!(item: &protowire::RpcCovenantBinding, kaspa_rpc_core::RpcCovenantBinding, {
+   Self::new(item.authorizing_input.try_into()?, Hash::from_str(item.covenant_id.as_str())?)
+});
+
 try_from!(item: &protowire::RpcOptionalUtxoEntry, kaspa_rpc_core::RpcOptionalUtxoEntry, {
     Self {
         amount: item.amount,
@@ -159,6 +175,7 @@ try_from!(item: &protowire::RpcOptionalUtxoEntry, kaspa_rpc_core::RpcOptionalUtx
         block_daa_score: item.block_daa_score,
         is_coinbase: item.is_coinbase,
         verbose_data: item.verbose_data.as_ref().map(|x| x.try_into()).transpose()?,
+        covenant_id: item.covenant_id.as_ref().map(|x| Hash::from_str(x)).transpose()?,
     }
 });
 

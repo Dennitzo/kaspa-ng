@@ -146,16 +146,16 @@ pub const TESTNET_GENESIS: GenesisBlock = GenesisBlock {
     ],
 };
 
-pub const TESTNET11_GENESIS: GenesisBlock = GenesisBlock {
+pub const TESTNET12_GENESIS: GenesisBlock = GenesisBlock {
     hash: Hash::from_bytes([
-        0xcf, 0xa2, 0xa7, 0xeb, 0xfb, 0x8b, 0x4e, 0xa3, 0x45, 0x30, 0x7b, 0xc2, 0x5e, 0xf9, 0x42, 0x1b, 0x23, 0x91, 0xf0, 0x9c, 0x8b,
-        0x2c, 0xf2, 0x15, 0xf0, 0x75, 0x60, 0xaf, 0x0d, 0x4d, 0x71, 0x64,
+        0x87, 0x3c, 0x9c, 0xa3, 0x3a, 0x84, 0x8e, 0x16, 0x5f, 0xee, 0xfe, 0xf3, 0x9a, 0x80, 0x5f, 0x41, 0x1a, 0xf8, 0xba, 0xb6, 0xcd,
+        0xcb, 0x77, 0x7e, 0xd9, 0x27, 0xa4, 0x38, 0x48, 0x0c, 0xef, 0xbe,
     ]),
     hash_merkle_root: Hash::from_bytes([
-        0x3c, 0x35, 0xdb, 0x98, 0x02, 0x7e, 0x84, 0x6e, 0x02, 0xcc, 0x60, 0xb7, 0xa7, 0xfa, 0xb1, 0x6d, 0x6c, 0xf2, 0xa5, 0x42, 0xd8,
-        0xe1, 0x60, 0xad, 0x9c, 0xd9, 0x08, 0x5f, 0x51, 0x0c, 0x47, 0xbb,
+        0x5a, 0xa9, 0x1e, 0x74, 0xf3, 0x16, 0xdd, 0xfe, 0x91, 0x9d, 0x85, 0xf5, 0x61, 0xb4, 0x60, 0xae, 0x88, 0x5e, 0x70, 0x46, 0x34,
+        0x14, 0x4f, 0xed, 0xe9, 0x6e, 0xe1, 0x6e, 0xb9, 0xda, 0x84, 0xb5,
     ]),
-    bits: 504155340, // see `gen_testnet11_genesis`
+    bits: 504155340, // see `gen_testnet12_genesis`
     #[rustfmt::skip]
     coinbase_payload: &[
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Blue score
@@ -164,7 +164,7 @@ pub const TESTNET11_GENESIS: GenesisBlock = GenesisBlock {
         0x01,                                                                         // Varint
         0x00,                                                                         // OP-FALSE
         0x6b, 0x61, 0x73, 0x70, 0x61, 0x2d, 0x74, 0x65, 0x73, 0x74, 0x6e, 0x65, 0x74, // kaspa-testnet
-        11, 4                                                                         // TN11, Relaunch 4
+        12, 2                                                                         // TN12, Launch 2
     ],
     ..TESTNET_GENESIS
 };
@@ -234,30 +234,30 @@ mod tests {
 
     #[test]
     fn test_genesis_hashes() {
-        [GENESIS, TESTNET_GENESIS, TESTNET11_GENESIS, SIMNET_GENESIS, DEVNET_GENESIS].into_iter().for_each(|genesis| {
+        [GENESIS, TESTNET_GENESIS, TESTNET12_GENESIS, SIMNET_GENESIS, DEVNET_GENESIS].into_iter().for_each(|genesis| {
             let block: Block = (&genesis).into();
-            assert_hashes_eq(calc_hash_merkle_root(block.transactions.iter()), block.header.hash_merkle_root);
-            assert_hashes_eq(block.hash(), genesis.hash);
+            assert_hashes_eq(calc_hash_merkle_root(block.transactions.iter()), block.header.hash_merkle_root, "hash_merkle_root");
+            assert_hashes_eq(block.hash(), genesis.hash, "genesis hash");
         });
     }
 
     #[test]
-    fn gen_testnet11_genesis() {
+    fn gen_testnet12_genesis() {
         let bps = TenBps::bps();
         let mut genesis = TESTNET_GENESIS;
         let target = kaspa_math::Uint256::from_compact_target_bits(genesis.bits);
         let scaled_target = target * bps / 100;
         let scaled_bits = scaled_target.compact_target_bits();
         genesis.bits = scaled_bits;
-        if genesis.bits != TESTNET11_GENESIS.bits {
-            panic!("Testnet 11: new bits: {}\nnew hash: {:#04x?}", scaled_bits, Block::from(&genesis).hash().as_bytes());
+        if genesis.bits != TESTNET12_GENESIS.bits {
+            panic!("Testnet 12: new bits: {}\nnew hash: {:#04x?}", scaled_bits, Block::from(&genesis).hash().as_bytes());
         }
     }
 
-    fn assert_hashes_eq(got: Hash, expected: Hash) {
+    fn assert_hashes_eq(got: Hash, expected: Hash, field: &str) {
         if got != expected {
             // Special hex print to ease changing the genesis hash according to the print if needed
-            panic!("Got hash {:#04x?} while expecting {:#04x?}", got.as_bytes(), expected.as_bytes());
+            panic!("Invalid field '{}': Got hash {:#04x?} while expecting {:#04x?}", field, got.as_bytes(), expected.as_bytes());
         }
     }
 }

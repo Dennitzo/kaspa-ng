@@ -55,7 +55,7 @@ use kaspa_consensus_core::{
     block::{BlockTemplate, MutableBlock, TemplateBuildMode, TemplateTransactionSelector},
     blockstatus::BlockStatus::{StatusDisqualifiedFromChain, StatusUTXOValid},
     coinbase::MinerData,
-    config::genesis::GenesisBlock,
+    config::{genesis::GenesisBlock, params::ForkActivation},
     header::Header,
     merkle::calc_hash_merkle_root,
     mining_rules::MiningRules,
@@ -84,6 +84,7 @@ use once_cell::unsync::Lazy;
 use super::errors::{PruningImportError, PruningImportResult};
 use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use itertools::Itertools;
+use kaspa_consensus_core::hashing::tx::seq_commit_tx_digest;
 use kaspa_consensus_core::tx::ValidatedTransaction;
 use kaspa_utils::binary_heap::BinaryHeapExtensions;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
@@ -116,6 +117,8 @@ pub struct VirtualStateProcessor {
     pub(super) genesis: GenesisBlock,
     pub(super) max_block_parents: u8,
     pub(super) mergeset_size_limit: u64,
+    pub(super) finality_depth: u64,
+    pub(super) mass_cofactors: kaspa_consensus_core::mass::MassCofactors,
 
     // Stores
     pub(super) statuses_store: Arc<RwLock<DbStatusesStore>>,
@@ -166,6 +169,9 @@ pub struct VirtualStateProcessor {
     // Counters
     counters: Arc<ProcessingCounters>,
 
+    // Covenants activation
+    pub(crate) covenants_activation: ForkActivation,
+
     // Mining Rule
     _mining_rules: Arc<MiningRules>,
 }
@@ -195,6 +201,7 @@ impl VirtualStateProcessor {
             genesis: params.genesis.clone(),
             max_block_parents: params.max_block_parents(),
             mergeset_size_limit: params.mergeset_size_limit(),
+            mass_cofactors: params.block_mass_limits.cofactors(),
 
             db,
             statuses_store: storage.statuses_store.clone(),
@@ -232,7 +239,9 @@ impl VirtualStateProcessor {
             pruning_lock,
             notification_root,
             counters,
+            covenants_activation: params.covenants_activation,
             _mining_rules: mining_rules,
+            finality_depth: params.finality_depth(),
         }
     }
 
@@ -538,6 +547,16 @@ impl VirtualStateProcessor {
         // Update the accumulated diff
         accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
 
+        let accepted_tx_digests = if self.covenants_activation.is_active(virtual_daa_window.daa_score) {
+            ctx.accepted_tx_ids
+                .into_iter()
+                .zip(ctx.accepted_tx_versions)
+                .map(|(txid, version)| seq_commit_tx_digest(txid, version))
+                .collect()
+        } else {
+            ctx.accepted_tx_ids
+        };
+
         // Build the new virtual state
         Ok(Arc::new(VirtualState::new(
             virtual_parents,
@@ -546,7 +565,7 @@ impl VirtualStateProcessor {
             virtual_past_median_time,
             ctx.multiset_hash,
             ctx.mergeset_diff,
-            ctx.accepted_tx_ids,
+            accepted_tx_digests,
             ctx.mergeset_rewards,
             virtual_daa_window.mergeset_non_daa,
             virtual_ghostdag_data,
@@ -827,6 +846,7 @@ impl VirtualStateProcessor {
         virtual_daa_score: u64,
         virtual_past_median_time: u64,
         args: &TransactionValidationArgs,
+        sp: Hash,
     ) -> TxResult<()> {
         self.transaction_validator.validate_tx_in_isolation(&mutable_tx.tx)?;
         self.transaction_validator.validate_tx_in_header_context_with_args(
@@ -834,7 +854,7 @@ impl VirtualStateProcessor {
             virtual_daa_score,
             virtual_past_median_time,
         )?;
-        self.validate_mempool_transaction_in_utxo_context(mutable_tx, virtual_utxo_view, virtual_daa_score, args)?;
+        self.validate_mempool_transaction_in_utxo_context(mutable_tx, virtual_utxo_view, virtual_daa_score, args, sp)?;
         Ok(())
     }
 
@@ -844,9 +864,18 @@ impl VirtualStateProcessor {
         let virtual_utxo_view = &virtual_read.utxo_set;
         let virtual_daa_score = virtual_state.daa_score;
         let virtual_past_median_time = virtual_state.past_median_time;
+
+        let sp = virtual_state.ghostdag_data.selected_parent;
         // Run within the thread pool since par_iter might be internally applied to inputs
         self.thread_pool.install(|| {
-            self.validate_mempool_transaction_impl(mutable_tx, virtual_utxo_view, virtual_daa_score, virtual_past_median_time, args)
+            self.validate_mempool_transaction_impl(
+                mutable_tx,
+                virtual_utxo_view,
+                virtual_daa_score,
+                virtual_past_median_time,
+                args,
+                sp,
+            )
         })
     }
 
@@ -860,7 +889,7 @@ impl VirtualStateProcessor {
         let virtual_utxo_view = &virtual_read.utxo_set;
         let virtual_daa_score = virtual_state.daa_score;
         let virtual_past_median_time = virtual_state.past_median_time;
-
+        let virtual_sp = virtual_state.ghostdag_data.selected_parent;
         self.thread_pool.install(|| {
             mutable_txs
                 .par_iter_mut()
@@ -871,6 +900,7 @@ impl VirtualStateProcessor {
                         virtual_daa_score,
                         virtual_past_median_time,
                         args.get(&mtx.id()),
+                        virtual_sp,
                     )
                 })
                 .collect::<Vec<TxResult<()>>>()
@@ -927,8 +957,14 @@ impl VirtualStateProcessor {
             virtual_state.daa_score,
             virtual_state.past_median_time,
         )?;
-        let ValidatedTransaction { calculated_fee, .. } =
-            self.validate_transaction_in_utxo_context(tx, utxo_view, virtual_state.daa_score, TxValidationFlags::Full)?;
+        let ValidatedTransaction { calculated_fee, .. } = self.validate_transaction_in_utxo_context(
+            tx,
+            utxo_view,
+            virtual_state.daa_score,
+            virtual_state.daa_score,
+            TxValidationFlags::Full,
+            virtual_state.ghostdag_data.selected_parent,
+        )?;
         Ok(calculated_fee)
     }
 
@@ -1046,11 +1082,16 @@ impl VirtualStateProcessor {
             .unwrap();
         txs.insert(0, coinbase.tx);
         let version = BLOCK_VERSION;
+        assert_eq!(virtual_state.ghostdag_data.selected_parent, virtual_state.parents[0]);
         let parents_by_level = self.parents_manager.calc_block_parents(pruning_point, &virtual_state.parents);
+        assert_eq!(virtual_state.ghostdag_data.selected_parent, parents_by_level.get(0).unwrap()[0]);
         let hash_merkle_root = calc_hash_merkle_root(txs.iter());
 
-        let accepted_id_merkle_root = self
-            .calc_accepted_id_merkle_root(virtual_state.accepted_tx_ids.iter().copied(), virtual_state.ghostdag_data.selected_parent);
+        let accepted_id_merkle_root = self.calc_accepted_id_merkle_root(
+            virtual_state.daa_score,
+            virtual_state.accepted_tx_digests.iter().copied(),
+            virtual_state.ghostdag_data.selected_parent,
+        );
         let utxo_commitment = virtual_state.multiset.clone().finalize();
         // Past median time is the exclusive lower bound for valid block time, so we increase by 1 to get the valid min
         let min_block_time = virtual_state.past_median_time + 1;
@@ -1116,7 +1157,11 @@ impl VirtualStateProcessor {
         // Init virtual state
         self.commit_virtual_state(
             self.virtual_stores.upgradable_read(),
-            Arc::new(VirtualState::from_genesis(&self.genesis, self.ghostdag_manager.ghostdag(&[self.genesis.hash]))),
+            Arc::new(VirtualState::from_genesis(
+                &self.genesis,
+                self.ghostdag_manager.ghostdag(&[self.genesis.hash]),
+                self.covenants_activation,
+            )),
             &Default::default(),
             &Default::default(),
         );
@@ -1159,14 +1204,16 @@ impl VirtualStateProcessor {
         }
 
         let virtual_read = self.virtual_stores.upgradable_read();
-
+        let sp = virtual_read.state.get().unwrap().ghostdag_data.selected_parent;
         // Validate transactions of the pruning point itself
         let new_pruning_point_transactions = self.block_transactions_store.get(new_pruning_point).unwrap();
         let validated_transactions = self.validate_transactions_in_parallel(
             &new_pruning_point_transactions,
             &virtual_read.utxo_set,
             new_pruning_point_header.daa_score,
+            new_pruning_point_header.daa_score,
             TxValidationFlags::Full,
+            sp,
         );
         if validated_transactions.len() < new_pruning_point_transactions.len() - 1 {
             // Some non-coinbase transactions are invalid

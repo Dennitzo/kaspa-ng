@@ -51,10 +51,7 @@ impl<'context> Processor<'context> {
 
                         let fee_rate = calculate_fee_rate(network_type, account_id, send_amount_sompi, priority_fee_sompi).await;
 
-                        let payment_output = PaymentOutput {
-                            address,
-                            amount: send_amount_sompi,
-                        };
+                        let payment_output = PaymentOutput::new(address, send_amount_sompi);
     
                         let actual_request = AccountsEstimateRequest {
                             account_id,
@@ -105,10 +102,7 @@ impl<'context> Processor<'context> {
                             let address = Address::try_from(self.context.destination_address_string.as_str()).expect("invalid address");
                             let account_id = account.id();
                             let send_amount_sompi = self.context.send_amount_sompi;
-                            let payment_output = PaymentOutput {
-                                address,
-                                amount: send_amount_sompi,
-                            };
+                            let payment_output = PaymentOutput::new(address, send_amount_sompi);
         
                             spawn_with_result(&send_result, async move {
 
@@ -194,10 +188,7 @@ async fn calculate_fee_rate(network_type : NetworkType, account_id : AccountId, 
         _ => panic!("Unsupported network"),
     };
 
-    let payment_output = PaymentOutput {
-        address,
-        amount: send_amount_sompi,
-    };
+    let payment_output = PaymentOutput::new(address, send_amount_sompi);
 
 
     let base_request = AccountsEstimateRequest {

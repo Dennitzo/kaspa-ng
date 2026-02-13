@@ -45,7 +45,12 @@ export default function Blocks() {
   const { blocks: incomingBlocks, avgBlockTime } = useIncomingBlocks();
 
   useEffect(() => {
-    setBlocks(incomingBlocks.concat(blocks).slice(0, 20));
+    if (!incomingBlocks.length) return;
+    setBlocks((prev) => {
+      const seen = new Set(prev.map((block) => block.block_hash));
+      const merged = [...incomingBlocks.filter((block) => !seen.has(block.block_hash)), ...prev];
+      return merged.slice(0, 20);
+    });
   }, [incomingBlocks]);
 
   useSocketCommand({

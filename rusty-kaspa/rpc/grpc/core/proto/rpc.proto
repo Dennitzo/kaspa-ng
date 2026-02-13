@@ -99,6 +99,7 @@ message RpcUtxoEntry {
   uint64 blockDaaScore = 3;
   bool isCoinbase = 4;
   RpcUtxoEntryVerboseData verboseData = 5;
+  string covenant_id = 6;
 }
 
 message RpcUtxoEntryVerboseData {
@@ -115,6 +116,12 @@ message RpcTransactionOutput {
   uint64 amount = 1;
   RpcScriptPublicKey scriptPublicKey = 2;
   RpcTransactionOutputVerboseData verboseData = 3;
+  optional RpcCovenantBinding covenant = 4;
+}
+
+message RpcCovenantBinding {
+  uint32 authorizing_input = 1;
+  string covenant_id = 2;
 }
 
 message RpcOutpoint {
@@ -1012,6 +1019,7 @@ message RpcOptionalUtxoEntry {
   optional uint64 blockDaaScore = 4;
   optional bool isCoinbase = 5;
   optional RpcOptionalUtxoEntryVerboseData verboseData = 6;
+  optional string CovenantId = 7;
 }
 
 message RpcOptionalTransactionInputVerboseData {
@@ -1031,10 +1039,15 @@ message RpcOptionalTransactionOutputVerboseData {
   optional string scriptPublicKeyAddress = 3;
 }
 
+message RpcNullableCovenantBinding {
+  optional RpcCovenantBinding covenant = 1;
+}
+
 message RpcOptionalTransactionOutput {
   optional uint64 value = 2;
   optional RpcScriptPublicKey scriptPublicKey = 3;
   optional RpcOptionalTransactionOutputVerboseData verboseData = 4;
+  optional RpcNullableCovenantBinding covenant = 5;
 }
 
 message RpcOptionalTransactionVerboseData {

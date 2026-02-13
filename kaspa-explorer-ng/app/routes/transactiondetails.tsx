@@ -10,7 +10,6 @@ import InfoIcon from "../assets/info.svg";
 import Kaspa from "../assets/kaspa.svg";
 import Swap from "../assets/swap.svg";
 import Transaction from "../assets/transaction.svg";
-import { MarketDataContext } from "../context/MarketDataProvider";
 import { useTransactionById } from "../hooks/useTransactionById";
 import { useTransactionCount } from "../hooks/useTransactionCount";
 import { useVirtualChainBlueScore } from "../hooks/useVirtualChainBlueScore";
@@ -21,7 +20,7 @@ import localeData from "dayjs/plugin/localeData";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
 import numeral from "numeral";
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 
 dayjs().locale("en");
@@ -50,7 +49,6 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
   const { virtualChainBlueScore } = useVirtualChainBlueScore();
 
   const { data: transaction, isLoading, isError } = useTransactionById(transactionId);
-  const marketData = useContext(MarketDataContext);
   const [graphMode, setGraphMode] = useState<"minimal" | "detailed">("minimal");
   const flowContainerRef = useRef<HTMLDivElement>(null);
   const flowTooltipRef = useRef<HTMLDivElement>(null);
@@ -199,9 +197,6 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
         <span className="flex flex-row items-center text-[32px]">
           {displaySum.split(".")[0]}.<span className="self-end pb-[0.4rem] text-2xl">{displaySum.split(".")[1]}</span>
           <Kaspa className="fill-primary ml-1 h-8 w-8" />
-        </span>
-        <span className="ml-1 text-gray-500">
-          {numeral(((transactionSum || 0) / 1_0000_0000) * (marketData?.price || 0)).format("$0,0.00")}
         </span>
         {/*horizontal rule*/}
         <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
@@ -583,9 +578,6 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
                     <>
                       <span>{fee}</span>
                       <span className="text-gray-500 text-nowrap"> KAS</span>
-                      <div className="text-gray-500">
-                        {numeral((fee * (marketData?.price || 0)).toFixed(6)).format("$0,0.00[000000]")}
-                      </div>
                     </>
                   }
                 />

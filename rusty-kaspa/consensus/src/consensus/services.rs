@@ -146,6 +146,7 @@ impl ConsensusServices {
             params.ghostdag_k(),
             tx_script_cache_counters,
             mass_calculator.clone(),
+            params.covenants_activation,
         );
 
         let pruning_point_manager = PruningPointManager::new(
@@ -180,8 +181,10 @@ impl ConsensusServices {
             params.genesis.hash,
             params.pruning_proof_m,
             params.anticone_finalization_depth(),
+            params.finality_depth(),
             params.ghostdag_k(),
             params.skip_proof_of_work,
+            params.covenants_activation,
             is_consensus_exiting,
         ));
 

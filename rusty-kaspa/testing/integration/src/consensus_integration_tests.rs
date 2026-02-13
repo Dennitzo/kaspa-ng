@@ -30,8 +30,9 @@ use kaspa_consensus_core::constants::{BLOCK_VERSION, SOMPI_PER_KASPA, TRANSIENT_
 use kaspa_consensus_core::errors::block::{BlockProcessResult, RuleError};
 use kaspa_consensus_core::hashing;
 use kaspa_consensus_core::header::Header;
+use kaspa_consensus_core::merkle::calc_hash_merkle_root;
 use kaspa_consensus_core::mining_rules::MiningRules;
-use kaspa_consensus_core::subnets::SubnetworkId;
+use kaspa_consensus_core::subnets::{SUBNETWORK_ID_NATIVE, SubnetworkId};
 use kaspa_consensus_core::tx::{
     MutableTransaction, ScriptPublicKey, Transaction, TransactionInput, TransactionOutpoint, TransactionOutput, UtxoEntry,
 };
@@ -43,6 +44,7 @@ use kaspa_core::time::unix_now;
 use kaspa_database::utils::get_kaspa_tempdir;
 use kaspa_hashes::Hash;
 use kaspa_rpc_core::RpcHeader;
+use kaspa_txscript::{MAX_SCRIPT_ELEMENT_SIZE, pay_to_script_hash_script};
 use kaspa_utils::arc::ArcExtensions;
 
 use crate::common;
@@ -63,8 +65,8 @@ use kaspa_math::Uint256;
 use kaspa_muhash::MuHash;
 use kaspa_notify::subscription::context::SubscriptionContext;
 use kaspa_txscript::caches::TxScriptCacheCounters;
-use kaspa_txscript::opcodes::codes::OpTrue;
-use kaspa_txscript::script_builder::ScriptBuilderResult;
+use kaspa_txscript::opcodes::codes::{Op0, OpCat, OpDrop, OpEqual, OpTrue, OpTxOutputSpk};
+use kaspa_txscript::script_builder::{ScriptBuilder, ScriptBuilderResult};
 use kaspa_utxoindex::UtxoIndex;
 use kaspa_utxoindex::api::{UtxoIndexApi, UtxoIndexProxy};
 use serde::{Deserialize, Serialize};
@@ -766,7 +768,7 @@ async fn json_test(file_path: &str, concurrency: bool) {
             .collect_vec();
 
         let trusted_blocks = gzip_file_lines(&main_path.join("trusted.json.gz")).map(json_line_to_trusted_block).collect_vec();
-        tc.apply_pruning_proof(proof, &trusted_blocks).unwrap();
+        tc.apply_pruning_proof(proof, &trusted_blocks, &[]).unwrap();
 
         let past_pruning_points =
             gzip_file_lines(&main_path.join("past-pps.json.gz")).map(|line| json_line_to_block(line).header).collect_vec();
@@ -1431,23 +1433,29 @@ async fn kip10_test() {
     // Set up initial UTXO with our test script
     let initial_utxo_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        UtxoEntry { amount: SOMPI_PER_KASPA, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
+        UtxoEntry {
+            amount: SOMPI_PER_KASPA,
+            script_public_key: spk.clone(),
+            block_daa_score: 0,
+            is_coinbase: false,
+            covenant_id: None,
+        },
     )];
 
     // Initialize consensus with KIP-10 activation point
     let config = ConfigBuilder::new(DEVNET_PARAMS)
         .skip_proof_of_work()
-        .apply_args(|cfg| {
+        .edit_consensus_params(|p| {
             let mut genesis_multiset = MuHash::new();
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
-        })
-        .edit_consensus_params(|p| {
+            p.genesis.utxo_commitment = genesis_multiset.finalize();
+            let genesis_header: Header = (&p.genesis).into();
+            p.genesis.hash = genesis_header.hash;
+
             p.crescendo_activation = ForkActivation::always();
+            p.covenants_activation = ForkActivation::never();
         })
         .build();
 
@@ -1485,7 +1493,265 @@ async fn kip10_test() {
     // Verify the transaction with KIP-10 opcodes is accepted
     let status = consensus.add_utxo_valid_block_with_parents((index + 1).into(), vec![config.genesis.hash], vec![tx.clone()]).await;
     assert!(matches!(status, Ok(BlockStatus::StatusUTXOValid)));
-    assert!(consensus.lkg_virtual_state.load().accepted_tx_ids.contains(&tx_id));
+    assert!(consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&tx_id)); // covenants not enabled yet, so accepted_tx_digests contains txid
+}
+
+#[tokio::test]
+async fn covenants_activation_test() {
+    const ACTIVATION_DAA_SCORE: u64 = 3;
+    let config = ConfigBuilder::new(DEVNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|p| {
+            p.coinbase_maturity = 0;
+            p.covenants_activation = ForkActivation::new(ACTIVATION_DAA_SCORE)
+        })
+        .build();
+
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    // Mine a funding block whose reward will later pay to the covenant P2SH
+    let mut next_id: u64 = 1;
+    let mut tip = config.genesis.hash;
+
+    // Redeem script that uses OpCat (disabled before covenants activation, enabled after)
+    let redeem_script = ScriptBuilder::new()
+        .add_data(&[0xaa])
+        .unwrap()
+        .add_data(&[0xbb])
+        .unwrap()
+        .add_op(OpCat)
+        .unwrap()
+        .add_data(&[0xaa, 0xbb])
+        .unwrap()
+        .add_op(OpEqual)
+        .unwrap()
+        .drain();
+    let miner_spk = pay_to_script_hash_script(&redeem_script);
+
+    // First block sets the miner script to the covenant P2SH
+    let block1_hash = next_id.into();
+    let block1 =
+        consensus.build_utxo_valid_block_with_parents(block1_hash, vec![tip], MinerData::new(miner_spk.clone(), vec![]), vec![]);
+    consensus.validate_and_insert_block(block1.to_immutable()).virtual_state_task.await.unwrap();
+    tip = block1_hash;
+    next_id += 1;
+
+    // Second block creates the coinbase that pays to the previous block's miner SPK.
+    let block2_hash = next_id.into();
+    let block2 = consensus.build_utxo_valid_block_with_parents(
+        block2_hash,
+        vec![tip],
+        MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]),
+        vec![],
+    );
+    consensus.validate_and_insert_block(block2.to_immutable()).virtual_state_task.await.unwrap();
+    let (funding_outpoint, funding_amount) = {
+        let cb = &consensus.get_block(block2_hash).unwrap().transactions[0];
+        (TransactionOutpoint::new(cb.id(), 0), cb.outputs[0].value)
+    };
+    tip = block2_hash;
+    next_id += 1;
+
+    // Advance chain until just before activation (DAA score = ACTIVATION_DAA_SCORE - 1)
+    while consensus.get_virtual_daa_score() < ACTIVATION_DAA_SCORE - 1 {
+        consensus.add_utxo_valid_block_with_parents(next_id.into(), vec![tip], vec![]).await.unwrap();
+        tip = next_id.into();
+        next_id += 1;
+    }
+    assert_eq!(consensus.get_virtual_daa_score(), ACTIVATION_DAA_SCORE - 1);
+
+    // Transaction spending the test UTXO using the covenant opcode
+    let mut tx = Transaction::new(
+        0,
+        vec![TransactionInput::new(funding_outpoint, ScriptBuilder::new().add_data(&redeem_script).unwrap().drain(), 0, 0)],
+        vec![TransactionOutput::new(funding_amount - 5000, ScriptPublicKey::from_vec(0, vec![OpTrue]))],
+        0,
+        SUBNETWORK_ID_NATIVE,
+        0,
+        vec![],
+    );
+    tx.finalize();
+    let mut tx = MutableTransaction::from_tx(tx);
+    // This triggers storage mass population
+    let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
+    let tx = tx.tx.unwrap_or_clone();
+
+    // Pre-activation: inserting block with the covenant opcode should be rejected
+    {
+        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let mut block = consensus.build_utxo_valid_block_with_parents(next_id.into(), vec![tip], miner_data.clone(), vec![]);
+
+        block.transactions.push(tx.clone());
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
+
+        let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
+        assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
+        assert_eq!(consensus.lkg_virtual_state.load().daa_score, ACTIVATION_DAA_SCORE - 1);
+    }
+
+    next_id += 1;
+
+    // Advance to activation
+    consensus.add_utxo_valid_block_with_parents(next_id.into(), vec![tip], vec![]).await.unwrap();
+    tip = next_id.into();
+    next_id += 1;
+
+    // Post-activation: same transaction should now be accepted
+    let status = consensus.add_utxo_valid_block_with_parents(next_id.into(), vec![tip], vec![tx.clone()]).await;
+    assert!(matches!(status, Ok(BlockStatus::StatusUTXOValid)));
+
+    let digest = tx.seq_commit_digest();
+    assert!(consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&digest));
+
+    consensus.shutdown(wait_handles);
+}
+
+#[tokio::test]
+async fn push_limit_activation_test() {
+    kaspa_core::log::try_init_logger("info");
+
+    const ACTIVATION_DAA_SCORE: u64 = 4;
+    let config = ConfigBuilder::new(DEVNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|p| {
+            p.coinbase_maturity = 0;
+            let mass_limit = 100 * MAX_SCRIPT_ELEMENT_SIZE as u64;
+            p.block_mass_limits = kaspa_consensus_core::mass::BlockMassLimits::with_shared_limit(mass_limit);
+            p.max_script_public_key_len = 10 * MAX_SCRIPT_ELEMENT_SIZE;
+            p.storage_mass_parameter = 1;
+            p.covenants_activation = ForkActivation::new(ACTIVATION_DAA_SCORE)
+        })
+        .build();
+
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    // Mine a funding block whose reward will later pay to the covenant P2SH
+    let mut next_id: u64 = 1;
+    let mut tip = config.genesis.hash;
+
+    // Redeem script that pushes the script pubkey onto the stack
+    let redeem_script = ScriptBuilder::new()
+        .add_op(Op0)
+        .unwrap()
+        .add_op(OpTxOutputSpk)
+        .unwrap()
+        .add_op(OpDrop)
+        .unwrap()
+        .add_op(OpTrue)
+        .unwrap()
+        .drain();
+    let miner_spk = pay_to_script_hash_script(&redeem_script);
+    let miner_data = MinerData::new(miner_spk.clone(), vec![]);
+
+    // First block sets the miner script to the covenant P2SH
+    let block1_hash = next_id.into();
+    let block1 = consensus.build_utxo_valid_block_with_parents(block1_hash, vec![tip], miner_data.clone(), vec![]);
+    consensus.validate_and_insert_block(block1.to_immutable()).virtual_state_task.await.unwrap();
+    tip = block1_hash;
+    next_id += 1;
+
+    // Second block creates the coinbase that pays to the previous block's miner SPK.
+    let block2_hash = next_id.into();
+    let block2 = consensus.build_utxo_valid_block_with_parents(block2_hash, vec![tip], miner_data.clone(), vec![]);
+    consensus.validate_and_insert_block(block2.to_immutable()).virtual_state_task.await.unwrap();
+    let (funding_outpoint1, funding_amount1) = {
+        let cb = &consensus.get_block(block2_hash).unwrap().transactions[0];
+        (TransactionOutpoint::new(cb.id(), 0), cb.outputs[0].value)
+    };
+    tip = block2_hash;
+    next_id += 1;
+
+    // Third block creates another coinbase that pays to the previous block's miner SPK.
+    let block3_hash = next_id.into();
+    let block3 = consensus.build_utxo_valid_block_with_parents(block3_hash, vec![tip], miner_data.clone(), vec![]);
+    consensus.validate_and_insert_block(block3.to_immutable()).virtual_state_task.await.unwrap();
+    let (funding_outpoint2, funding_amount2) = {
+        let cb = &consensus.get_block(block3_hash).unwrap().transactions[0];
+        (TransactionOutpoint::new(cb.id(), 0), cb.outputs[0].value)
+    };
+    tip = block3_hash;
+    next_id += 1;
+
+    // Advance chain until just before activation (DAA score = ACTIVATION_DAA_SCORE - 1)
+    while consensus.get_virtual_daa_score() < ACTIVATION_DAA_SCORE - 1 {
+        consensus.add_utxo_valid_block_with_parents(next_id.into(), vec![tip], vec![]).await.unwrap();
+        tip = next_id.into();
+        next_id += 1;
+    }
+    assert_eq!(consensus.get_virtual_daa_score(), ACTIVATION_DAA_SCORE - 1);
+
+    // Pre-activation: inserting block with a transaction that pushes more than MAX_SCRIPT_ELEMENT_SIZE bytes onto the stack should be accepted
+    {
+        // Transaction spending the UTXO that pushes more than MAX_SCRIPT_ELEMENT_SIZE bytes onto the stack
+        let mut tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(funding_outpoint2, ScriptBuilder::new().add_data(&redeem_script).unwrap().drain(), 0, 0)],
+            vec![TransactionOutput::new(funding_amount2 - 5000, ScriptPublicKey::from_vec(0, vec![0u8; MAX_SCRIPT_ELEMENT_SIZE + 1]))],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        tx.finalize();
+        let seq_commit_digest = tx.seq_commit_digest();
+        let mut tx = MutableTransaction::from_tx(tx);
+        // This triggers storage mass population
+        let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
+        let tx = tx.tx.unwrap_or_clone();
+
+        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let mut block = consensus.build_utxo_valid_block_with_parents(next_id.into(), vec![tip], miner_data.clone(), vec![]);
+
+        block.transactions.push(tx.clone());
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
+
+        let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
+        assert!(matches!(block_status, Ok(BlockStatus::StatusUTXOValid)));
+        assert!(consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&seq_commit_digest)); // virtual block has daa where digests are not equal to tx_ids
+    }
+
+    next_id += 1;
+
+    // Advance to activation
+    consensus.add_utxo_valid_block_with_parents(next_id.into(), vec![tip], vec![]).await.unwrap();
+    tip = next_id.into();
+    next_id += 1;
+
+    // Post-activation: a similar transaction should now be rejected
+    {
+        // Transaction spending the UTXO that pushes more than MAX_SCRIPT_ELEMENT_SIZE bytes onto the stack
+        let mut tx = Transaction::new(
+            0,
+            vec![TransactionInput::new(funding_outpoint1, ScriptBuilder::new().add_data(&redeem_script).unwrap().drain(), 0, 0)],
+            vec![TransactionOutput::new(funding_amount1 - 5000, ScriptPublicKey::from_vec(0, vec![0u8; MAX_SCRIPT_ELEMENT_SIZE + 1]))],
+            0,
+            SUBNETWORK_ID_NATIVE,
+            0,
+            vec![],
+        );
+        tx.finalize();
+        let digest = tx.seq_commit_digest();
+        let tx_id = tx.id();
+        let mut tx = MutableTransaction::from_tx(tx);
+        // This triggers storage mass population
+        let _ = consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default());
+        let tx = tx.tx.unwrap_or_clone();
+
+        let miner_data = MinerData::new(ScriptPublicKey::from_vec(0, vec![]), vec![]);
+        let mut block = consensus.build_utxo_valid_block_with_parents(next_id.into(), vec![tip], miner_data.clone(), vec![]);
+
+        block.transactions.push(tx.clone());
+        block.header.hash_merkle_root = calc_hash_merkle_root(block.transactions.iter());
+
+        let block_status = consensus.validate_and_insert_block(block.to_immutable()).virtual_state_task.await;
+        assert!(matches!(block_status, Ok(BlockStatus::StatusDisqualifiedFromChain)));
+        assert!(!consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&digest));
+        assert!(!consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&tx_id));
+    }
+
+    consensus.shutdown(wait_handles);
 }
 
 #[tokio::test]
@@ -1518,11 +1784,11 @@ async fn payload_test() {
         0,
         SubnetworkId::default(),
         0,
-        vec![0; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize],
+        vec![0; (config.params.block_mass_limits.transient / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize],
     );
 
     // Create a tx with transient mass over the block limit
-    txx.payload = vec![0; (2 * config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR) as usize];
+    txx.payload = vec![0; (config.params.block_mass_limits.transient / TRANSIENT_BYTE_TO_MASS_FACTOR + 100) as usize];
     let mut tx = MutableTransaction::from_tx(txx.clone());
     // This triggers storage mass population
     consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default()).unwrap();
@@ -1530,7 +1796,7 @@ async fn payload_test() {
     assert_match!(consensus_res, Err(RuleError::ExceedsTransientMassLimit(_, _)));
 
     // Fix the payload to be below the limit
-    txx.payload = vec![0; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
+    txx.payload = vec![0; (config.params.block_mass_limits.transient / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
     let mut tx = MutableTransaction::from_tx(txx.clone());
     // This triggers storage mass population
     consensus.validate_mempool_transaction(&mut tx, &TransactionValidationArgs::default()).unwrap();
@@ -1554,20 +1820,23 @@ async fn payload_for_native_tx_test() {
             script_public_key: ScriptPublicKey::from_vec(0, vec![OpTrue]),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     )];
 
     // Initialize consensus with payload activation point
     let config = ConfigBuilder::new(DEVNET_PARAMS)
         .skip_proof_of_work()
-        .apply_args(|cfg| {
+        .edit_consensus_params(|p| {
             let mut genesis_multiset = MuHash::new();
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
+            p.genesis.utxo_commitment = genesis_multiset.finalize();
+            let genesis_header: Header = (&p.genesis).into();
+            p.genesis.hash = genesis_header.hash;
+
+            p.covenants_activation = ForkActivation::never();
         })
         .build();
 
@@ -1578,7 +1847,7 @@ async fn payload_for_native_tx_test() {
     consensus.init();
 
     // Create transaction with large payload
-    let large_payload = vec![0u8; (config.params.max_block_mass / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
+    let large_payload = vec![0u8; (config.params.block_mass_limits.transient / TRANSIENT_BYTE_TO_MASS_FACTOR / 2) as usize];
     let mut tx_with_payload = Transaction::new(
         0,
         vec![TransactionInput::new(
@@ -1604,7 +1873,7 @@ async fn payload_for_native_tx_test() {
     let status = consensus.add_utxo_valid_block_with_parents(1.into(), vec![config.genesis.hash], vec![tx.tx.unwrap_or_clone()]).await;
 
     assert!(matches!(status, Ok(BlockStatus::StatusUTXOValid)));
-    assert!(consensus.lkg_virtual_state.load().accepted_tx_ids.contains(&tx_id));
+    assert!(consensus.lkg_virtual_state.load().accepted_tx_digests.contains(&tx_id)); // covenants not enabled yet, so accepted_tx_digests contains txid
 }
 
 /// Tests runtime signature operation counting by verifying that:
@@ -1658,21 +1927,26 @@ async fn runtime_sig_op_counting_test() {
     // Set up initial UTXO with P2SH script
     let initial_utxo_collection = [(
         TransactionOutpoint::new(1.into(), 0),
-        UtxoEntry { amount: SOMPI_PER_KASPA, script_public_key: script_pub_key.clone(), block_daa_score: 0, is_coinbase: false },
+        UtxoEntry {
+            amount: SOMPI_PER_KASPA,
+            script_public_key: script_pub_key.clone(),
+            block_daa_score: 0,
+            is_coinbase: false,
+            covenant_id: None,
+        },
     )];
 
     let config = ConfigBuilder::new(DEVNET_PARAMS)
         .skip_proof_of_work()
-        .apply_args(|cfg| {
+        .edit_consensus_params(|p| {
             let mut genesis_multiset = MuHash::new();
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
-        })
-        .edit_consensus_params(|p| {
+            p.genesis.utxo_commitment = genesis_multiset.finalize();
+            let genesis_header: Header = (&p.genesis).into();
+            p.genesis.hash = genesis_header.hash;
+
             p.crescendo_activation = ForkActivation::always();
         })
         .build();
@@ -1760,26 +2034,38 @@ async fn sighash_type_commitment_test() {
     for i in 0..6 {
         initial_utxo_collection.push((
             TransactionOutpoint::new((i + 1).into(), 0),
-            UtxoEntry { amount: SOMPI_PER_KASPA / 10, script_public_key: p2sh_script.clone(), block_daa_score: 0, is_coinbase: false },
+            UtxoEntry {
+                amount: SOMPI_PER_KASPA / 10,
+                script_public_key: p2sh_script.clone(),
+                block_daa_score: 0,
+                is_coinbase: false,
+                covenant_id: None,
+            },
         ));
     }
     for i in 0..3 {
         initial_utxo_collection.push((
             TransactionOutpoint::new((i + 7).into(), 0),
-            UtxoEntry { amount: SOMPI_PER_KASPA / 20, script_public_key: op_true_spk.clone(), block_daa_score: 0, is_coinbase: false },
+            UtxoEntry {
+                amount: SOMPI_PER_KASPA / 20,
+                script_public_key: op_true_spk.clone(),
+                block_daa_score: 0,
+                is_coinbase: false,
+                covenant_id: None,
+            },
         ));
     }
 
     let config = ConfigBuilder::new(DEVNET_PARAMS)
         .skip_proof_of_work()
-        .apply_args(|cfg| {
+        .edit_consensus_params(|p| {
             let mut genesis_multiset = MuHash::new();
             initial_utxo_collection.iter().for_each(|(outpoint, utxo)| {
                 genesis_multiset.add_utxo(outpoint, utxo);
             });
-            cfg.params.genesis.utxo_commitment = genesis_multiset.finalize();
-            let genesis_header: Header = (&cfg.params.genesis).into();
-            cfg.params.genesis.hash = genesis_header.hash;
+            p.genesis.utxo_commitment = genesis_multiset.finalize();
+            let genesis_header: Header = (&p.genesis).into();
+            p.genesis.hash = genesis_header.hash;
         })
         .build();
 

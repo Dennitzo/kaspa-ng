@@ -1,11 +1,12 @@
 pub use super::{
     bps::{Bps, TenBps},
     constants::consensus::*,
-    genesis::{DEVNET_GENESIS, GENESIS, GenesisBlock, SIMNET_GENESIS, TESTNET_GENESIS, TESTNET11_GENESIS},
+    genesis::{DEVNET_GENESIS, GENESIS, GenesisBlock, SIMNET_GENESIS, TESTNET_GENESIS, TESTNET12_GENESIS},
 };
 use crate::{
     BlockLevel, KType,
     constants::STORAGE_MASS_PARAMETER,
+    mass::BlockMassLimits,
     network::{NetworkId, NetworkType},
 };
 use kaspa_addresses::Prefix;
@@ -53,7 +54,7 @@ impl ForkActivation {
     }
 
     /// Checks if the fork is expected to be activated "soon", i.e., in the time frame of the provided range.
-    /// Returns the distance from activation if so, or `None` otherwise.  
+    /// Returns the distance from activation if so, or `None` otherwise.
     pub fn is_within_range_before_activation(self, current_daa_score: u64, range: u64) -> Option<u64> {
         if !self.is_active(current_daa_score) && current_daa_score + range > self.0 { Some(self.0 - current_daa_score) } else { None }
     }
@@ -200,7 +201,7 @@ pub struct OverrideParams {
     pub mass_per_tx_byte: Option<u64>,
     pub mass_per_script_pub_key_byte: Option<u64>,
     pub mass_per_sig_op: Option<u64>,
-    pub max_block_mass: Option<u64>,
+    pub block_mass_limits: Option<BlockMassLimits>,
 
     /// The parameter for scaling inverse KAS value to mass units (KIP-0009)
     pub storage_mass_parameter: Option<u64>,
@@ -221,6 +222,8 @@ pub struct OverrideParams {
 
     /// Crescendo activation DAA score
     pub crescendo_activation: Option<ForkActivation>,
+
+    pub covenants_activation: Option<ForkActivation>,
 }
 
 impl From<Params> for OverrideParams {
@@ -240,7 +243,7 @@ impl From<Params> for OverrideParams {
             mass_per_tx_byte: Some(p.mass_per_tx_byte),
             mass_per_script_pub_key_byte: Some(p.mass_per_script_pub_key_byte),
             mass_per_sig_op: Some(p.mass_per_sig_op),
-            max_block_mass: Some(p.max_block_mass),
+            block_mass_limits: Some(p.block_mass_limits),
             storage_mass_parameter: Some(p.storage_mass_parameter),
             deflationary_phase_daa_score: Some(p.deflationary_phase_daa_score),
             pre_deflationary_phase_base_subsidy: Some(p.pre_deflationary_phase_base_subsidy),
@@ -249,6 +252,7 @@ impl From<Params> for OverrideParams {
             pruning_proof_m: Some(p.pruning_proof_m),
             blockrate: Some(p.blockrate),
             crescendo_activation: Some(p.crescendo_activation),
+            covenants_activation: Some(p.covenants_activation),
         }
     }
 }
@@ -291,7 +295,7 @@ pub struct Params {
     pub mass_per_tx_byte: u64,
     pub mass_per_script_pub_key_byte: u64,
     pub mass_per_sig_op: u64,
-    pub max_block_mass: u64,
+    pub block_mass_limits: BlockMassLimits,
 
     /// The parameter for scaling inverse KAS value to mass units (KIP-0009)
     pub storage_mass_parameter: u64,
@@ -313,6 +317,8 @@ pub struct Params {
 
     /// Crescendo activation DAA score
     pub crescendo_activation: ForkActivation,
+
+    pub covenants_activation: ForkActivation,
 }
 
 impl Params {
@@ -458,7 +464,7 @@ impl Params {
             mass_per_tx_byte: overrides.mass_per_tx_byte.unwrap_or(self.mass_per_tx_byte),
             mass_per_script_pub_key_byte: overrides.mass_per_script_pub_key_byte.unwrap_or(self.mass_per_script_pub_key_byte),
             mass_per_sig_op: overrides.mass_per_sig_op.unwrap_or(self.mass_per_sig_op),
-            max_block_mass: overrides.max_block_mass.unwrap_or(self.max_block_mass),
+            block_mass_limits: overrides.block_mass_limits.unwrap_or(self.block_mass_limits),
 
             storage_mass_parameter: overrides.storage_mass_parameter.unwrap_or(self.storage_mass_parameter),
 
@@ -481,6 +487,7 @@ impl Params {
                 .unwrap_or(self.pre_crescendo_target_time_per_block),
 
             crescendo_activation: overrides.crescendo_activation.unwrap_or(self.crescendo_activation),
+            covenants_activation: overrides.covenants_activation.unwrap_or(self.covenants_activation),
         }
     }
 }
@@ -516,6 +523,7 @@ impl From<NetworkId> for Params {
             NetworkType::Mainnet => MAINNET_PARAMS,
             NetworkType::Testnet => match value.suffix {
                 Some(10) => TESTNET_PARAMS,
+                Some(12) => TESTNET12_PARAMS,
                 Some(x) => panic!("Testnet suffix {} is not supported", x),
                 None => panic!("Testnet suffix not provided"),
             },
@@ -569,7 +577,7 @@ pub const MAINNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    block_mass_limits: BlockMassLimits::with_shared_limit(500_000),
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 
@@ -591,6 +599,7 @@ pub const MAINNET_PARAMS: Params = Params {
 
     // Roughly 2025-05-05 1500 UTC
     crescendo_activation: ForkActivation::new(110_165_000),
+    covenants_activation: ForkActivation::never(),
 };
 
 pub const TESTNET_PARAMS: Params = Params {
@@ -625,7 +634,7 @@ pub const TESTNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    block_mass_limits: BlockMassLimits::with_shared_limit(500_000),
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
     // deflationary_phase_daa_score is the DAA score after which the pre-deflationary period
@@ -646,6 +655,34 @@ pub const TESTNET_PARAMS: Params = Params {
 
     // 18:30 UTC, March 6, 2025
     crescendo_activation: ForkActivation::new(88_657_000),
+
+    // TODO(pre-covpp): Before setting the activation DAA score, resolve all comments of the form TODO(pre-covpp)
+    covenants_activation: ForkActivation::never(),
+};
+
+pub const TESTNET12_PARAMS: Params = Params {
+    dns_seeders: &[
+        // This DNS seeder is run by someone235
+        "tn12-dnsseed.kas.pa",
+        // This DNS seeder is run by iziodev
+        "tn12-dnsseed.kasia.fyi",
+    ],
+    net: NetworkId::with_suffix(NetworkType::Testnet, 12),
+    genesis: TESTNET12_GENESIS,
+
+    // Increased for stark proofs
+    max_signature_script_len: 300_000,
+
+    // Transient mass is increased for stark proofs
+    block_mass_limits: BlockMassLimits { compute: 500_000, storage: 500_000, transient: 1_000_000 },
+
+    deflationary_phase_daa_score: TenBps::deflationary_phase_daa_score(),
+    pre_deflationary_phase_base_subsidy: TenBps::pre_deflationary_phase_base_subsidy(),
+    pre_crescendo_target_time_per_block: TenBps::target_time_per_block(),
+
+    crescendo_activation: ForkActivation::always(),
+    covenants_activation: ForkActivation::always(),
+    ..TESTNET_PARAMS
 };
 
 pub const SIMNET_PARAMS: Params = Params {
@@ -666,13 +703,15 @@ pub const SIMNET_PARAMS: Params = Params {
 
     max_tx_inputs: 1000,
     max_tx_outputs: 1000,
-    max_signature_script_len: 10_000,
+    // Increased for stark proofs
+    max_signature_script_len: 300_000,
     max_script_public_key_len: 10_000,
 
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    // Transient mass is increased for stark proofs
+    block_mass_limits: BlockMassLimits { compute: 500_000, storage: 500_000, transient: 1_000_000 },
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 
@@ -686,6 +725,7 @@ pub const SIMNET_PARAMS: Params = Params {
     pre_crescendo_target_time_per_block: TenBps::target_time_per_block(),
 
     crescendo_activation: ForkActivation::always(),
+    covenants_activation: ForkActivation::always(),
 };
 
 pub const DEVNET_PARAMS: Params = Params {
@@ -703,25 +743,29 @@ pub const DEVNET_PARAMS: Params = Params {
 
     max_tx_inputs: 1000,
     max_tx_outputs: 1000,
-    max_signature_script_len: 10_000,
+    // Increased for stark proofs
+    max_signature_script_len: 300_000,
     max_script_public_key_len: 10_000,
 
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+
+    // Transient mass is increased for stark proofs
+    block_mass_limits: BlockMassLimits { compute: 500_000, storage: 500_000, transient: 1_000_000 },
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 
     deflationary_phase_daa_score: 0,
-    pre_deflationary_phase_base_subsidy: 50000000000,
+    pre_deflationary_phase_base_subsidy: TenBps::pre_deflationary_phase_base_subsidy(),
     skip_proof_of_work: false,
     max_block_level: 250,
     pruning_proof_m: 1000,
 
     blockrate: BlockrateParams::new::<10>(),
 
-    pre_crescendo_target_time_per_block: 1000,
+    pre_crescendo_target_time_per_block: TenBps::target_time_per_block(),
 
     crescendo_activation: ForkActivation::always(),
+    covenants_activation: ForkActivation::never(),
 };

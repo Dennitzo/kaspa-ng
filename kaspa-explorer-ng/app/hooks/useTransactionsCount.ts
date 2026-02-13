@@ -5,7 +5,7 @@ export const useTransactionsCount = () =>
   useQuery({
     queryKey: ["transactionsCount"],
     queryFn: async () => {
-      const { data } = await axios.get(`https://api.kaspa.org/transactions/count/`);
+      const { data } = await axios.get(`https://api-tn12.kaspa.org/transactions/count/`);
       return data as TransactionCount;
     },
   });

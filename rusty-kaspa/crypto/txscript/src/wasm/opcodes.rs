@@ -144,7 +144,7 @@ pub enum Opcodes {
 
     /// Splice opcodes.
     OpCat = 0x7e,
-    OpSubStr = 0x7f,
+    OpSubstr = 0x7f,
     OpLeft = 0x80,
     OpRight = 0x81,
 
@@ -196,7 +196,7 @@ pub enum Opcodes {
     OpWithin = 0xa5,
 
     /// Undefined opcodes.
-    OpUnknown166 = 0xa6,
+    OpZkPrecompile = 0xa6,
     OpUnknown167 = 0xa7,
 
     /// Crypto opcodes.

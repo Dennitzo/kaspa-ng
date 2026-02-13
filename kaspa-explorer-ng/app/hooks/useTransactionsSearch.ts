@@ -12,7 +12,7 @@ export const useTransactionsSearch = (
     queryKey: ["transactions", { fields, transactionIds }],
     queryFn: async () => {
       const { data } = await axios.post(
-        `https://api.kaspa.org/transactions/search`,
+        `https://api-tn12.kaspa.org/transactions/search`,
         {
           transactionIds,
         },

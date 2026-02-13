@@ -467,25 +467,20 @@ mod tests {
                 expected: Ok(once(OpPushData2).chain([8, 2]).chain(repeat_n(0x49, 520)).collect()),
                 unchecked: false,
             },
-            // BIP0062: OP_PUSHDATA4 can never be used, as pushes over 520
-            // bytes are not allowed, and those below can be done using
-            // other operators.
+            // TODO(covpp-mainnet): Re-enable once MAX_SCRIPT_ELEMENT_SIZE is finalized.
+            // // BIP0062: OP_PUSHDATA4 can never be used, as pushes over 520
+            // // bytes are not allowed, and those below can be done using
+            // // other operators.
+            // Test {
+            //     name: "push data len 521",
+            //     data: vec![0x49; 521],
+            //     expected: Err(ScriptBuilderError::ElementExceedsMaxSize(521)),
+            //     unchecked: false,
+            // },
             Test {
-                name: "push data len 521",
-                data: vec![0x49; 521],
-                expected: Err(ScriptBuilderError::ElementExceedsMaxSize(521)),
-                unchecked: false,
-            },
-            Test {
-                name: "push data len 32767 (canonical)",
-                data: vec![0x49; 32767],
-                expected: Err(ScriptBuilderError::DataRejected(32770)),
-                unchecked: false,
-            },
-            Test {
-                name: "push data len 65536 (canonical)",
-                data: vec![0x49; 65536],
-                expected: Err(ScriptBuilderError::DataRejected(65541)),
+                name: "push data len 300001 (canonical)",
+                data: vec![0x1; 3000001],
+                expected: Err(ScriptBuilderError::DataRejected(3000006)),
                 unchecked: false,
             },
             // // Additional tests for the add_data_unchecked function that

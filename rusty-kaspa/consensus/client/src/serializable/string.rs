@@ -13,6 +13,7 @@ use ahash::AHashMap;
 use cctx::VerifiableTransaction;
 use kaspa_addresses::Address;
 use kaspa_consensus_core::subnets::SubnetworkId;
+use kaspa_hashes::Hash;
 use workflow_wasm::serde::{from_value, to_value};
 
 pub type SignedTransactionIndexType = u32;
@@ -29,6 +30,7 @@ pub struct SerializableUtxoEntry {
     pub script_public_key: ScriptPublicKey,
     pub block_daa_score: String,
     pub is_coinbase: bool,
+    pub covenant_id: Option<Hash>,
 }
 
 impl AsRef<SerializableUtxoEntry> for SerializableUtxoEntry {
@@ -46,6 +48,7 @@ impl From<&UtxoEntryReference> for SerializableUtxoEntry {
             script_public_key: utxo.script_public_key.clone(),
             block_daa_score: utxo.block_daa_score.to_string(),
             is_coinbase: utxo.is_coinbase,
+            covenant_id: utxo.covenant_id,
         }
     }
 }
@@ -58,6 +61,7 @@ impl From<&cctx::UtxoEntry> for SerializableUtxoEntry {
             script_public_key: utxo.script_public_key.clone(),
             block_daa_score: utxo.block_daa_score.to_string(),
             is_coinbase: utxo.is_coinbase,
+            covenant_id: utxo.covenant_id,
         }
     }
 }
@@ -70,6 +74,7 @@ impl TryFrom<&SerializableUtxoEntry> for cctx::UtxoEntry {
             script_public_key: utxo.script_public_key.clone(),
             block_daa_score: utxo.block_daa_score.parse()?,
             is_coinbase: utxo.is_coinbase,
+            covenant_id: utxo.covenant_id,
         })
     }
 }
@@ -113,6 +118,7 @@ impl TryFrom<&SerializableTransactionInput> for UtxoEntryReference {
             script_public_key: input.utxo.script_public_key.clone(),
             block_daa_score: input.utxo.block_daa_score.parse()?,
             is_coinbase: input.utxo.is_coinbase,
+            covenant_id: input.utxo.covenant_id,
         };
 
         Ok(Self { utxo: Arc::new(utxo) })
@@ -176,31 +182,32 @@ impl TryFrom<&TransactionInput> for SerializableTransactionInput {
 pub struct SerializableTransactionOutput {
     pub value: String,
     pub script_public_key: ScriptPublicKey,
+    pub covenant: Option<cctx::CovenantBinding>,
 }
 
 impl From<cctx::TransactionOutput> for SerializableTransactionOutput {
     fn from(output: cctx::TransactionOutput) -> Self {
-        Self { value: output.value.to_string(), script_public_key: output.script_public_key }
+        Self { value: output.value.to_string(), script_public_key: output.script_public_key, covenant: output.covenant }
     }
 }
 
 impl From<&cctx::TransactionOutput> for SerializableTransactionOutput {
     fn from(output: &cctx::TransactionOutput) -> Self {
-        Self { value: output.value.to_string(), script_public_key: output.script_public_key.clone() }
+        Self { value: output.value.to_string(), script_public_key: output.script_public_key.clone(), covenant: output.covenant }
     }
 }
 
 impl TryFrom<SerializableTransactionOutput> for cctx::TransactionOutput {
     type Error = Error;
     fn try_from(output: SerializableTransactionOutput) -> Result<Self> {
-        Ok(Self { value: output.value.parse()?, script_public_key: output.script_public_key })
+        Ok(Self { value: output.value.parse()?, script_public_key: output.script_public_key, covenant: output.covenant })
     }
 }
 
 impl TryFrom<&SerializableTransactionOutput> for TransactionOutput {
     type Error = Error;
     fn try_from(output: &SerializableTransactionOutput) -> Result<Self> {
-        Ok(TransactionOutput::new(output.value.parse()?, output.script_public_key.clone()))
+        Ok(TransactionOutput::new(output.value.parse()?, output.script_public_key.clone(), output.covenant))
     }
 }
 
@@ -208,7 +215,7 @@ impl TryFrom<&TransactionOutput> for SerializableTransactionOutput {
     type Error = Error;
     fn try_from(output: &TransactionOutput) -> Result<Self> {
         let inner = output.inner();
-        Ok(Self { value: inner.value.to_string(), script_public_key: inner.script_public_key.clone() })
+        Ok(Self { value: inner.value.to_string(), script_public_key: inner.script_public_key.clone(), covenant: inner.covenant })
     }
 }
 
@@ -263,7 +270,7 @@ impl SerializableTransaction {
             version: transaction.version,
             outputs: outputs.into_iter().map(Into::into).collect(),
             lock_time: transaction.lock_time.to_string(),
-            subnetwork_id: transaction.subnetwork_id.clone(),
+            subnetwork_id: transaction.subnetwork_id,
             gas: transaction.gas.to_string(),
             mass: transaction.mass().to_string(),
             payload: transaction.payload.clone(),
@@ -281,7 +288,7 @@ impl SerializableTransaction {
             outputs,
             version: inner.version,
             lock_time: inner.lock_time.to_string(),
-            subnetwork_id: inner.subnetwork_id.clone(),
+            subnetwork_id: inner.subnetwork_id,
             gas: inner.gas.to_string(),
             mass: inner.mass.to_string(),
             payload: inner.payload.clone(),
@@ -310,7 +317,7 @@ impl SerializableTransaction {
             inputs,
             outputs,
             lock_time: transaction.lock_time.to_string(),
-            subnetwork_id: transaction.subnetwork_id.clone(),
+            subnetwork_id: transaction.subnetwork_id,
             gas: transaction.gas.to_string(),
             mass: transaction.mass().to_string(),
             payload: transaction.payload.clone(),

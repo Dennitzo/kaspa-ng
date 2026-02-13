@@ -10,7 +10,7 @@ export const useBlockReward = () =>
     staleTime: 60000,
     queryKey: ["blockReward"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/blockreward");
+      const { data } = await axios.get("https://api-tn12.kaspa.org/info/blockreward");
       return data as BlockRewardInfo;
     },
   });

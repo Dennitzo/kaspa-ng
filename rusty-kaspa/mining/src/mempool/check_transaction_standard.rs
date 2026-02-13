@@ -12,7 +12,7 @@ use kaspa_txscript::{get_sig_op_count_upper_bound, is_unspendable, script_class:
 
 /// MAX_STANDARD_P2SH_SIG_OPS is the maximum number of signature operations
 /// that are considered standard in a pay-to-script-hash script.
-const MAX_STANDARD_P2SH_SIG_OPS: u8 = 15;
+const MAX_STANDARD_P2SH_SIG_OPS: u16 = 1000; // TODO(covpp-mainnet)
 
 /// MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE is the maximum size allowed for a
 /// transaction input signature script to be considered standard. This
@@ -31,31 +31,16 @@ const MAX_STANDARD_P2SH_SIG_OPS: u8 = 15;
 /// That brings the total to 1+(15*74)+3+513 = 1627. This value also
 /// adds a few extra bytes to provide a little buffer.
 /// (1 + 15*74 + 3) + (15*34 + 3) + 23 = 1650
-const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 1650;
+const MAXIMUM_STANDARD_SIGNATURE_SCRIPT_SIZE: u64 = 300_000; // TODO(covpp-mainnet)
 
 /// MAXIMUM_STANDARD_TRANSACTION_MASS is the maximum mass allowed for transactions that
 /// are considered standard and will therefore be relayed and considered for mining.
-const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
+const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 1_000_000; // TODO(covpp-mainnet)
+const MAXIMUM_STANDARD_TRANSACTION_TRANSIENT_MASS: u64 = 1_000_000; // TODO(covpp-mainnet)
 
 impl Mempool {
     pub(crate) fn check_transaction_standard_in_isolation(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
         let transaction_id = transaction.id();
-
-        // The transaction must be a currently supported version.
-        //
-        // This check is currently mirrored in consensus.
-        // However, in a later version of Kaspa the consensus-valid transaction version range might diverge from the
-        // standard transaction version range, and thus the validation should happen in both levels.
-        if transaction.tx.version > self.config.maximum_standard_transaction_version
-            || transaction.tx.version < self.config.minimum_standard_transaction_version
-        {
-            return Err(NonStandardError::RejectVersion(
-                transaction_id,
-                transaction.tx.version,
-                self.config.minimum_standard_transaction_version,
-                self.config.maximum_standard_transaction_version,
-            ));
-        }
 
         // Since extremely large transactions with a lot of inputs can cost
         // almost as much to process as the sender fees, limit the maximum
@@ -65,8 +50,12 @@ impl Mempool {
         if compute_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
             return Err(NonStandardError::RejectComputeMass(transaction_id, compute_mass, MAXIMUM_STANDARD_TRANSACTION_MASS));
         }
-        if transient_mass > MAXIMUM_STANDARD_TRANSACTION_MASS {
-            return Err(NonStandardError::RejectTransientMass(transaction_id, transient_mass, MAXIMUM_STANDARD_TRANSACTION_MASS));
+        if transient_mass > MAXIMUM_STANDARD_TRANSACTION_TRANSIENT_MASS {
+            return Err(NonStandardError::RejectTransientMass(
+                transaction_id,
+                transient_mass,
+                MAXIMUM_STANDARD_TRANSACTION_TRANSIENT_MASS,
+            ));
         }
 
         for (i, input) in transaction.tx.inputs.iter().enumerate() {
@@ -282,7 +271,7 @@ mod tests {
                 name: "max standard tx size with default minimum relay fee",
                 size: MAXIMUM_STANDARD_TRANSACTION_MASS,
                 minimum_relay_transaction_fee: DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
-                want: 100000,
+                want: 1000000,
             },
             Test { name: "1500 bytes with 5000 relay fee", size: 1500, minimum_relay_transaction_fee: 5000, want: 7500 },
             Test { name: "1500 bytes with 3000 relay fee", size: 1500, minimum_relay_transaction_fee: 3000, want: 4500 },
@@ -294,7 +283,7 @@ mod tests {
         for test in tests.iter() {
             for net in NetworkType::iter() {
                 let params: Params = net.into();
-                let mut config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
+                let mut config = Config::build_default(params.target_time_per_block(), false, params.block_mass_limits);
                 config.minimum_relay_transaction_fee = test.minimum_relay_transaction_fee;
                 let counters = Arc::new(MiningCounters::default());
                 let mempool = Mempool::new(Arc::new(config), counters);
@@ -379,7 +368,7 @@ mod tests {
         for test in tests {
             for net in NetworkType::iter() {
                 let params: Params = net.into();
-                let mut config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
+                let mut config = Config::build_default(params.target_time_per_block(), false, params.block_mass_limits);
                 config.minimum_relay_transaction_fee = test.minimum_relay_transaction_fee;
                 let counters = Arc::new(MiningCounters::default());
                 let mempool = Mempool::new(Arc::new(config), counters);
@@ -436,10 +425,10 @@ mod tests {
                 is_standard: true,
             },
             Test {
-                name: "Transaction version too high",
+                name: "Transaction version above allowed",
                 mtx: new_mtx(
                     Transaction::new(
-                        TX_VERSION + 1,
+                        TX_VERSION + 2,
                         vec![dummy_tx_input.clone()],
                         vec![dummy_tx_out.clone()],
                         0,
@@ -449,7 +438,7 @@ mod tests {
                     ),
                     1000,
                 ),
-                is_standard: false,
+                is_standard: true, // check_transaction_standard_in_isolation does not check version
             },
             Test {
                 name: "Transaction size is too large",
@@ -559,7 +548,7 @@ mod tests {
         for test in tests {
             for net in NetworkType::iter() {
                 let params: Params = net.into();
-                let config = Config::build_default(params.target_time_per_block(), false, params.max_block_mass);
+                let config = Config::build_default(params.target_time_per_block(), false, params.block_mass_limits);
                 let counters = Arc::new(MiningCounters::default());
                 let mempool = Mempool::new(Arc::new(config), counters);
 
@@ -580,7 +569,7 @@ mod tests {
                         test.name, res
                     );
                 }
-                assert_eq!(res.is_ok(), test.is_standard, "ensuring transaction standard-ness is as expected");
+                assert_eq!(res.is_ok(), test.is_standard, "failed for test '{}': {:?}", test.name, res);
             }
         }
     }

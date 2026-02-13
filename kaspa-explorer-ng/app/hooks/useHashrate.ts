@@ -9,7 +9,7 @@ export const useHashrate = () =>
   useQuery({
     queryKey: ["hashrate"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/hashrate");
+      const { data } = await axios.get("https://api-tn12.kaspa.org/info/hashrate");
       return data as HashrateInfo;
     },
     refetchInterval: 20000,

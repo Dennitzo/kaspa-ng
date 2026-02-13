@@ -10,7 +10,6 @@ import PieChart from "../assets/pie_chart.svg";
 import Reward from "../assets/reward.svg";
 import Swap from "../assets/swap.svg";
 import FooterHelper from "../layout/FooterHelper";
-import { MarketDataContext } from "../context/MarketDataProvider";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useBlockReward } from "../hooks/useBlockReward";
 import { useCoinSupply } from "../hooks/useCoinSupply";
@@ -21,7 +20,7 @@ import { useIncomingBlocks } from "../hooks/useIncomingBlocks";
 import { useMempoolSize } from "../hooks/useMempoolSize";
 import dayjs from "dayjs";
 import numeral from "numeral";
-import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 export function meta() {
   return [
@@ -61,24 +60,19 @@ const formatDifficulty = (value: number) => {
 
 const formatHashrate = (valueTh: number) => {
   if (!Number.isFinite(valueTh) || valueTh <= 0) {
-    return { value: "0", unit: "TH/s" };
+    return { value: "0", unit: "H/s" };
   }
-  const units = ["TH/s", "PH/s", "EH/s", "ZH/s"];
+
+  // API returns TH/s; convert to H/s to allow downscaling to MH/s, GH/s, etc.
+  const units = ["H/s", "KH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s"];
   let unitIndex = 0;
-  let scaled = valueTh;
+  let scaled = valueTh * 1e12;
   while (scaled >= 1000 && unitIndex < units.length - 1) {
     scaled /= 1000;
     unitIndex += 1;
   }
   return { value: numeral(scaled).format("0,0.[00]"), unit: units[unitIndex] };
 };
-
-const formatUsdSignificant = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumSignificantDigits: 2,
-  }).format(value);
 
 export default function Analytics() {
   const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
@@ -89,7 +83,6 @@ export default function Analytics() {
   const { data: feeEstimate, isLoading: isLoadingFee } = useFeeEstimate();
   const { mempoolSize } = useMempoolSize();
   const { blocks, avgBlockTime, avgTxRate, transactions } = useIncomingBlocks();
-  const marketData = useContext(MarketDataContext);
   const [hideCoinbaseOnlyBlocks, setHideCoinbaseOnlyBlocks] = useState(true);
   const [hideCoinbaseTxs, setHideCoinbaseTxs] = useState(true);
   const [pauseBlocks, setPauseBlocks] = useState(false);
@@ -108,8 +101,6 @@ export default function Analytics() {
   const minedPercent = (circulatingSupply / TOTAL_SUPPLY) * 100;
   const baseFeeRate = Number(feeEstimate?.normalBuckets?.[0]?.feerate ?? NaN);
   const regularFee = Number.isFinite(baseFeeRate) ? (baseFeeRate * 2036) / 1_0000_0000 : NaN;
-  const price = Number(marketData?.price ?? NaN);
-  const regularFeeUsd = Number.isFinite(regularFee) && Number.isFinite(price) ? regularFee * price : NaN;
   const mempoolSizeValue = Number(mempoolSize) || 0;
   const [mempoolRange, setMempoolRange] = useState<{ min: number; max: number }>({ min: 0, max: 0 });
   const mempoolPercent =
@@ -322,12 +313,6 @@ export default function Analytics() {
               <span className="text-sm text-gray-500">Regular fee</span>
               <span className="font-medium">
                 {isLoadingFee || !Number.isFinite(regularFee) ? "--" : `${numeral(regularFee).format("0.00000000")} KAS`}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">Regular fee (USD)</span>
-              <span className="font-medium">
-                {isLoadingFee || !Number.isFinite(regularFeeUsd) ? "--" : formatUsdSignificant(regularFeeUsd)}
               </span>
             </div>
           </div>

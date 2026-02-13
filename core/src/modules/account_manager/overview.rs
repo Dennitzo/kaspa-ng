@@ -20,6 +20,13 @@ impl<'manager> Overview<'manager> {
         core.apply_mobile_style(ui);
 
         ui.add_space(8.);
+        if core.network() == Network::Testnet12 {
+            ui.label(
+                RichText::new(i18n("Wallet is operating on Testnet 12 (kaspatest: addresses)."))
+                    .color(theme_color().info_color),
+            );
+            ui.add_space(8.);
+        }
 
         egui::ScrollArea::vertical()
             .id_salt("overview_metrics")

@@ -33,7 +33,7 @@ const KasLink = ({ to, linkType, copy, qr, link, shorten, resolveName, mono, new
   const [showQr, setShowQr] = useState(false);
   const linkHref = linkTypeToAddress[linkType] + to;
 
-  const { data: addressNames, isLoading: isLoading } = useAddressNames();
+  const { data: addressNames, isLoading, isError } = useAddressNames();
 
   const handleClick = () => {
     navigator.clipboard.writeText(to);
@@ -50,17 +50,22 @@ const KasLink = ({ to, linkType, copy, qr, link, shorten, resolveName, mono, new
     ? to.substring(0, splitAt) + "…" + to.substring(to.length - 8)
     : to;
 
-  if (!isLoading && linkType === "address" && addressNames![to] && resolveName) {
+  const resolvedName =
+    resolveName && linkType === "address" && !isLoading && !isError
+      ? addressNames?.[to]
+      : undefined;
+
+  if (resolvedName) {
     displayValue = (
       <>
         <span className="hidden md:inline">
           <Tooltip message={to} display={TooltipDisplayMode.Hover}>
             {/*<div className="bg-accent-yellow inline-block text-alert rounded-full px-2 h-5 content-center text-center text-nowrap">*/}
-            {addressNames![to]}
+            {resolvedName}
             {/*</div>*/}
           </Tooltip>
         </span>
-        <span className="md:hidden">{addressNames![to]}</span>
+        <span className="md:hidden">{resolvedName}</span>
       </>
     );
   }

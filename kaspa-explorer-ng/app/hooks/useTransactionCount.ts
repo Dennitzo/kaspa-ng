@@ -6,7 +6,7 @@ export const useTransactionCount = () =>
     queryKey: ["transactionCount", {}],
     queryFn: async () => {
       const fetchForDate = async (date: string): Promise<TransactionCount[]> => {
-        const { data } = await axios.get<TransactionCount[]>(`https://api.kaspa.org/transactions/count/${date}`);
+        const { data } = await axios.get<TransactionCount[]>(`https://api-tn12.kaspa.org/transactions/count/${date}`);
 
         if (data && data.length > 0) {
           return data;

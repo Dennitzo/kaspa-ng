@@ -11,7 +11,7 @@ export const useHalving = () =>
   useQuery({
     queryKey: ["halving"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/halving");
+      const { data } = await axios.get("https://api-tn12.kaspa.org/info/halving");
       return data as HalvingInfo;
     },
   });

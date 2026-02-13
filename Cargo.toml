@@ -6,6 +6,7 @@ members = [
     "macros",
     "extensions/chrome",
 ]
+exclude = ["cpuminer"]
 default-members = ["app", "core"]
 
 [workspace.package]
@@ -234,6 +235,12 @@ pad = "0.1.6"
 passwords = "3.1.16"
 qrcode = "0.12.0"
 rand = "0.8.5"
+risc0-binfmt = "3.0.3"
+risc0-circuit-recursion = { version = "4.0.3", default-features = false }
+risc0-circuit-keccak = { version = "4.0.3", default-features = false }
+risc0-core = "3.0.0"
+risc0-groth16 = "3.0.3"
+risc0-zkp = "3.0.3"
 rfd = "0.14.1"
 ritehash = "0.2.0"
 rlimit = "0.10.1"
@@ -295,6 +302,12 @@ kaspa-wrpc-proxy = { path = "rusty-kaspa/rpc/wrpc/proxy" }
 kaspa-wrpc-wasm = { path = "rusty-kaspa/rpc/wrpc/wasm" }
 kaspa-wrpc-example-subscriber = { path = "rusty-kaspa/rpc/wrpc/examples/subscriber" }
 aes = "0.8.3"
+ark-bn254 = "0.5.0"
+ark-snark = "0.5.0"
+ark-groth16 = "0.5"
+ark-ec = "0.5.0"
+ark-serialize = "0.5"
+ark-relations = "0.5"
 arc-swap = "1.6.0"
 argon2 = "0.5.2"
 async-channel = "2.0.0"
@@ -304,6 +317,8 @@ base64 = "0.22.1"
 bincode = { version = "1.3.3", default-features = false }
 bitflags = "2.9.4"
 blake2b_simd = "1.0.2"
+blake3 = { version = "1.8.3", default-features = false }
+bytemuck = "1.24.0"
 bytes = "1.7.1"
 cc = "1.0.83"
 cfb-mode = "0.8.2"

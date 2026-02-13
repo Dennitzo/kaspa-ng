@@ -14,7 +14,6 @@ import Swap from "./assets/swap.svg";
 import Time from "./assets/time.svg";
 import Trophy from "./assets/trophy.svg";
 import VerifiedUser from "./assets/verified_user.svg";
-import { MarketDataContext } from "./context/MarketDataProvider";
 import SearchBox from "./header/SearchBox";
 import { useAddressBalance } from "./hooks/useAddressBalance";
 import { useAddressDistribution } from "./hooks/useAddressDistribution";
@@ -25,17 +24,16 @@ import { useBlockReward } from "./hooks/useBlockReward";
 import { useCoinSupply } from "./hooks/useCoinSupply";
 import { useHalving } from "./hooks/useHalving";
 import { useTransactionsCount } from "./hooks/useTransactionsCount";
+import { SAVED_ADDRESS_KEY } from "./utils/storage";
 import numeral from "numeral";
 import { NavLink } from "react-router";
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 const TOTAL_SUPPLY = 28_700_000_000;
-const SAVED_ADDRESS_KEY = "kaspaExplorerSavedAddress";
 
 const Dashboard = () => {
   const [search, setSearch] = useState("");
   const [savedAddress, setSavedAddress] = useState<string | null>(null);
-  const marketData = useContext(MarketDataContext);
 
   const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
   const { data: coinSupply, isLoading: isLoadingCoinSupply } = useCoinSupply();
@@ -73,14 +71,14 @@ const Dashboard = () => {
     <>
       <div className="grid grid-cols-1 md:grid-cols-[6fr_5fr] rounded-4xl bg-white px-4 py-12 sm:px-8 sm:py-10 md:ps-20 md:py-20 lg:ps-24 xl:ps-36">
         <div className="flex w-full flex-col gap-y-3 justify-center">
-          <span className="text-3xl lg:text-[54px]">Kaspa Explorer</span>
+          <span className="text-3xl lg:text-[54px]">Kaspa Explorer Testnet 12</span>
           <span className="mb-6 text-lg">
             Kaspa is the fastest, open-source, decentralized & fully scalable Layer-1 PoW network in the world.
           </span>
           <SearchBox value={search} onChange={setSearch} className="w-full py-4" />
           {savedAddress && (
             <div className="mt-6 rounded-3xl border border-gray-200 bg-white">
-              <SavedAddressCard address={savedAddress} price={Number(marketData?.price ?? 0)} />
+              <SavedAddressCard address={savedAddress} />
             </div>
           )}
         </div>
@@ -221,12 +219,11 @@ const DashboardBox = (props: DashboardBoxProps) => {
   );
 };
 
-const SavedAddressCard = ({ address, price }: { address: string; price: number }) => {
+const SavedAddressCard = ({ address }: { address: string }) => {
   const { data, isLoading: isLoadingBalance } = useAddressBalance(address);
   const { data: txCount, isLoading: isLoadingTxCount } = useAddressTxCount(address);
   const { data: utxos, isLoading: isLoadingUtxos } = useAddressUtxos(address);
   const balance = numeral((data?.balance || 0) / 1_0000_0000).format("0,0.00[000000]");
-  const usdValue = numeral(((data?.balance || 0) / 1_0000_0000) * (price || 0)).format("$0,0.00");
   const LoadingSpinner = () => <Spinner className="h-5 w-5" />;
 
   return (
@@ -257,7 +254,6 @@ const SavedAddressCard = ({ address, price }: { address: string; price: number }
       ) : (
         <LoadingSpinner />
       )}
-      {!isLoadingBalance ? <span className="ml-1 text-gray-500">{usdValue}</span> : <LoadingSpinner />}
       <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
 
       <div className="grid grid-cols-1 gap-x-14 gap-y-2 sm:grid-cols-[auto_1fr]">

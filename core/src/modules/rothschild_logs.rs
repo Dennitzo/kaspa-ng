@@ -1,18 +1,18 @@
 use crate::imports::*;
 
-pub struct RkBridgeLogs {
+pub struct RothschildLogs {
     runtime: Runtime,
 }
 
-impl RkBridgeLogs {
+impl RothschildLogs {
     pub fn new(runtime: Runtime) -> Self {
         Self { runtime }
     }
 }
 
-impl ModuleT for RkBridgeLogs {
+impl ModuleT for RothschildLogs {
     fn name(&self) -> Option<&'static str> {
-        Some("RK Bridge")
+        Some("Rothschild")
     }
 
     fn render(
@@ -26,18 +26,26 @@ impl ModuleT for RkBridgeLogs {
 
         let available_width = ui.available_width();
 
-        if !core.settings.node.stratum_bridge_enabled {
-            ui.colored_label(theme_color().warning_color, i18n("RK Bridge is disabled in Settings."));
+        if !core.settings.node.rothschild_enabled {
+            ui.colored_label(theme_color().warning_color, i18n("Rothschild is disabled in Settings."));
+            ui.add_space(8.);
+        }
+
+        if core.settings.node.node_kind.is_local() && !core.settings.node.enable_grpc {
+            ui.colored_label(
+                theme_color().warning_color,
+                i18n("Enable gRPC in Node settings to use Rothschild."),
+            );
             ui.add_space(8.);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         egui::ScrollArea::vertical()
-            .id_salt("rk_bridge_logs")
+            .id_salt("rothschild_logs")
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                for log in self.runtime.stratum_bridge_service().logs().iter() {
+                for log in self.runtime.rothschild_service().logs().iter() {
                     ui.label(RichText::from(log));
                 }
             });
@@ -56,7 +64,7 @@ impl ModuleT for RkBridgeLogs {
         {
             let logs = self
                 .runtime
-                .stratum_bridge_service()
+                .rothschild_service()
                 .logs()
                 .iter()
                 .map(|log| log.to_string())

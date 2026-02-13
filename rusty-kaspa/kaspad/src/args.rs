@@ -187,13 +187,22 @@ impl Args {
             .map(|i| {
                 (
                     TransactionOutpoint { transaction_id: i.into(), index: 0 },
-                    UtxoEntry { amount: self.prealloc_amount, script_public_key: spk.clone(), block_daa_score: 0, is_coinbase: false },
+                    UtxoEntry {
+                        amount: self.prealloc_amount,
+                        script_public_key: spk.clone(),
+                        block_daa_score: 0,
+                        is_coinbase: false,
+                        covenant_id: None,
+                    },
                 )
             })
             .collect()
     }
 
     pub fn network(&self) -> NetworkId {
+        // TODO(covpp-mainnet): Before re-enabling mainnet, resolve all comments of the format TODO(covpp-mainnet)
+        assert_ne!((self.testnet, self.devnet, self.simnet), (false, false, false), "mainnet is disabled in covpp branch");
+
         match (self.testnet, self.devnet, self.simnet) {
             (false, false, false) => NetworkId::new(NetworkType::Mainnet),
             (true, false, false) => NetworkId::with_suffix(NetworkType::Testnet, self.testnet_suffix),

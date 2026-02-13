@@ -49,12 +49,6 @@ impl Welcome {
                                 });
                             });
 
-                            match self.settings.node.network {
-                                Network::Mainnet => {
-                                    // ui.colored_label(theme_color().warning_color, i18n("Please note that this is a beta release. Until this message is removed, please avoid using the wallet with mainnet funds."));
-                                }
-                                Network::Testnet10 => { }
-                            }
                         });
                 
                 CollapsingHeader::new(i18n("Kaspa p2p Node & Connection"))

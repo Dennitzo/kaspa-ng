@@ -6,7 +6,7 @@ export const useTransactionById = (transactionId: string) =>
     queryKey: ["transaction", { transactionId }],
     queryFn: async () => {
       const { data } = await axios.get(
-        `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
+        `https://api-tn12.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
       );
       return data as TransactionData;
     },

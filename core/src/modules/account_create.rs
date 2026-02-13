@@ -78,6 +78,7 @@ struct Context {
     word_count: WordCount,
     import_mnemonic: bool,
     import_legacy: bool,
+    import_rothschild_mnemonic: bool,
     import_with_bip39_passphrase: bool,
     import_private_key_mnemonic: String,
     prv_keys: Vec<Arc<PrvKeyDataInfo>>,
@@ -89,6 +90,7 @@ impl Zeroize for Context {
         self.wallet_secret.zeroize();
         self.payment_secret.zeroize();
         self.import_private_key_mnemonic.zeroize();
+        self.import_rothschild_mnemonic = false;
     }
 }
 
@@ -243,6 +245,7 @@ impl ModuleT for AccountCreate {
                     &mut self.state,
                     &mut self.context.word_count,
                     &mut self.context.import_legacy,
+                    &mut self.context.import_rothschild_mnemonic,
                     &mut self.context.import_with_bip39_passphrase,
                     ui,
                     Some(|state: &mut State|{
@@ -450,31 +453,69 @@ impl ModuleT for AccountCreate {
 
                         let payment_secret;
 
-                        let prv_key_data_id = if args.import_mnemonic {
-                            let requires_bip39_passphrase = !args.import_legacy && args.import_with_bip39_passphrase;
-                            payment_secret = requires_bip39_passphrase.then_some(Secret::from(args.payment_secret.as_str()));
-                            let mnemonic = Secret::from(sanitize_mnemonic(args.import_private_key_mnemonic.as_str()));
-                            let key_data_name = None;
-                            let prv_key_data_args = PrvKeyDataCreateArgs::new(
-                                key_data_name,
-                                payment_secret.clone(),
-                                mnemonic,
-                                PrvKeyDataVariantKind::Mnemonic,
-                            );
-                            wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?
-                        }else{
+                        let account_create_args = if args.import_mnemonic {
+                            if args.import_rothschild_mnemonic {
+                                let mnemonic = sanitize_mnemonic(args.import_private_key_mnemonic.as_str());
+                                let parsed = Mnemonic::new(mnemonic.trim(), Language::English)?;
+                                let entropy = parsed.entropy().clone();
+                                if entropy.len() != 32 {
+                                    return Err(Error::custom("Rothschild mnemonic must be 24 words"));
+                                }
+
+                                let prv_key_data_args = PrvKeyDataCreateArgs::new(
+                                    None,
+                                    None,
+                                    Secret::from(entropy),
+                                    PrvKeyDataVariantKind::SecretKey,
+                                );
+                                let prv_key_data_id =
+                                    wallet.clone().prv_key_data_create(wallet_secret.clone(), prv_key_data_args).await?;
+                                let account_create_args = AccountCreateArgs::new_keypair_key(
+                                    prv_key_data_id,
+                                    account_name,
+                                    false,
+                                );
+                                account_create_args
+                            } else {
+                                let requires_bip39_passphrase =
+                                    !args.import_legacy && args.import_with_bip39_passphrase;
+                                payment_secret = requires_bip39_passphrase
+                                    .then_some(Secret::from(args.payment_secret.as_str()));
+                                let mnemonic =
+                                    Secret::from(sanitize_mnemonic(args.import_private_key_mnemonic.as_str()));
+                                let key_data_name = None;
+                                let prv_key_data_args = PrvKeyDataCreateArgs::new(
+                                    key_data_name,
+                                    payment_secret.clone(),
+                                    mnemonic,
+                                    PrvKeyDataVariantKind::Mnemonic,
+                                );
+                                let prv_key_data_id = wallet
+                                    .clone()
+                                    .prv_key_data_create(wallet_secret.clone(), prv_key_data_args)
+                                    .await?;
+
+                                let account_create_args = if args.import_legacy {
+                                    AccountCreateArgs::new_legacy(prv_key_data_id, account_name)
+                                } else {
+                                    AccountCreateArgs::new_bip32(prv_key_data_id, payment_secret, account_name, None)
+                                };
+                                account_create_args
+                            }
+                        } else {
                             payment_secret = args.prv_key_data_info.as_ref().and_then(|key| {
                                 key.requires_bip39_passphrase().then_some(Secret::from(args.payment_secret))
                             });
-                            *args.prv_key_data_info.as_ref().unwrap().id()
+                            let prv_key_data_id = *args.prv_key_data_info.as_ref().unwrap().id();
+                            let account_create_args = if args.import_legacy {
+                                AccountCreateArgs::new_legacy(prv_key_data_id, account_name)
+                            } else {
+                                AccountCreateArgs::new_bip32(prv_key_data_id, payment_secret, account_name, None)
+                            };
+                            account_create_args
                         };
-
-                        let account_create_args = if args.import_legacy {
-                            AccountCreateArgs::new_legacy(prv_key_data_id, account_name)
-                        }else{
-                            AccountCreateArgs::new_bip32(prv_key_data_id, payment_secret, account_name, None)
-                        };
-                        let account_descriptor = wallet.accounts_create(wallet_secret, account_create_args).await?;
+                        let account_descriptor =
+                            wallet.accounts_create(wallet_secret, account_create_args).await?;
                         Ok(account_descriptor)
                     });
                 }

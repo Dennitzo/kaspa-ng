@@ -191,80 +191,23 @@ impl Overview {
                         );
                     });
 
-                match core.settings.node.network {
-                    Network::Mainnet => {
-                        CollapsingHeader::new(i18n("Mainnet"))
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                CollapsingHeader::new(i18n("Resources"))
-                                    .default_open(true)
-                                    .show(ui, |ui| {
-                                        #[allow(unused_imports)]
-                                        use egui_phosphor::light::{YOUTUBE_LOGO,DISCORD_LOGO,TELEGRAM_LOGO,REDDIT_LOGO,CHART_SCATTER,NEWSPAPER_CLIPPING,DATABASE};
-                
-                                        ui.hyperlink_to_tab(
-                                            format!("• {DATABASE} {}",i18n("Explorer")),
-                                            "https://explorer.kaspa.org/",
-                                        );
-                                        ui.hyperlink_to_tab(
-                                            format!("• {CHART_SCATTER} {}",i18n("Statistics")),
-                                            "https://kas.fyi",
-                                        );
-                                        // ui.hyperlink_to_tab(
-                                        //     format!("• {DISCORD_LOGO} {}",i18n("Discord")),
-                                        //     "https://discord.com/invite/kS3SK5F36R",
-                                        // );
-                
-                                    });
-                                self.render_network_info(core, ui);
-                                self.render_fee_rate(core, ui);
-                            });
-                    }
-                    Network::Testnet10 => {
-                        CollapsingHeader::new(i18n("Testnet 10"))
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                CollapsingHeader::new(i18n("Resources"))
-                                    .default_open(true)
-                                    .show(ui, |ui| {
-                                        use egui_phosphor::light::{HAND_COINS,DATABASE};
-                
-                                        ui.hyperlink_to_tab(
-                                            format!("• {DATABASE} {}",i18n("Explorer")),
-                                            "https://explorer-tn10.kaspa.org/",
-                                        );
-                                        ui.hyperlink_to_tab(
-                                            format!("• {HAND_COINS} {}",i18n("Faucet")),
-                                            "https://faucet-testnet.kaspanet.io",
-                                        );
-                
-                                    });
-                                self.render_network_info(core, ui);
-                                self.render_fee_rate(core, ui);
-                            });
-                    }
-                    // Network::Testnet11 => {
-                    //     CollapsingHeader::new(i18n("Testnet 11"))
-                    //         .default_open(true)
-                    //         .show(ui, |ui| {
-                    //             CollapsingHeader::new(i18n("Resources"))
-                    //                 .default_open(true)
-                    //                 .show(ui, |ui| {
-                    //                     use egui_phosphor::light::{HAND_COINS,DATABASE};
-                
-                    //                     ui.hyperlink_to_tab(
-                    //                         format!("• {DATABASE} {}",i18n("Explorer")),
-                    //                         "https://explorer-tn11.kaspa.org/",
-                    //                     );
-                    //                     ui.hyperlink_to_tab(
-                    //                         format!("• {HAND_COINS} {}",i18n("Faucet")),
-                    //                         "https://faucet-t11.kaspanet.io",
-                    //                     );
-                    //                 });
-                    //             self.render_network_info(core, ui);
-                    //             self.render_fee_rate(core, ui);
-                    //         });
-                    // }
+                if matches!(core.settings.node.network, Network::Testnet12) {
+                    CollapsingHeader::new(i18n("Testnet 12"))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            CollapsingHeader::new(i18n("Resources"))
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    use egui_phosphor::light::DATABASE;
+
+                                    ui.hyperlink_to_tab(
+                                        format!("• {DATABASE} {}", i18n("Explorer")),
+                                        TESTNET12_EXPLORER,
+                                    );
+                                });
+                            self.render_network_info(core, ui);
+                            self.render_fee_rate(core, ui);
+                        });
                 }
 
                 CollapsingHeader::new(i18n("Developer Resources"))

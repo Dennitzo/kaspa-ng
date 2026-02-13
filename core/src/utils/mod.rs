@@ -27,6 +27,8 @@ mod mnemonic;
 pub use mnemonic::*;
 mod wallet;
 pub use wallet::*;
+mod rothschild;
+pub use rothschild::*;
 
 pub fn is_mobile() -> bool {
     use workflow_core::runtime::{is_android, is_ios};

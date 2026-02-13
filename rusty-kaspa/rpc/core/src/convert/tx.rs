@@ -17,7 +17,7 @@ impl From<&Transaction> for RpcTransaction {
             inputs: item.inputs.iter().map(RpcTransactionInput::from).collect(),
             outputs: item.outputs.iter().map(RpcTransactionOutput::from).collect(),
             lock_time: item.lock_time,
-            subnetwork_id: item.subnetwork_id.clone(),
+            subnetwork_id: item.subnetwork_id,
             gas: item.gas,
             payload: item.payload.clone(),
             mass: item.mass(),
@@ -28,7 +28,12 @@ impl From<&Transaction> for RpcTransaction {
 
 impl From<&TransactionOutput> for RpcTransactionOutput {
     fn from(item: &TransactionOutput) -> Self {
-        Self { value: item.value, script_public_key: item.script_public_key.clone(), verbose_data: None }
+        Self {
+            value: item.value,
+            script_public_key: item.script_public_key.clone(),
+            verbose_data: None,
+            covenant: item.covenant.map(Into::into),
+        }
     }
 }
 
@@ -62,7 +67,7 @@ impl TryFrom<RpcTransaction> for Transaction {
                 .map(kaspa_consensus_core::tx::TransactionOutput::try_from)
                 .collect::<RpcResult<Vec<kaspa_consensus_core::tx::TransactionOutput>>>()?,
             item.lock_time,
-            item.subnetwork_id.clone(),
+            item.subnetwork_id,
             item.gas,
             item.payload.clone(),
         );
@@ -74,7 +79,7 @@ impl TryFrom<RpcTransaction> for Transaction {
 impl TryFrom<RpcTransactionOutput> for TransactionOutput {
     type Error = RpcError;
     fn try_from(item: RpcTransactionOutput) -> RpcResult<Self> {
-        Ok(Self::new(item.value, item.script_public_key))
+        Ok(Self::with_covenant(item.value, item.script_public_key, item.covenant.map(Into::into)))
     }
 }
 
@@ -96,7 +101,7 @@ impl From<&Transaction> for RpcOptionalTransaction {
             inputs: item.inputs.iter().map(RpcOptionalTransactionInput::from).collect(),
             outputs: item.outputs.iter().map(RpcOptionalTransactionOutput::from).collect(),
             lock_time: Some(item.lock_time),
-            subnetwork_id: Some(item.subnetwork_id.clone()),
+            subnetwork_id: Some(item.subnetwork_id),
             gas: Some(item.gas),
             payload: Some(item.payload.clone()),
             mass: Some(item.mass()),
@@ -107,7 +112,12 @@ impl From<&Transaction> for RpcOptionalTransaction {
 
 impl From<&TransactionOutput> for RpcOptionalTransactionOutput {
     fn from(item: &TransactionOutput) -> Self {
-        Self { value: Some(item.value), script_public_key: Some(item.script_public_key.clone()), verbose_data: None }
+        Self {
+            value: Some(item.value),
+            script_public_key: Some(item.script_public_key.clone()),
+            verbose_data: None,
+            covenant: item.covenant.map(Into::into),
+        }
     }
 }
 

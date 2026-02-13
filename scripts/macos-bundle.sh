@@ -20,10 +20,16 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 cp "$BIN" "$MACOS_DIR/"
 
-if [ -f "${ROOT}/target/${PROFILE}/stratum-bridge" ]; then
-  cp "${ROOT}/target/${PROFILE}/stratum-bridge" "$MACOS_DIR/"
-elif [ -f "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" ]; then
-  cp "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" "$MACOS_DIR/"
+if [ -f "${ROOT}/target/${PROFILE}/kaspa-miner" ]; then
+  cp "${ROOT}/target/${PROFILE}/kaspa-miner" "$MACOS_DIR/"
+elif [ -f "${ROOT}/cpuminer/target/${PROFILE}/kaspa-miner" ]; then
+  cp "${ROOT}/cpuminer/target/${PROFILE}/kaspa-miner" "$MACOS_DIR/"
+fi
+
+if [ -f "${ROOT}/target/${PROFILE}/rothschild" ]; then
+  cp "${ROOT}/target/${PROFILE}/rothschild" "$MACOS_DIR/"
+elif [ -f "${ROOT}/rusty-kaspa/target/${PROFILE}/rothschild" ]; then
+  cp "${ROOT}/rusty-kaspa/target/${PROFILE}/rothschild" "$MACOS_DIR/"
 fi
 
 if [ -d "${ROOT}/target/${PROFILE}/kaspa-explorer-ng" ]; then

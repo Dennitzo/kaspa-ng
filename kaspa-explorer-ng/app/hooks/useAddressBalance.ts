@@ -5,7 +5,7 @@ export const useAddressBalance = (address: string) =>
   useQuery({
     queryKey: ["addresses", { address }],
     queryFn: async () => {
-      const { data } = await axios.get(`https://api.kaspa.org/addresses/${address}/balance`);
+      const { data } = await axios.get(`https://api-tn12.kaspa.org/addresses/${address}/balance`);
       return data as AddressBalance;
     },
   });

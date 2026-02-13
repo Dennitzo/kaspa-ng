@@ -206,13 +206,13 @@ pub fn outputs_hash(tx: &Transaction, hash_type: SigHashType, reused_values: &im
         }
 
         let mut hasher = TransactionSigningHash::new();
-        hash_output(&mut hasher, &tx.outputs[input_index]);
+        hash_output(&mut hasher, &tx.outputs[input_index], tx.version);
         return hasher.finalize();
     }
     let hash = || {
         let mut hasher = TransactionSigningHash::new();
         for output in tx.outputs.iter() {
-            hash_output(&mut hasher, output);
+            hash_output(&mut hasher, output, tx.version);
         }
         hasher.finalize()
     };
@@ -225,9 +225,16 @@ pub fn hash_outpoint(hasher: &mut impl Hasher, outpoint: TransactionOutpoint) {
     hasher.write_u32(outpoint.index);
 }
 
-pub fn hash_output(hasher: &mut impl Hasher, output: &TransactionOutput) {
+pub fn hash_output(hasher: &mut impl Hasher, output: &TransactionOutput, version: u16) {
     hasher.write_u64(output.value);
     hash_script_public_key(hasher, &output.script_public_key);
+
+    if version >= 1 {
+        hasher.write_bool(output.covenant.is_some());
+        if let Some(covenant) = &output.covenant {
+            hasher.write_u16(covenant.authorizing_input).update(covenant.covenant_id);
+        }
+    }
 }
 
 pub fn hash_script_public_key(hasher: &mut impl Hasher, script_public_key: &ScriptPublicKey) {
@@ -257,7 +264,7 @@ pub fn calc_schnorr_signature_hash(
         .write_u8(input.0.sig_op_count)
         .update(outputs_hash(tx, hash_type, reused_values, input_index))
         .write_u64(tx.lock_time)
-        .update(&tx.subnetwork_id)
+        .update(tx.subnetwork_id)
         .write_u64(tx.gas)
         .update(payload_hash(tx, reused_values))
         .write_u8(hash_type.to_u8());
@@ -325,8 +332,8 @@ mod tests {
                 },
             ],
             vec![
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()) },
-                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()) },
+                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()), covenant: None },
+                TransactionOutput { value: 300, script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()), covenant: None },
             ],
             1615462089000,
             SUBNETWORK_ID_NATIVE,
@@ -342,18 +349,21 @@ mod tests {
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_1.clone()),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
                 UtxoEntry {
                     amount: 200,
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
                 UtxoEntry {
                     amount: 300,
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
             ],
         );
@@ -370,18 +380,21 @@ mod tests {
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_1),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
                 UtxoEntry {
                     amount: 200,
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_2.clone()),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
                 UtxoEntry {
                     amount: 300,
                     script_public_key: ScriptPublicKey::new(0, script_pub_key_2),
                     block_daa_score: 0,
                     is_coinbase: false,
+                    covenant_id: None,
                 },
             ],
         );

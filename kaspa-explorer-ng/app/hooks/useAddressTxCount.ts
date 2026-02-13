@@ -5,7 +5,7 @@ export const useAddressTxCount = (address: string) =>
   useQuery({
     queryKey: ["txCount", { address }],
     queryFn: async () => {
-      const { data } = await axios.get(`https://api.kaspa.org/addresses/${address}/transactions-count`);
+      const { data } = await axios.get(`https://api-tn12.kaspa.org/addresses/${address}/transactions-count`);
       return data as TxCount;
     },
   });

@@ -366,37 +366,48 @@ impl NodeMemoryScale {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[serde(default)]
-pub struct StratumBridgeSettings {
-    pub stratum_port: String,
-    pub min_share_diff: u32,
-    pub var_diff: bool,
-    pub shares_per_min: u32,
-    pub var_diff_stats: bool,
-    pub pow2_clamp: bool,
-    pub block_wait_time_ms: u64,
-    pub print_stats: bool,
-    pub log_to_file: bool,
-    pub health_check_port: String,
-    pub extranonce_size: u8,
-    pub coinbase_tag_suffix: String,
+pub struct CpuMinerSettings {
+    pub mining_address: String,
+    pub kaspad_address: String,
+    pub kaspad_port: u16,
+    pub threads: u16,
+    pub mine_when_not_synced: bool,
 }
 
-impl Default for StratumBridgeSettings {
+impl Default for CpuMinerSettings {
     fn default() -> Self {
         Self {
-            stratum_port: ":5555".to_string(),
-            min_share_diff: 2048,
-            var_diff: true,
-            shares_per_min: 20,
-            var_diff_stats: true,
-            pow2_clamp: true,
-            block_wait_time_ms: 1000,
-            print_stats: true,
-            log_to_file: false,
-            health_check_port: String::new(),
-            extranonce_size: 2,
-            coinbase_tag_suffix: "KaspaNG".to_string(),
+            mining_address: String::new(),
+            kaspad_address: "127.0.0.1".to_string(),
+            kaspad_port: 16210,
+            threads: 1,
+            mine_when_not_synced: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RothschildSettings {
+    #[serde(default)]
+    pub mnemonic: String,
+    pub private_key: String,
+    #[serde(default)]
+    pub address: String,
+    pub tps: u64,
+    pub rpc_server: String,
+    pub threads: u8,
+}
+
+impl Default for RothschildSettings {
+    fn default() -> Self {
+        Self {
+            mnemonic: String::new(),
+            private_key: String::new(),
+            address: String::new(),
+            tps: 1,
+            rpc_server: "localhost:16210".to_string(),
+            threads: 1,
         }
     }
 }
@@ -429,13 +440,13 @@ pub struct NodeSettings {
     #[serde(default)]
     pub kaspad_daemon_storage_folder: String,
     #[serde(default)]
-    pub stratum_bridge: StratumBridgeSettings,
-    #[serde(default = "default_stratum_bridge_enabled")]
-    pub stratum_bridge_enabled: bool,
-}
-
-fn default_stratum_bridge_enabled() -> bool {
-    true
+    pub cpu_miner: CpuMinerSettings,
+    #[serde(default)]
+    pub cpu_miner_enabled: bool,
+    #[serde(default)]
+    pub rothschild: RothschildSettings,
+    #[serde(default)]
+    pub rothschild_enabled: bool,
 }
 
 impl Default for NodeSettings {
@@ -449,7 +460,7 @@ impl Default for NodeSettings {
             wrpc_borsh_network_interface: NetworkInterfaceConfig::default(),
             enable_wrpc_json: false,
             wrpc_json_network_interface: NetworkInterfaceConfig::default(),
-            enable_grpc: false,
+            enable_grpc: true,
             grpc_network_interface: NetworkInterfaceConfig::default(),
             enable_upnp: true,
             memory_scale: NodeMemoryScale::default(),
@@ -460,8 +471,10 @@ impl Default for NodeSettings {
             kaspad_daemon_args_enable: false,
             kaspad_daemon_storage_folder_enable: false,
             kaspad_daemon_storage_folder: String::default(),
-            stratum_bridge: StratumBridgeSettings::default(),
-            stratum_bridge_enabled: default_stratum_bridge_enabled(),
+            cpu_miner: CpuMinerSettings::default(),
+            cpu_miner_enabled: true,
+            rothschild: RothschildSettings::default(),
+            rothschild_enabled: true,
         }
     }
 }
@@ -772,17 +785,12 @@ impl Settings {
                         }
 
                         let mut migrated = false;
-                        if settings.node.stratum_bridge.coinbase_tag_suffix.is_empty() {
-                            settings.node.stratum_bridge.coinbase_tag_suffix =
-                                "KaspaNG".to_string();
+                        if settings.node.network != Network::Testnet12 {
+                            settings.node.network = Network::Testnet12;
                             migrated = true;
                         }
-                        if !settings.node.stratum_bridge.var_diff {
-                            settings.node.stratum_bridge.var_diff = true;
-                            migrated = true;
-                        }
-                        if !settings.node.stratum_bridge.var_diff_stats {
-                            settings.node.stratum_bridge.var_diff_stats = true;
+                        if !settings.node.enable_grpc {
+                            settings.node.enable_grpc = true;
                             migrated = true;
                         }
                         if settings.user_interface.explorer_port == 0 {

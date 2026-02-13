@@ -82,9 +82,12 @@ The original build was created by Federico Dossena at [https://fdossena.com/?p=m
 
 #### Solo Mining
 
-You can use the following stratum bridge to solo mine with Kaspa NG: https://github.com/rdugan/kaspa-stratum-bridge/releases
-In order to allow for mining, you need to enable gRPC interface in the Settings panel (*'Local'* if running the stratum bridge on the same machine, *'Any'* if running the stratum bridge on a different machine).
-In the stratum configuration setup kaspa_address of the machine running Kaspa NG (`127.0.0.1` if local) and use `stratum+tcp://<stratum bridge ipv4 address>:(5555)`.
+Kaspa NG uses the bundled CPU miner (`kaspa-miner`). Ensure gRPC is enabled in Settings, then run the miner against your local node.
+
+Example (Testnet 12):
+`kaspa-miner --testnet --mining-address <address> -p 16210 -t 1`
+
+See `cpuminer/README.md` for full usage details.
 
 ## License
 
