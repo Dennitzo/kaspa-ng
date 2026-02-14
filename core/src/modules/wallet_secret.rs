@@ -235,7 +235,6 @@ impl ModuleT for WalletSecret {
                             ui.label(" ");
                             ui.label(RichText::new(i18n("Secrets do not match")).color(error_color()));
                             ui.label(" ");
-                            allow = false;
                         } else {
                             ui.label(" ");
                         }

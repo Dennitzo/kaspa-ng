@@ -92,10 +92,15 @@ jobs:
           mkdir -p dist
           if [ "$RUNNER_OS" = "macOS" ]; then
             cp target/release/kaspa-ng dist/
-            if [ -f target/release/stratum-bridge ]; then
-              cp target/release/stratum-bridge dist/
-            elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-              cp rusty-kaspa/target/release/stratum-bridge dist/
+            if [ -f target/release/kaspa-miner ]; then
+              cp target/release/kaspa-miner dist/
+            elif [ -f cpuminer/target/release/kaspa-miner ]; then
+              cp cpuminer/target/release/kaspa-miner dist/
+            fi
+            if [ -f target/release/rothschild ]; then
+              cp target/release/rothschild dist/
+            elif [ -f rusty-kaspa/target/release/rothschild ]; then
+              cp rusty-kaspa/target/release/rothschild dist/
             fi
             if [ -d target/release/kaspa-explorer-ng ]; then
               cp -r target/release/kaspa-explorer-ng dist/
@@ -105,10 +110,15 @@ jobs:
             fi
           else
             cp target/release/kaspa-ng dist/
-            if [ -f target/release/stratum-bridge ]; then
-              cp target/release/stratum-bridge dist/
-            elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-              cp rusty-kaspa/target/release/stratum-bridge dist/
+            if [ -f target/release/kaspa-miner ]; then
+              cp target/release/kaspa-miner dist/
+            elif [ -f cpuminer/target/release/kaspa-miner ]; then
+              cp cpuminer/target/release/kaspa-miner dist/
+            fi
+            if [ -f target/release/rothschild ]; then
+              cp target/release/rothschild dist/
+            elif [ -f rusty-kaspa/target/release/rothschild ]; then
+              cp rusty-kaspa/target/release/rothschild dist/
             fi
             if [ -d target/release/kaspa-explorer-ng ]; then
               cp -r target/release/kaspa-explorer-ng dist/
@@ -132,8 +142,15 @@ jobs:
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path dist | Out-Null
           Copy-Item target\release\kaspa-ng.exe dist\
-          if (Test-Path rusty-kaspa\target\release\stratum-bridge.exe) {
-            Copy-Item rusty-kaspa\target\release\stratum-bridge.exe dist\
+          if (Test-Path target\release\kaspa-miner.exe) {
+            Copy-Item target\release\kaspa-miner.exe dist\
+          } elseif (Test-Path cpuminer\target\release\kaspa-miner.exe) {
+            Copy-Item cpuminer\target\release\kaspa-miner.exe dist\
+          }
+          if (Test-Path target\release\rothschild.exe) {
+            Copy-Item target\release\rothschild.exe dist\
+          } elseif (Test-Path rusty-kaspa\target\release\rothschild.exe) {
+            Copy-Item rusty-kaspa\target\release\rothschild.exe dist\
           }
           if (Test-Path kaspa-explorer-ng\build) {
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null

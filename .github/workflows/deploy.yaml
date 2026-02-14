@@ -122,10 +122,15 @@ jobs:
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge "$ROOT/"
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
+          if [ -f target/release/kaspa-miner ]; then
+            cp target/release/kaspa-miner "$ROOT/"
+          elif [ -f cpuminer/target/release/kaspa-miner ]; then
+            cp cpuminer/target/release/kaspa-miner "$ROOT/"
+          fi
+          if [ -f target/release/rothschild ]; then
+            cp target/release/rothschild "$ROOT/"
+          elif [ -f rusty-kaspa/target/release/rothschild ]; then
+            cp rusty-kaspa/target/release/rothschild "$ROOT/"
           fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
@@ -147,12 +152,19 @@ jobs:
           cp target/release/kaspa-ng .debpkg/usr/bin/
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64 || true
           cp target/release/kaspa-ng kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-            cp target/release/stratum-bridge .debpkg/usr/bin/
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-            cp rusty-kaspa/target/release/stratum-bridge .debpkg/usr/bin/
+          if [ -f target/release/kaspa-miner ]; then
+            cp target/release/kaspa-miner kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp target/release/kaspa-miner .debpkg/usr/bin/
+          elif [ -f cpuminer/target/release/kaspa-miner ]; then
+            cp cpuminer/target/release/kaspa-miner kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp cpuminer/target/release/kaspa-miner .debpkg/usr/bin/
+          fi
+          if [ -f target/release/rothschild ]; then
+            cp target/release/rothschild kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp target/release/rothschild .debpkg/usr/bin/
+          elif [ -f rusty-kaspa/target/release/rothschild ]; then
+            cp rusty-kaspa/target/release/rothschild kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp rusty-kaspa/target/release/rothschild .debpkg/usr/bin/
           fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
