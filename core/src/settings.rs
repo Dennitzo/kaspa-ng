@@ -798,6 +798,49 @@ impl Settings {
                             settings.user_interface.explorer_port = 51964;
                             migrated = true;
                         }
+                        if settings.node.rothschild.private_key.trim().is_empty() {
+                            let (private_key, address) =
+                                generate_rothschild_credentials(settings.node.network);
+                            settings.node.rothschild.private_key = private_key;
+                            settings.node.rothschild.address = address;
+                            if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                &settings.node.rothschild.private_key,
+                            ) {
+                                settings.node.rothschild.mnemonic = mnemonic;
+                            }
+                            if settings.node.cpu_miner.mining_address.trim().is_empty() {
+                                settings.node.cpu_miner.mining_address =
+                                    settings.node.rothschild.address.clone();
+                            }
+                            migrated = true;
+                        } else {
+                            if settings.node.rothschild.address.trim().is_empty() {
+                                if let Ok(address) = rothschild_address_from_private_key(
+                                    settings.node.network,
+                                    &settings.node.rothschild.private_key,
+                                ) {
+                                    settings.node.rothschild.address = address;
+                                    migrated = true;
+                                }
+                            }
+                            if settings.node.rothschild.mnemonic.trim().is_empty()
+                                && settings.node.rothschild.private_key.trim().is_not_empty()
+                            {
+                                if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                    &settings.node.rothschild.private_key,
+                                ) {
+                                    settings.node.rothschild.mnemonic = mnemonic;
+                                    migrated = true;
+                                }
+                            }
+                            if settings.node.cpu_miner.mining_address.trim().is_empty()
+                                && settings.node.rothschild.address.trim().is_not_empty()
+                            {
+                                settings.node.cpu_miner.mining_address =
+                                    settings.node.rothschild.address.clone();
+                                migrated = true;
+                            }
+                        }
                         if migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() migration store error: {}", err);
