@@ -650,7 +650,7 @@ impl Settings {
                             self.runtime
                                 .cpu_miner_service()
                                 .enable(enabled, &core.settings.node.cpu_miner);
-                            core.store_settings();
+                            core.settings.store_sync().unwrap();
                         }
 
                         ui.add_space(6.);
@@ -707,7 +707,7 @@ impl Settings {
                             self.runtime
                                 .cpu_miner_service()
                                 .update_settings(&core.settings.node.cpu_miner);
-                            core.store_settings();
+                            core.settings.store_sync().unwrap();
                         }
                     });
 
@@ -795,7 +795,7 @@ impl Settings {
                             self.runtime
                                 .rothschild_service()
                                 .enable(enabled, &core.settings.node.rothschild);
-                            core.store_settings();
+                            core.settings.store_sync().unwrap();
 
                             if enabled && core.wallet_list().is_empty() {
                                 core.select::<modules::WalletCreate>();
@@ -921,7 +921,7 @@ impl Settings {
                                     .update_settings(&core.settings.node.cpu_miner);
                             }
 
-                            core.store_settings();
+                            core.settings.store_sync().unwrap();
                         }
                     });
 

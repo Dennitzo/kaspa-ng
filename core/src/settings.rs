@@ -739,7 +739,8 @@ impl Default for Settings {
 impl Settings {}
 
 fn storage() -> Result<Storage> {
-    Ok(Storage::try_new("kaspa-ng.settings")?)
+    // Keep testnet-12 settings isolated from mainnet settings.
+    Ok(Storage::try_new("kaspa-ng.tn12.settings")?)
 }
 
 impl Settings {
