@@ -127,7 +127,6 @@ impl ModuleT for WalletSecret {
 
                 let back = Rc::new(RefCell::new(false));
                 let mut submit = false;
-                let mut allow = true;
                 // let mut back = false;
 
                 Panel::new(self)
