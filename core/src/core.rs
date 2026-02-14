@@ -273,8 +273,7 @@ impl Core {
                 crate::runtime::services::kaspa::update_logs_flag()
                     .store(type_id == TypeId::of::<modules::Logs>(), Ordering::Relaxed);
                 crate::runtime::services::stratum_bridge::update_logs_flag().store(
-                    type_id == TypeId::of::<modules::RkBridgeLogs>()
-                        || type_id == TypeId::of::<modules::RkBlocks>(),
+                    type_id == TypeId::of::<modules::RkBridgeLogs>(),
                     Ordering::Relaxed,
                 );
             }

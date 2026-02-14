@@ -117,6 +117,7 @@ pub struct WorkStats {
     pub stale_shares: Arc<Mutex<i64>>,
     pub invalid_shares: Arc<Mutex<i64>>,
     pub worker_name: Arc<Mutex<String>>,
+    pub wallet_addr: Arc<Mutex<String>>,
     pub start_time: Instant,
     pub last_share: Arc<Mutex<Instant>>,
     pub var_diff_start_time: Arc<Mutex<Option<Instant>>>,
@@ -134,6 +135,7 @@ impl WorkStats {
             stale_shares: Arc::new(Mutex::new(0)),
             invalid_shares: Arc::new(Mutex::new(0)),
             worker_name: Arc::new(Mutex::new(worker_name)),
+            wallet_addr: Arc::new(Mutex::new(String::new())),
             start_time: Instant::now(),
             last_share: Arc::new(Mutex::new(Instant::now())),
             var_diff_start_time: Arc::new(Mutex::new(None)),
@@ -250,6 +252,13 @@ impl ShareHandler {
         };
 
         if let Some(stats) = stats_map.get(&worker_id) {
+            let wallet_addr = ctx.wallet_addr.lock().clone();
+            if !wallet_addr.is_empty() {
+                let mut stored_wallet = stats.wallet_addr.lock();
+                if stored_wallet.is_empty() {
+                    *stored_wallet = wallet_addr;
+                }
+            }
             return stats.clone();
         }
 
@@ -259,6 +268,9 @@ impl ShareHandler {
 
         // Initialize worker counters
         let wallet_addr = ctx.wallet_addr.lock().clone();
+        if !wallet_addr.is_empty() {
+            *stats.wallet_addr.lock() = wallet_addr.clone();
+        }
         let worker_name = stats.worker_name.lock().clone();
         init_worker_counters(&crate::prom::WorkerContext {
             instance_id: self.instance_id.clone(),
@@ -1174,6 +1186,31 @@ impl ShareHandler {
                 if s.len() <= max { Cow::Borrowed(s) } else { Cow::Owned(s.chars().take(max).collect()) }
             }
 
+            fn shorten_wallet(value: &str) -> String {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    return "-".to_string();
+                }
+
+                let (prefix, body) = if let Some(rest) = trimmed.strip_prefix("kaspa:") {
+                    ("kaspa:", rest)
+                } else if let Some(rest) = trimmed.strip_prefix("kaspatest:") {
+                    ("kaspatest:", rest)
+                } else {
+                    ("", trimmed)
+                };
+
+                let body = body.trim();
+                let len = body.chars().count();
+                if len <= 8 {
+                    return format!("{prefix}{body}");
+                }
+
+                let start: String = body.chars().take(4).collect();
+                let end: String = body.chars().rev().take(4).collect::<String>().chars().rev().collect();
+                format!("{prefix}{start}...{end}")
+            }
+
             fn format_uptime(d: Duration) -> String {
                 let total_secs = d.as_secs();
                 let days = total_secs / 86_400;
@@ -1184,7 +1221,7 @@ impl ShareHandler {
             }
 
             const WORKER_W: usize = 16;
-            const INST_W: usize = 5;
+            const WALLET_W: usize = 21;
             const HASH_W: usize = 11;
             const DIFF_W: usize = 6;
             const SPM_W: usize = 11;
@@ -1197,7 +1234,7 @@ impl ShareHandler {
                 format!(
                     "+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+",
                     "-".repeat(WORKER_W),
-                    "-".repeat(INST_W),
+                    "-".repeat(WALLET_W),
                     "-".repeat(HASH_W),
                     "-".repeat(DIFF_W),
                     "-".repeat(SPM_W),
@@ -1210,8 +1247,8 @@ impl ShareHandler {
 
             fn header() -> String {
                 format!(
-                    "| {:<WORKER_W$} | {:<INST_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
-                    "Worker", "Inst", "Hash", "Diff", "SPM|TGT", "Trnd", "Acc|Stl|Inv", "Blocks", "D|HR|M|S",
+                    "| {:<WORKER_W$} | {:<WALLET_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
+                    "Worker", "Wallet", "Hash", "Diff", "SPM|TGT", "Trnd", "Acc|Stl|Inv", "Blocks", "D|HR|M|S",
                 )
             }
 
@@ -1287,13 +1324,15 @@ impl ShareHandler {
                         };
 
                         let worker = v.worker_name.lock().clone();
+                        let wallet_addr = v.wallet_addr.lock().clone();
+                        let wallet_short = shorten_wallet(&wallet_addr);
 
                         let spm_tgt = format!("{:>4.1}/{:<4.1}", spm, *target_spm);
 
                         let line = format!(
-                            "| {:<WORKER_W$} | {:<INST_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
+                            "| {:<WORKER_W$} | {:<WALLET_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
                             trunc(&worker, WORKER_W),
-                            inst_short,
+                            trunc(&wallet_short, WALLET_W),
                             format_hashrate(rate),
                             min_diff.round() as u64,
                             spm_tgt,
@@ -1379,7 +1418,7 @@ impl ShareHandler {
                 };
 
                 out.push(format!(
-                    "| {:<WORKER_W$} | {:<INST_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
+                    "| {:<WORKER_W$} | {:<WALLET_W$} | {:>HASH_W$} | {:>DIFF_W$} | {:>SPM_W$} | {:<TRND_W$} | {:>ACC_W$} | {:>BLK_W$} | {:>TIME_W$} |",
                     "TOTAL",
                     "ALL",
                     format_hashrate(total_rate),

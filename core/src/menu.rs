@@ -517,19 +517,6 @@ impl<'core> Menu<'core> {
                     self.select::<modules::RkBridgeLogs>();
                     ui.close_menu();
                 }
-
-                ui.separator();
-                if self
-                    .menu_tab_button(
-                        ui,
-                        i18n("Blocks"),
-                        active == TypeId::of::<modules::RkBlocks>(),
-                    )
-                    .clicked()
-                {
-                    self.select::<modules::RkBlocks>();
-                    ui.close_menu();
-                }
             }
         }
     }

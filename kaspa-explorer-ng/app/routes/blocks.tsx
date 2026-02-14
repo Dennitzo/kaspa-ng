@@ -1,4 +1,3 @@
-import KasLink from "../KasLink";
 import PageTable from "../PageTable";
 import Box from "../assets/box.svg";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
@@ -59,6 +58,12 @@ export default function Blocks() {
     ? ""
     : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
+  const formatBlockTimestamp = (timestamp: string) => {
+    const raw = Number(timestamp);
+    if (!Number.isFinite(raw) || raw <= 0) return "--";
+    const ms = raw < 1_000_000_000_000 ? raw * 1000 : raw;
+    return dayjs(ms).format("YYYY-MM-DD HH:mm:ss");
+  };
 
   return (
     <>
@@ -91,8 +96,8 @@ export default function Blocks() {
           additionalClassNames={{ 1: "overflow-hidden " }}
           rowKeys={displayedBlocks.map((block) => block.block_hash)}
           rows={displayedBlocks.map((block) => [
-            dayjs(parseInt(block.timestamp)).format("HH:mm:ss"),
-            <KasLink linkType="block" link to={block.block_hash} mono />,
+            formatBlockTimestamp(block.timestamp),
+            <span className="font-mono">{block.block_hash}</span>,
             block.blueScore,
             block.txCount,
           ])}

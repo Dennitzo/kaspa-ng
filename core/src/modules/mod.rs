@@ -26,7 +26,7 @@ kaspa_ng_macros::register_modules!(
 #[cfg(not(target_arch = "wasm32"))]
 kaspa_ng_macros::register_modules!(
     register_native_modules,
-    [changelog, explorer, logs, rk_bridge_logs, rk_blocks, node,]
+    [changelog, explorer, logs, rk_bridge_logs, node,]
 );
 
 #[cfg(not(feature = "lean"))]
