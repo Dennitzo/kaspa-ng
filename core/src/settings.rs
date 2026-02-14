@@ -618,7 +618,7 @@ impl Default for UserInterfaceSettings {
             balance_padding: true,
             disable_frame: true,
             explorer_last_path: "/".to_string(),
-            explorer_port: 51963,
+            explorer_port: 51964,
         }
     }
 }
@@ -794,7 +794,7 @@ impl Settings {
                             migrated = true;
                         }
                         if settings.user_interface.explorer_port == 0 {
-                            settings.user_interface.explorer_port = 51963;
+                            settings.user_interface.explorer_port = 51964;
                             migrated = true;
                         }
                         if migrated {

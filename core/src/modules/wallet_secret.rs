@@ -227,8 +227,7 @@ impl ModuleT for WalletSecret {
                         if let Some(score) = this.context.new_wallet_secret_score {
                             ui.label("");
                             render_secret_score_text(ui, i18n("Secret score:"), score);
-                            if score < 80.0 && !core.settings.developer.password_restrictions_disabled() {
-                                allow = false;
+                            if score < 80.0 {
                                 ui.label(RichText::new(i18n("Please enter a stronger secret")).color(error_color()));
                             }
                             ui.label("");

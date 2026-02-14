@@ -31,7 +31,7 @@ pub fn rothschild_address_from_private_key(
         Vec::from_hex(private_key_hex.trim()).map_err(|err| Error::custom(err.to_string()))?;
     let secret_key = secp256k1::SecretKey::from_slice(&key_bytes)
         .map_err(|err| Error::custom(err.to_string()))?;
-    let public_key = secp256k1::PublicKey::from_secret_key(&secp256k1::SECP256K1, &secret_key);
+    let public_key = secp256k1::PublicKey::from_secret_key(secp256k1::SECP256K1, &secret_key);
     let (xonly_public_key, _) = public_key.x_only_public_key();
     let address = Address::new(prefix, Version::PubKey, &xonly_public_key.serialize());
 

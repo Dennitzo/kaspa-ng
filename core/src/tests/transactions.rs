@@ -44,14 +44,8 @@ fn test_generic_transaction_mass() {
             },
         ],
         vec![
-            TransactionOutput {
-                value: 300,
-                script_public_key: script_public_key.clone(),
-            },
-            TransactionOutput {
-                value: 300,
-                script_public_key,
-            },
+            TransactionOutput::new(300, script_public_key.clone()),
+            TransactionOutput::new(300, script_public_key),
         ],
         0,
         kaspa_consensus_core::subnets::SUBNETWORK_ID_COINBASE,

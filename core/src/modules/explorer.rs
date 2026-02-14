@@ -13,7 +13,7 @@ use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebV
 #[cfg(not(target_arch = "wasm32"))]
 const EXPLORER_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
-const DEFAULT_EXPLORER_PORT: u16 = 51963;
+const DEFAULT_EXPLORER_PORT: u16 = 51964;
 #[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_COPY_JS: &str = r#"
 (() => {
