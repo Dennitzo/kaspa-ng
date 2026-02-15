@@ -28,6 +28,10 @@ impl ModuleT for CpuMinerLogs {
 
         if !core.settings.node.cpu_miner_enabled {
             ui.colored_label(theme_color().warning_color, i18n("CPU Miner is disabled in Settings."));
+            ui.colored_label(
+                theme_color().info_color,
+                i18n("Please enable it in Settings only after the node is fully synced."),
+            );
             ui.add_space(8.);
         }
 

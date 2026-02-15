@@ -642,6 +642,11 @@ impl Settings {
                                 theme_color().warning_color,
                                 i18n("Enable gRPC in Node settings to use CPU Miner."),
                             );
+                        } else {
+                            ui.colored_label(
+                                theme_color().info_color,
+                                i18n("Please enable it only after the node is fully synced."),
+                            );
                         }
 
                         if response.changed() {
@@ -697,9 +702,7 @@ impl Settings {
                                     .changed();
                                 ui.end_row();
 
-                                ui.label(i18n("Mine When Not Synced"));
-                                changed |= ui.checkbox(&mut miner.mine_when_not_synced, i18n("Enabled")).changed();
-                                ui.end_row();
+                                // Removed "Mine When Not Synced" option from Settings UI.
                             });
 
                         if changed {
@@ -732,6 +735,11 @@ impl Settings {
                             ui.colored_label(
                                 theme_color().warning_color,
                                 i18n("Enable gRPC in Node settings to use Rothschild."),
+                            );
+                        } else {
+                            ui.colored_label(
+                                theme_color().info_color,
+                                i18n("Please enable it only after the node is fully synced."),
                             );
                         }
 

@@ -28,6 +28,10 @@ impl ModuleT for RothschildLogs {
 
         if !core.settings.node.rothschild_enabled {
             ui.colored_label(theme_color().warning_color, i18n("Rothschild is disabled in Settings."));
+            ui.colored_label(
+                theme_color().info_color,
+                i18n("Please enable it in Settings only after the node is fully synced."),
+            );
             ui.add_space(8.);
         }
 
