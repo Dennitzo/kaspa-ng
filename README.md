@@ -34,10 +34,13 @@ To build this project, you need to be able to build Rusty Kaspa. If you have not
 
 In addition, on linux, you need to install the following dependencies:
 
-#### Ubuntu/Debian:
+#### Ubuntu/Debian/Mint:
 ```bash
 sudo apt-get update
-sudo apt-get install libglib2.0-dev libatk1.0-dev libgtk-3-dev librust-atk-dev
+sudo apt-get install \
+  libglib2.0-dev libatk1.0-dev libgtk-3-dev librust-atk-dev \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+  libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
 ```
 
 #### Fedora:

@@ -139,5 +139,6 @@ eframe = { workspace = true, default-features = false, features = [
     # "wgpu",          # Use the glow rendering backend. Alternative: "wgpu".
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
-    "wayland"
+    "wayland",
+    "x11"
 ] }
