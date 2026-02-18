@@ -38,14 +38,14 @@ In addition, on linux, you need to install the following dependencies:
 ```bash
 sudo apt-get update
 sudo apt-get install \
-  libglib2.0-dev libatk1.0-dev libgtk-3-dev librust-atk-dev \
+  libglib2.0-dev libatk1.0-dev libgtk-3-dev libwebkit2gtk-4.0-dev pkg-config \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
   libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
 ```
 
 #### Fedora:
 ```bash
-sudo dnf install glib2-devel atk-devel gtk3-devel
+sudo dnf install glib2-devel atk-devel gtk3-devel webkit2gtk4.0-devel pkgconf-pkg-config
 ```
 
 Once you have Rusty Kaspa built, you will be able to build and run this project as follows:
