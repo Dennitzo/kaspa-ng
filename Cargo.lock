@@ -4817,6 +4817,7 @@ dependencies = [
  "epaint",
  "futures",
  "futures-util",
+ "gtk",
  "image 0.24.9",
  "js-sys",
  "kaspa-addresses",
