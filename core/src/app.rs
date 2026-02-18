@@ -2,14 +2,14 @@ use crate::events::ApplicationEventsChannel;
 use crate::interop::Adaptor;
 use crate::result::Result;
 use cfg_if::cfg_if;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use gtk;
 use kaspa_ng_core::runtime;
 use kaspa_ng_core::settings::Settings;
 use kaspa_wallet_core::api::WalletApi;
 use std::sync::Arc;
 use workflow_i18n::*;
 use workflow_log::*;
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-use gtk;
 
 // pub const KASPA_NG_ICON_SVG: &[u8] = include_bytes!("../../resources/images/kaspa.svg");
 pub const KASPA_NG_ICON_SVG: &[u8] = include_bytes!("../resources/images/kaspa-node-dark.svg");
