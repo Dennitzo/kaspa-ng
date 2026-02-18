@@ -266,6 +266,7 @@ impl ModuleT for Explorer {
                         .build_as_child(frame)
                     {
                         Ok(webview) => {
+                            let _ = webview.set_visible(true);
                             let _ = webview.focus();
                             self.webview = Some(webview);
                             self.last_bounds = Some(bounds);
