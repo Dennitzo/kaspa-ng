@@ -126,10 +126,10 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 "#;
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-static GTK_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+static GTK_INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-fn ensure_gtk_initialized() -> Result<(), String> {
+fn ensure_gtk_initialized() -> std::result::Result<(), String> {
     GTK_INIT
         .get_or_init(|| gtk::init().map_err(|err| format!("GTK init failed: {err}")))
         .clone()
@@ -251,7 +251,7 @@ impl ModuleT for Explorer {
                 if self.webview.is_none() {
                     #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
                     if let Err(err) = ensure_gtk_initialized() {
-                        self.status = Some(err);
+                        self.status = Some(err.to_string());
                         return;
                     }
 
