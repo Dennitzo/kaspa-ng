@@ -125,8 +125,7 @@ local-ip-address = "0.6.3"
 eframe = { workspace = true, default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
-    # "wgpu",          # Use the glow rendering backend. Alternative: "wgpu".
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    "wgpu",          # Use the wgpu rendering backend.
     "persistence",   # Enable restoring app state when restarting the app.
     "wayland",
     "x11"
