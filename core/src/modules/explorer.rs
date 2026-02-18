@@ -6,13 +6,9 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebViewBuilder};
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-use gtk;
 
 #[cfg(not(target_arch = "wasm32"))]
 const EXPLORER_HOST: &str = "127.0.0.1";
@@ -125,14 +121,14 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 })();
 "#;
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-static GTK_INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+use open;
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-fn ensure_gtk_initialized() -> std::result::Result<(), String> {
-    GTK_INIT
-        .get_or_init(|| gtk::init().map_err(|err| format!("GTK init failed: {err}")))
-        .clone()
+fn embedded_explorer_enabled() -> bool {
+    std::env::var("KASPA_NG_EMBEDDED_EXPLORER")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 
@@ -233,6 +229,21 @@ impl ModuleT for Explorer {
             }
 
             if let Some(server) = &self.server {
+                #[cfg(target_os = "linux")]
+                if !embedded_explorer_enabled() {
+                    let start_url =
+                        explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
+                    ui.label(i18n(
+                        "Embedded Explorer is disabled on Linux to avoid black-screen issues.",
+                    ));
+                    if ui.button(i18n("Open Explorer in Browser")).clicked() {
+                        if let Err(err) = open::that(start_url.as_str()) {
+                            self.status = Some(format!("Explorer open error: {err}"));
+                        }
+                    }
+                    return;
+                }
+
                 let available_rect = ui.available_rect_before_wrap();
                 ui.allocate_rect(available_rect, Sense::hover());
 
@@ -250,12 +261,6 @@ impl ModuleT for Explorer {
                 };
 
                 if self.webview.is_none() {
-                    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-                    if let Err(err) = ensure_gtk_initialized() {
-                        self.status = Some(err.to_string());
-                        return;
-                    }
-
                     let start_url = explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())

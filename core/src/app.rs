@@ -2,8 +2,6 @@ use crate::events::ApplicationEventsChannel;
 use crate::interop::Adaptor;
 use crate::result::Result;
 use cfg_if::cfg_if;
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-use gtk;
 use kaspa_ng_core::runtime;
 use kaspa_ng_core::settings::Settings;
 use kaspa_wallet_core::api::WalletApi;
@@ -29,13 +27,6 @@ pub const RUSTC_SEMVER: &str = env!("VERGEN_RUSTC_SEMVER");
 pub const CARGO_TARGET_TRIPLE: &str = env!("VERGEN_CARGO_TARGET_TRIPLE");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const CODENAME: &str = "DNA";
-
-#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-fn embedded_explorer_forced() -> bool {
-    std::env::var("KASPA_NG_EMBEDDED_EXPLORER")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(true)
-}
 
 #[derive(Default, Clone)]
 pub struct ApplicationContext {
@@ -263,25 +254,7 @@ cfg_if! {
                     let runtime: Arc<Mutex<Option<runtime::Runtime>>> = Arc::new(Mutex::new(None));
                     let delegate = runtime.clone();
 
-                    let window_frame = {
-                        #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-                        {
-                            if embedded_explorer_forced() {
-                                false
-                            } else {
-                                !settings.user_interface.disable_frame
-                            }
-                        }
-                        #[cfg(not(all(not(target_arch = "wasm32"), target_os = "linux")))]
-                        {
-                            !settings.user_interface.disable_frame
-                        }
-                    };
-
-                    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-                    if let Err(err) = gtk::init() {
-                        log_warn!("GTK init failed: {err}");
-                    }
+                    let window_frame = !settings.user_interface.disable_frame;
 
                     let mut viewport = egui::ViewportBuilder::default()
                         .with_resizable(true)

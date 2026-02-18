@@ -120,12 +120,12 @@ tokio.workspace = true
 wry = { git = "https://github.com/tauri-apps/wry", tag = "wry-v0.54.1" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
 local-ip-address = "0.6.3"
 eframe = { workspace = true, default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
-    "wgpu",          # Use the wgpu rendering backend.
+    # "wgpu",          # Use the glow rendering backend. Alternative: "wgpu".
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
     "wayland",
     "x11"
