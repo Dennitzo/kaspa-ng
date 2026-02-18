@@ -6,9 +6,13 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebViewBuilder};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use gtk;
 
 #[cfg(not(target_arch = "wasm32"))]
 const EXPLORER_HOST: &str = "127.0.0.1";
@@ -120,6 +124,16 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
   }, true);
 })();
 "#;
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+static GTK_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn ensure_gtk_initialized() -> Result<(), String> {
+    GTK_INIT
+        .get_or_init(|| gtk::init().map_err(|err| format!("GTK init failed: {err}")))
+        .clone()
+}
 
 pub struct Explorer {
     #[allow(dead_code)]
@@ -235,6 +249,12 @@ impl ModuleT for Explorer {
                 };
 
                 if self.webview.is_none() {
+                    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+                    if let Err(err) = ensure_gtk_initialized() {
+                        self.status = Some(err);
+                        return;
+                    }
+
                     let start_url = explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
