@@ -6,6 +6,8 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebViewBuilder};
@@ -129,6 +131,16 @@ fn embedded_explorer_enabled() -> bool {
         .unwrap_or(true)
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn ensure_gtk_initialized() -> Result<(), String> {
+    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
+    let result = INIT.get_or_init(|| gtk::init().map_err(|err| format!("{err}")));
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => Err(err.clone()),
+    }
+}
+
 
 pub struct Explorer {
     #[allow(dead_code)]
@@ -226,6 +238,18 @@ impl ModuleT for Explorer {
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         {
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(err) = ensure_gtk_initialized() {
+                    self.status = Some(format!("GTK init failed: {err}"));
+                    ui.colored_label(theme_color().error_color, i18n("Explorer is unavailable."));
+                    return;
+                }
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+            }
+
             if let Some(status) = &self.status {
                 ui.colored_label(theme_color().error_color, status);
             }

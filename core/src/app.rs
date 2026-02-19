@@ -289,7 +289,9 @@ cfg_if! {
                     #[cfg(target_os = "linux")]
                     {
                         gdk::init();
-                        let _ = gtk::init();
+                        if let Err(err) = gtk::init() {
+                            log_warn!("GTK init failed: {err}");
+                        }
                     }
 
                     // let application_events = ApplicationEventsChannel::unbounded();
