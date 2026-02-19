@@ -1,5 +1,6 @@
 import PageTable from "../PageTable";
 import Box from "../assets/box.svg";
+import KasLink from "../KasLink";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useBlockReward } from "../hooks/useBlockReward";
 import { type Block, useIncomingBlocks } from "../hooks/useIncomingBlocks";
@@ -122,7 +123,7 @@ export default function Blocks() {
           rowKeys={displayedBlocks.map((block) => block.block_hash)}
           rows={displayedBlocks.map((block) => [
             formatBlockTimestamp(block.timestamp),
-            <span className="font-mono">{block.block_hash}</span>,
+            <KasLink linkType="block" link to={block.block_hash} mono shorten />,
             block.blueScore,
             block.txCount,
           ])}

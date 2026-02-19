@@ -23,9 +23,21 @@ export const useTransactionById = (transactionId: string) =>
       }
     },
     enabled: !!transactionId,
-    retry: 3,
-    retryDelay: 2000,
+    retry: (failureCount, error) => {
+      if (error instanceof Error && error.message.startsWith("API 404")) {
+        return failureCount < 15;
+      }
+      return failureCount < 3;
+    },
+    retryDelay: 3000,
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => {
+      const err = query.state.error;
+      if (err instanceof Error && err.message.startsWith("API 404")) {
+        return 5000;
+      }
+      return false;
+    },
     staleTime: 10_000,
     cacheTime: 60_000,
   });

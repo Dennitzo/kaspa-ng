@@ -58,6 +58,7 @@ jobs:
 
       - name: Prepare error summary
         if: failure()
+        shell: bash
         run: |
           set -e
           mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -158,6 +159,7 @@ jobs:
 
       - name: Prepare error summary
         if: failure()
+        shell: bash
         run: |
           set -e
           mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -239,6 +241,7 @@ jobs:
 
       - name: Prepare error summary
         if: failure()
+        shell: bash
         run: |
           set -e
           mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -353,6 +356,7 @@ jobs:
 
       - name: Prepare error summary
         if: failure()
+        shell: bash
         run: |
           set -e
           mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -610,6 +614,7 @@ jobs:
 
       - name: Prepare error summary
         if: failure()
+        shell: bash
         run: |
           set -e
           mkdir -p "${{ env.CI_LOG_DIR }}"

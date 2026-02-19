@@ -87,6 +87,21 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
 
   // type guard transaction
   if (isError || !transaction) {
+    if (error instanceof Error && error.message.startsWith("API 404")) {
+      return (
+        <LoadingMessage>
+          Transaction not indexed yet. Retrying...
+          <div className="mt-3 flex justify-center">
+            <Button
+              className="h-10"
+              value={isFetching ? "Retrying..." : "Retry"}
+              primary
+              onClick={() => refetch()}
+            />
+          </div>
+        </LoadingMessage>
+      );
+    }
     return (
       <ErrorMessage>
         The requested transaction could not be found. It may not be indexed yet. Please verify the transaction ID and

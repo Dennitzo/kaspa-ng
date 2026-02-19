@@ -296,7 +296,8 @@ cfg_if! {
                             }
                             unsafe {
                                 let err = &*(event as *const x11_dl::xlib::XErrorEvent);
-                                err.error_code == 170 && err.request_code == 152
+                                // Swallow GLX-related BadWindow errors that can occur on some X11 setups.
+                                err.request_code == 152 || err.error_code == 170 || err.error_code == 3
                             }
                         }));
                     }
