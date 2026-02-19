@@ -487,7 +487,7 @@ impl Core {
     fn render_frame(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "linux")]
         {
-            if gtk::rt::is_initialized() {
+            if gtk::is_initialized() {
                 while gtk::events_pending() {
                     gtk::main_iteration_do(false);
                 }
