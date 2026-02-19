@@ -5,7 +5,6 @@ use crate::mobile::MobileMenu;
 use egui::load::Bytes;
 use egui_notify::Toasts;
 #[cfg(target_os = "linux")]
-use gtk;
 use kaspa_wallet_core::api::TransactionsDataGetResponse;
 use kaspa_wallet_core::events::Events as CoreWallet;
 use kaspa_wallet_core::storage::{Binding, Hint, PrvKeyDataInfo};
