@@ -121,8 +121,6 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 })();
 "#;
 
-#[cfg(not(target_arch = "wasm32"))]
-use open;
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
 fn embedded_explorer_enabled() -> bool {

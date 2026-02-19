@@ -280,6 +280,11 @@ cfg_if! {
                         ..Default::default()
                     };
 
+                    #[cfg(target_os = "linux")]
+                    if let Err(err) = gdk::init() {
+                        log_warn!("GDK init failed: {err}");
+                    }
+
                     // let application_events = ApplicationEventsChannel::unbounded();
 
                     eframe::run_native(
