@@ -5,35 +5,10 @@ export const useTransactionById = (transactionId: string) =>
   useQuery({
     queryKey: ["transaction", { transactionId }],
     queryFn: async () => {
-      try {
-        const { data } = await axios.get(
-          `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
-        );
-        return data as TransactionData;
-      } catch (err) {
-        // Fallback to search endpoint (some nodes/indexers expose data here sooner)
-        if (axios.isAxiosError(err) && err.response?.status === 404) {
-          const { data } = await axios.post(
-            `https://api.kaspa.org/transactions/search`,
-            { transactionIds: [transactionId] },
-            {
-              params: {
-                fields: "",
-                resolve_previous_outpoints: "light",
-              },
-            },
-          );
-          if (Array.isArray(data) && data.length > 0) {
-            return data[0] as TransactionData;
-          }
-        }
-        if (axios.isAxiosError(err)) {
-          const status = err.response?.status;
-          const statusText = err.response?.statusText;
-          throw new Error(status ? `API ${status}${statusText ? ` ${statusText}` : ""}` : err.message);
-        }
-        throw err;
-      }
+      const { data } = await axios.get(
+        `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
+      );
+      return data as TransactionData;
     },
     enabled: !!transactionId,
     retry: 10,

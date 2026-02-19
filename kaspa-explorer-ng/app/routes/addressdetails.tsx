@@ -10,7 +10,6 @@ import AccountBalanceWallet from "../assets/account_balance_wallet.svg";
 import ArrowRight from "../assets/arrow-right.svg";
 import Info from "../assets/info.svg";
 import Kaspa from "../assets/kaspa.svg";
-import { MarketDataContext } from "../context/MarketDataProvider";
 import { useAddressBalance } from "../hooks/useAddressBalance";
 import { useAddressNames } from "../hooks/useAddressNames";
 import { useAddressTxCount } from "../hooks/useAddressTxCount";
@@ -18,21 +17,20 @@ import { useAddressUtxos } from "../hooks/useAddressUtxos";
 import { useTransactions } from "../hooks/useTransactions";
 import FooterHelper from "../layout/FooterHelper";
 import { isValidKaspaAddressSyntax } from "../utils/kaspa";
+import { SAVED_ADDRESS_KEY } from "../utils/storage";
 import type { Route } from "./+types/addressdetails";
 import dayjs from "dayjs";
 import localeData from "dayjs/plugin/localeData";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
 import numeral from "numeral";
-import React, { useContext, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 
 dayjs().locale("en");
 dayjs.extend(relativeTime);
 dayjs.extend(localeData);
 dayjs.extend(localizedFormat);
-
-const SAVED_ADDRESS_KEY = "kaspaExplorerSavedAddress";
 
 export function meta({ params }: Route.LoaderArgs) {
   return [
@@ -52,7 +50,6 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
   const { data: utxoData, isLoading: isLoadingUtxoData } = useAddressUtxos(address);
   const { data: txCount, isLoading: isLoadingTxCount } = useAddressTxCount(address);
   const { data: addressNames } = useAddressNames();
-  const marketData = useContext(MarketDataContext);
   const [beforeAfter, setBeforeAfter] = useState<number[]>([0, 0]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isSavedAddress, setIsSavedAddress] = useState(false);
@@ -169,13 +166,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
         ) : (
           <LoadingSpinner />
         )}
-        {!isLoadingAddressBalance ? (
-          <span className="ml-1 text-gray-500">
-            {numeral(((data?.balance || 0) / 1_0000_0000) * (marketData?.price || 0)).format("$0,0.00")}
-          </span>
-        ) : (
-          <LoadingSpinner />
-        )}
+        {!isLoadingAddressBalance ? null : <LoadingSpinner />}
         {/*horizontal rule*/}
         <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
 
@@ -331,15 +322,11 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                           )) /
                         1_0000_0000;
                       const amountColor = kasAmount >= 0 ? "#70C7BA" : "#C7707D";
-                      const usdValue = kasAmount * (marketData?.price || 0);
                       return (
                         <>
                           <div className="text-right text-nowrap" style={{ color: amountColor }}>
                             {numeral(kasAmount).format("+0,0.00[000000]")}
                             <span className="text-nowrap"> KAS</span>
-                          </div>
-                          <div className="text-xs text-right text-nowrap" style={{ color: amountColor }}>
-                            {numeral(usdValue).format("$0,0.00")}
                           </div>
                         </>
                       );

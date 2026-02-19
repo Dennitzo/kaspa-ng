@@ -3,7 +3,6 @@ import LogoIcon from "../assets/logo.svg";
 import Menu from "../assets/menu.svg";
 import DesktopMenu from "./DesktopMenu";
 import MobileMenu from "./MobileMenu";
-import Price from "./Price";
 import SearchBox from "./SearchBox";
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -28,7 +27,6 @@ const Header = ({
         <Link to={"/"}>
           <LogoIcon className="ms-4 h-10 w-48 md:h-10 md:w-50" />
         </Link>
-        <Price />
 
         {location.pathname !== "/" && (
           <SearchBox value={searchValue} className="ms-auto hidden max-w-170 lg:flex" onChange={setSearchValue} />

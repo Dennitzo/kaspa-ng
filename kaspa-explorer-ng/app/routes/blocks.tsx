@@ -1,6 +1,6 @@
+import KasLink from "../KasLink";
 import PageTable from "../PageTable";
 import Box from "../assets/box.svg";
-import KasLink from "../KasLink";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useBlockReward } from "../hooks/useBlockReward";
 import { type Block, useIncomingBlocks } from "../hooks/useIncomingBlocks";
@@ -36,31 +36,21 @@ export function meta() {
 }
 
 export default function Blocks() {
-  const {
-    data: blockDagInfo,
-    isLoading: isLoadingBlockDagInfo,
-    isError: isBlockDagInfoError,
-    error: blockDagInfoError,
-  } = useBlockdagInfo();
-  const {
-    data: blockReward,
-    isLoading: isLoadingBlockReward,
-    isError: isBlockRewardError,
-    error: blockRewardError,
-  } = useBlockReward();
-  const {
-    data: transactionsCount,
-    isLoading: isLoadingTxCount,
-    isError: isTransactionsCountError,
-    error: transactionsCountError,
-  } = useTransactionsCount();
+  const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
+  const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
+  const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
 
   const [blocks, setBlocks] = useState<Block[]>([]);
 
   const { blocks: incomingBlocks, avgBlockTime } = useIncomingBlocks();
 
   useEffect(() => {
-    setBlocks(incomingBlocks.concat(blocks).slice(0, 20));
+    if (!incomingBlocks.length) return;
+    setBlocks((prev) => {
+      const seen = new Set(prev.map((block) => block.block_hash));
+      const merged = [...incomingBlocks.filter((block) => !seen.has(block.block_hash)), ...prev];
+      return merged.slice(0, 20);
+    });
   }, [incomingBlocks]);
 
   useSocketCommand({
@@ -70,30 +60,14 @@ export default function Blocks() {
     },
   });
 
-  const totalTxCount =
-    isLoadingTxCount || isTransactionsCountError || !transactionsCount
-      ? ""
-      : Math.floor((transactionsCount.regular + transactionsCount.coinbase) / 1_000_000).toString();
+  const totalTxCount = isLoadingTxCount
+    ? ""
+    : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
-  const formatBlockTimestamp = (timestamp: string) => {
-    const raw = Number(timestamp);
-    if (!Number.isFinite(raw) || raw <= 0) return "--";
-    const ms = raw < 1_000_000_000_000 ? raw * 1000 : raw;
-    return dayjs(ms).format("YYYY-MM-DD HH:mm:ss");
-  };
 
   return (
     <>
       <MainBox>
-        {(isBlockDagInfoError || isBlockRewardError || isTransactionsCountError) && (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            Data unavailable.{" "}
-            {[blockDagInfoError, blockRewardError, transactionsCountError]
-              .filter(Boolean)
-              .map((err) => (err instanceof Error ? err.message : String(err)))
-              .join(" | ")}
-          </div>
-        )}
         <CardContainer title="Blocks">
           <Card
             loading={isLoadingBlockDagInfo}
@@ -122,8 +96,8 @@ export default function Blocks() {
           additionalClassNames={{ 1: "overflow-hidden " }}
           rowKeys={displayedBlocks.map((block) => block.block_hash)}
           rows={displayedBlocks.map((block) => [
-            formatBlockTimestamp(block.timestamp),
-            <KasLink linkType="block" link to={block.block_hash} mono shorten />,
+            dayjs(parseInt(block.timestamp)).format("HH:mm:ss"),
+            <KasLink linkType="block" link to={block.block_hash} mono />,
             block.blueScore,
             block.txCount,
           ])}

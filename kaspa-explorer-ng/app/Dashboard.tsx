@@ -14,7 +14,6 @@ import Swap from "./assets/swap.svg";
 import Time from "./assets/time.svg";
 import Trophy from "./assets/trophy.svg";
 import VerifiedUser from "./assets/verified_user.svg";
-import { MarketDataContext } from "./context/MarketDataProvider";
 import SearchBox from "./header/SearchBox";
 import { useAddressBalance } from "./hooks/useAddressBalance";
 import { useAddressDistribution } from "./hooks/useAddressDistribution";
@@ -25,54 +24,27 @@ import { useBlockReward } from "./hooks/useBlockReward";
 import { useCoinSupply } from "./hooks/useCoinSupply";
 import { useHalving } from "./hooks/useHalving";
 import { useTransactionsCount } from "./hooks/useTransactionsCount";
+import { SAVED_ADDRESS_KEY } from "./utils/storage";
 import numeral from "numeral";
 import { NavLink } from "react-router";
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 const TOTAL_SUPPLY = 28_700_000_000;
-const SAVED_ADDRESS_KEY = "kaspaExplorerSavedAddress";
 
 const Dashboard = () => {
   const [search, setSearch] = useState("");
   const [savedAddress, setSavedAddress] = useState<string | null>(null);
-  const marketData = useContext(MarketDataContext);
 
-  const {
-    data: blockDagInfo,
-    isLoading: isLoadingBlockDagInfo,
-    isError: isBlockDagInfoError,
-    error: blockDagInfoError,
-  } = useBlockdagInfo();
-  const {
-    data: coinSupply,
-    isLoading: isLoadingCoinSupply,
-    isError: isCoinSupplyError,
-    error: coinSupplyError,
-  } = useCoinSupply();
-  const {
-    data: blockReward,
-    isLoading: isLoadingBlockReward,
-    isError: isBlockRewardError,
-    error: blockRewardError,
-  } = useBlockReward();
+  const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
+  const { data: coinSupply, isLoading: isLoadingCoinSupply } = useCoinSupply();
+  const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
   const { data: halving, isLoading: isLoadingHalving } = useHalving();
-  const {
-    data: transactionsCount,
-    isLoading: isLoadingTxCount,
-    isError: isTransactionsCountError,
-    error: transactionsCountError,
-  } = useTransactionsCount();
-  const {
-    data: addressDistribution,
-    isLoading: isLoadingDistribution,
-    isError: isAddressDistributionError,
-    error: addressDistributionError,
-  } = useAddressDistribution();
+  const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
+  const { data: addressDistribution, isLoading: isLoadingDistribution } = useAddressDistribution();
 
-  const totalTxCount =
-    isLoadingTxCount || isTransactionsCountError || !transactionsCount
-      ? ""
-      : Math.floor((transactionsCount.regular + transactionsCount.coinbase) / 1_000_000).toString();
+  const totalTxCount = isLoadingTxCount
+    ? ""
+    : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -99,39 +71,20 @@ const Dashboard = () => {
     <>
       <div className="grid grid-cols-1 md:grid-cols-[6fr_5fr] rounded-4xl bg-white px-4 py-12 sm:px-8 sm:py-10 md:ps-20 md:py-20 lg:ps-24 xl:ps-36">
         <div className="flex w-full flex-col gap-y-3 justify-center">
-          <span className="text-3xl lg:text-[54px]">Kaspa Explorer</span>
+          <span className="text-3xl lg:text-[54px]">Kaspa Explorer </span>
           <span className="mb-6 text-lg">
             Kaspa is the fastest, open-source, decentralized & fully scalable Layer-1 PoW network in the world.
           </span>
           <SearchBox value={search} onChange={setSearch} className="w-full py-4" />
           {savedAddress && (
             <div className="mt-6 rounded-3xl border border-gray-200 bg-white">
-              <SavedAddressCard address={savedAddress} price={Number(marketData?.price ?? 0)} />
+              <SavedAddressCard address={savedAddress} />
             </div>
           )}
         </div>
         <Dag className="w-full h-full md:ps-13 mt-2 md:mt-0" />
       </div>
       <div className="flex w-full flex-col rounded-4xl bg-gray-50 px-4 py-12 text-white sm:px-8 sm:py-12 md:px-20 md:py-20 lg:px-24 lg:py-24 xl:px-36 xl:py-26">
-        {(isBlockDagInfoError ||
-          isCoinSupplyError ||
-          isBlockRewardError ||
-          isTransactionsCountError ||
-          isAddressDistributionError) && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            Data unavailable.{" "}
-            {[
-              blockDagInfoError,
-              coinSupplyError,
-              blockRewardError,
-              transactionsCountError,
-              addressDistributionError,
-            ]
-              .filter(Boolean)
-              .map((err) => (err instanceof Error ? err.message : String(err)))
-              .join(" | ")}
-          </div>
-        )}
         <span className="mb-7 text-black text-3xl md:text-4xl lg:text-5xl">Kaspa by the numbers</span>
         <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
           <DashboardBox
@@ -266,12 +219,11 @@ const DashboardBox = (props: DashboardBoxProps) => {
   );
 };
 
-const SavedAddressCard = ({ address, price }: { address: string; price: number }) => {
+const SavedAddressCard = ({ address }: { address: string }) => {
   const { data, isLoading: isLoadingBalance } = useAddressBalance(address);
   const { data: txCount, isLoading: isLoadingTxCount } = useAddressTxCount(address);
   const { data: utxos, isLoading: isLoadingUtxos } = useAddressUtxos(address);
   const balance = numeral((data?.balance || 0) / 1_0000_0000).format("0,0.00[000000]");
-  const usdValue = numeral(((data?.balance || 0) / 1_0000_0000) * (price || 0)).format("$0,0.00");
   const LoadingSpinner = () => <Spinner className="h-5 w-5" />;
 
   return (
@@ -302,7 +254,6 @@ const SavedAddressCard = ({ address, price }: { address: string; price: number }
       ) : (
         <LoadingSpinner />
       )}
-      {!isLoadingBalance ? <span className="ml-1 text-gray-500">{usdValue}</span> : <LoadingSpinner />}
       <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
 
       <div className="grid grid-cols-1 gap-x-14 gap-y-2 sm:grid-cols-[auto_1fr]">

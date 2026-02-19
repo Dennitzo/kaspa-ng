@@ -6,7 +6,6 @@ export default [
   route("blocks/:blockId", "./routes/blockdetails.tsx"),
   route("transactions", "./routes/transactions.tsx"),
   route("transactions/:transactionId", "./routes/transactiondetails.tsx"),
-  route("addresses", "./routes/addresses.tsx"),
   route("addresses/:address", "./routes/addressdetails.tsx"),
   route("miners", "./routes/miners.tsx"),
 

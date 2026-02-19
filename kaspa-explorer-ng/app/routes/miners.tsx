@@ -5,6 +5,7 @@ import Spinner from "../Spinner";
 import Card from "../layout/Card";
 import FooterHelper from "../layout/FooterHelper";
 import Box from "../assets/box.svg";
+import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useSocketRoom } from "../hooks/useSocketRoom";
 import type { Route } from "./+types/miners";
 import axios from "axios";
@@ -13,7 +14,7 @@ import localeData from "dayjs/plugin/localeData";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
 import numeral from "numeral";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 dayjs().locale("en");
 dayjs.extend(relativeTime);
@@ -21,6 +22,12 @@ dayjs.extend(localeData);
 dayjs.extend(localizedFormat);
 
 const API_BASE = "https://api.kaspa.org";
+const INITIAL_BLOCK_SAMPLE = 40;
+const stripKaspaPrefix = (value: string) => {
+  if (value.startsWith("kaspa:")) return value.slice("kaspa:".length);
+  if (value.startsWith("kaspatest:")) return value.slice("kaspatest:".length);
+  return value;
+};
 
 export function meta({}: Route.LoaderArgs) {
   return [
@@ -35,6 +42,7 @@ export function meta({}: Route.LoaderArgs) {
 
 export default function Miners() {
   const [searchQuery, setSearchQuery] = useState("");
+  const { data: blockDagInfo } = useBlockdagInfo();
   const [miners, setMiners] = useState<
     Array<{
       minerInfo: string | null;
@@ -63,6 +71,40 @@ export default function Miners() {
     >(),
   );
 
+  const upsertMiner = useCallback(
+    ({
+      minerInfo,
+      minerAddress,
+      blockTime,
+      blockHash,
+    }: {
+      minerInfo: string | null;
+      minerAddress: string | null;
+      blockTime: number | null;
+      blockHash: string;
+    }) => {
+      const key = minerAddress || minerInfo || "unknown";
+      const existing = minerMapRef.current.get(key);
+      if (!existing) {
+        minerMapRef.current.set(key, {
+          minerInfo,
+          minerAddress,
+          blocks: 1,
+          lastBlockTime: blockTime,
+          lastBlockHash: blockHash,
+        });
+      } else {
+        existing.blocks += 1;
+        if (blockTime && (!existing.lastBlockTime || blockTime > existing.lastBlockTime)) {
+          existing.lastBlockTime = blockTime;
+          existing.lastBlockHash = blockHash;
+          existing.minerInfo = minerInfo;
+        }
+      }
+    },
+    [],
+  );
+
   const handleIncomingBlock = useCallback(async (block: { block_hash: string; timestamp?: string }) => {
     try {
       const { data } = await axios.get(
@@ -71,25 +113,7 @@ export default function Miners() {
       const minerInfo = data?.extra?.minerInfo ?? null;
       const minerAddress = data?.extra?.minerAddress ?? null;
       const blockTime = Number(data?.header?.timestamp ?? block.timestamp ?? 0) || null;
-      const key = minerAddress || minerInfo || "unknown";
-
-      const existing = minerMapRef.current.get(key);
-      if (!existing) {
-        minerMapRef.current.set(key, {
-          minerInfo,
-          minerAddress,
-          blocks: 1,
-          lastBlockTime: blockTime,
-          lastBlockHash: block.block_hash,
-        });
-      } else {
-        existing.blocks += 1;
-        if (blockTime && (!existing.lastBlockTime || blockTime > existing.lastBlockTime)) {
-          existing.lastBlockTime = blockTime;
-          existing.lastBlockHash = block.block_hash;
-          existing.minerInfo = minerInfo;
-        }
-      }
+      upsertMiner({ minerInfo, minerAddress, blockTime, blockHash: block.block_hash });
 
       setScannedBlocks((prev) => prev + 1);
       if (blockTime) {
@@ -116,6 +140,93 @@ export default function Miners() {
     onMessage: handleIncomingBlock,
   });
 
+  useEffect(() => {
+    const tipHash = blockDagInfo?.virtualParentHashes?.[0];
+    if (!tipHash || minerMapRef.current.size > 0) return;
+
+    let cancelled = false;
+
+    const fetchInitialMiners = async () => {
+      try {
+        setIsLoading(true);
+        setIsError(false);
+
+        const { data } = await axios.get(`${API_BASE}/blocks`, {
+          params: {
+            lowHash: tipHash,
+            includeBlocks: true,
+            includeTransactions: false,
+          },
+        });
+
+        const hashes: string[] = Array.isArray(data?.blockHashes)
+          ? data.blockHashes
+          : (data?.blocks ?? [])
+              .map((block: any) => block?.verboseData?.hash)
+              .filter((hash: string | undefined): hash is string => Boolean(hash));
+
+        const sample = hashes.slice(0, INITIAL_BLOCK_SAMPLE);
+        if (!sample.length) {
+          throw new Error("No blocks available");
+        }
+
+        const blockDetails = await Promise.all(
+          sample.map(async (hash) => {
+            try {
+              const response = await axios.get(`${API_BASE}/blocks/${hash}`, {
+                params: { includeTransactions: true, includeColor: true },
+              });
+              return { hash, data: response.data };
+            } catch {
+              return null;
+            }
+          }),
+        );
+
+        if (cancelled) return;
+
+        minerMapRef.current.clear();
+        let scanned = 0;
+        let start: number | null = null;
+        let end: number | null = null;
+
+        blockDetails.forEach((entry) => {
+          if (!entry) return;
+          const { data } = entry;
+          const minerInfo = data?.extra?.minerInfo ?? null;
+          const minerAddress = data?.extra?.minerAddress ?? null;
+          const blockTime = Number(data?.header?.timestamp ?? 0) || null;
+          upsertMiner({ minerInfo, minerAddress, blockTime, blockHash: entry.hash });
+          scanned += 1;
+          if (blockTime) {
+            start = start ? Math.min(start, blockTime) : blockTime;
+            end = end ? Math.max(end, blockTime) : blockTime;
+          }
+        });
+
+        setScannedBlocks(scanned);
+        setWindowStart(start);
+        setWindowEnd(end);
+        setMiners(Array.from(minerMapRef.current.values()).sort((a, b) => b.blocks - a.blocks));
+        setIsLoading(false);
+        setIsError(minerMapRef.current.size === 0);
+        setErrorCount(0);
+      } catch (error) {
+        console.error(error);
+        if (cancelled) return;
+        setIsLoading(false);
+        if (minerMapRef.current.size === 0) {
+          setIsError(true);
+        }
+      }
+    };
+
+    fetchInitialMiners();
+    return () => {
+      cancelled = true;
+    };
+  }, [blockDagInfo, upsertMiner]);
+
   const groupedMiners = useMemo(() => {
     const buckets = new Map<string, (typeof miners)[number] & { blocks: number }>();
     miners.forEach((miner) => {
@@ -141,10 +252,8 @@ export default function Miners() {
     const matching = groupedMiners.filter((miner) => {
       const info = (miner.minerInfo || "").toLowerCase();
       const address = (miner.minerAddress || "").toLowerCase();
-      const addressNoPrefix = address.startsWith("kaspa:") ? address.slice("kaspa:".length) : address;
-      const queryNoPrefix = normalizedQuery.startsWith("kaspa:")
-        ? normalizedQuery.slice("kaspa:".length)
-        : normalizedQuery;
+      const addressNoPrefix = stripKaspaPrefix(address);
+      const queryNoPrefix = stripKaspaPrefix(normalizedQuery);
       return (
         info.includes(normalizedQuery) ||
         address.includes(normalizedQuery) ||
@@ -155,11 +264,9 @@ export default function Miners() {
     return matching.sort((a, b) => {
       const aAddress = (a.minerAddress || "").toLowerCase();
       const bAddress = (b.minerAddress || "").toLowerCase();
-      const aNoPrefix = aAddress.startsWith("kaspa:") ? aAddress.slice("kaspa:".length) : aAddress;
-      const bNoPrefix = bAddress.startsWith("kaspa:") ? bAddress.slice("kaspa:".length) : bAddress;
-      const queryNoPrefix = normalizedQuery.startsWith("kaspa:")
-        ? normalizedQuery.slice("kaspa:".length)
-        : normalizedQuery;
+      const aNoPrefix = stripKaspaPrefix(aAddress);
+      const bNoPrefix = stripKaspaPrefix(bAddress);
+      const queryNoPrefix = stripKaspaPrefix(normalizedQuery);
       const aSuffix = aNoPrefix.endsWith(queryNoPrefix) || aNoPrefix.endsWith(normalizedQuery);
       const bSuffix = bNoPrefix.endsWith(queryNoPrefix) || bNoPrefix.endsWith(normalizedQuery);
       if (aSuffix !== bSuffix) return aSuffix ? -1 : 1;

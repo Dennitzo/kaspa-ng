@@ -5,17 +5,6 @@ const DEFAULT_HEADERS = {
   "Cache-Control": "no-cache",
 };
 
-export async function getMarketData() {
-  const res = await fetch(`${API_BASE}/info/market-data`, {
-    headers: DEFAULT_HEADERS,
-  })
-    .then((response) => response.json())
-    .then((data) => {
-      return data;
-    });
-  return res;
-}
-
 //   const res = await fetch(`${API_BASE}blocks/${hash}?includeColor=true`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
