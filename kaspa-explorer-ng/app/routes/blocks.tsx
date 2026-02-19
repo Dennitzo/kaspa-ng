@@ -35,9 +35,24 @@ export function meta() {
 }
 
 export default function Blocks() {
-  const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
-  const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
-  const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
+  const {
+    data: blockDagInfo,
+    isLoading: isLoadingBlockDagInfo,
+    isError: isBlockDagInfoError,
+    error: blockDagInfoError,
+  } = useBlockdagInfo();
+  const {
+    data: blockReward,
+    isLoading: isLoadingBlockReward,
+    isError: isBlockRewardError,
+    error: blockRewardError,
+  } = useBlockReward();
+  const {
+    data: transactionsCount,
+    isLoading: isLoadingTxCount,
+    isError: isTransactionsCountError,
+    error: transactionsCountError,
+  } = useTransactionsCount();
 
   const [blocks, setBlocks] = useState<Block[]>([]);
 
@@ -55,7 +70,7 @@ export default function Blocks() {
   });
 
   const totalTxCount =
-    isLoadingTxCount || !transactionsCount
+    isLoadingTxCount || isTransactionsCountError || !transactionsCount
       ? ""
       : Math.floor((transactionsCount.regular + transactionsCount.coinbase) / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
@@ -69,6 +84,15 @@ export default function Blocks() {
   return (
     <>
       <MainBox>
+        {(isBlockDagInfoError || isBlockRewardError || isTransactionsCountError) && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            Data unavailable.{" "}
+            {[blockDagInfoError, blockRewardError, transactionsCountError]
+              .filter(Boolean)
+              .map((err) => (err instanceof Error ? err.message : String(err)))
+              .join(" | ")}
+          </div>
+        )}
         <CardContainer title="Blocks">
           <Card
             loading={isLoadingBlockDagInfo}

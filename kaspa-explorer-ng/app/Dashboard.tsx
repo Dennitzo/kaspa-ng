@@ -37,15 +37,40 @@ const Dashboard = () => {
   const [savedAddress, setSavedAddress] = useState<string | null>(null);
   const marketData = useContext(MarketDataContext);
 
-  const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
-  const { data: coinSupply, isLoading: isLoadingCoinSupply } = useCoinSupply();
-  const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
+  const {
+    data: blockDagInfo,
+    isLoading: isLoadingBlockDagInfo,
+    isError: isBlockDagInfoError,
+    error: blockDagInfoError,
+  } = useBlockdagInfo();
+  const {
+    data: coinSupply,
+    isLoading: isLoadingCoinSupply,
+    isError: isCoinSupplyError,
+    error: coinSupplyError,
+  } = useCoinSupply();
+  const {
+    data: blockReward,
+    isLoading: isLoadingBlockReward,
+    isError: isBlockRewardError,
+    error: blockRewardError,
+  } = useBlockReward();
   const { data: halving, isLoading: isLoadingHalving } = useHalving();
-  const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
-  const { data: addressDistribution, isLoading: isLoadingDistribution } = useAddressDistribution();
+  const {
+    data: transactionsCount,
+    isLoading: isLoadingTxCount,
+    isError: isTransactionsCountError,
+    error: transactionsCountError,
+  } = useTransactionsCount();
+  const {
+    data: addressDistribution,
+    isLoading: isLoadingDistribution,
+    isError: isAddressDistributionError,
+    error: addressDistributionError,
+  } = useAddressDistribution();
 
   const totalTxCount =
-    isLoadingTxCount || !transactionsCount
+    isLoadingTxCount || isTransactionsCountError || !transactionsCount
       ? ""
       : Math.floor((transactionsCount.regular + transactionsCount.coinbase) / 1_000_000).toString();
 
@@ -88,6 +113,25 @@ const Dashboard = () => {
         <Dag className="w-full h-full md:ps-13 mt-2 md:mt-0" />
       </div>
       <div className="flex w-full flex-col rounded-4xl bg-gray-50 px-4 py-12 text-white sm:px-8 sm:py-12 md:px-20 md:py-20 lg:px-24 lg:py-24 xl:px-36 xl:py-26">
+        {(isBlockDagInfoError ||
+          isCoinSupplyError ||
+          isBlockRewardError ||
+          isTransactionsCountError ||
+          isAddressDistributionError) && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            Data unavailable.{" "}
+            {[
+              blockDagInfoError,
+              coinSupplyError,
+              blockRewardError,
+              transactionsCountError,
+              addressDistributionError,
+            ]
+              .filter(Boolean)
+              .map((err) => (err instanceof Error ? err.message : String(err)))
+              .join(" | ")}
+          </div>
+        )}
         <span className="mb-7 text-black text-3xl md:text-4xl lg:text-5xl">Kaspa by the numbers</span>
         <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
           <DashboardBox
