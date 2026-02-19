@@ -127,8 +127,8 @@ use open;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
 fn embedded_explorer_enabled() -> bool {
     std::env::var("KASPA_NG_EMBEDDED_EXPLORER")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false)
+        .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
+        .unwrap_or(true)
 }
 
 
@@ -145,6 +145,8 @@ pub struct Explorer {
     last_path: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     status: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_webview_attempt: Option<std::time::Instant>,
 }
 
 impl Explorer {
@@ -161,6 +163,8 @@ impl Explorer {
             last_path: None,
             #[cfg(not(target_arch = "wasm32"))]
             status: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_webview_attempt: None,
         }
     }
 }
@@ -225,22 +229,14 @@ impl ModuleT for Explorer {
         {
             if let Some(status) = &self.status {
                 ui.colored_label(theme_color().error_color, status);
-                return;
             }
 
             if let Some(server) = &self.server {
                 #[cfg(target_os = "linux")]
                 if !embedded_explorer_enabled() {
-                    let start_url =
-                        explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
                     ui.label(i18n(
-                        "Embedded Explorer is disabled on Linux to avoid black-screen issues.",
+                        "Embedded Explorer is disabled via KASPA_NG_EMBEDDED_EXPLORER.",
                     ));
-                    if ui.button(i18n("Open Explorer in Browser")).clicked() {
-                        if let Err(err) = open::that(start_url.as_str()) {
-                            self.status = Some(format!("Explorer open error: {err}"));
-                        }
-                    }
                     return;
                 }
 
@@ -261,6 +257,13 @@ impl ModuleT for Explorer {
                 };
 
                 if self.webview.is_none() {
+                    if let Some(last_attempt) = self.last_webview_attempt {
+                        if last_attempt.elapsed() < std::time::Duration::from_secs(2) {
+                            return;
+                        }
+                    }
+                    self.last_webview_attempt = Some(std::time::Instant::now());
+
                     let start_url = explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
@@ -277,9 +280,19 @@ impl ModuleT for Explorer {
                             self.webview = Some(webview);
                             self.last_bounds = Some(bounds);
                             self.last_path = Some(core.settings.user_interface.explorer_last_path.clone());
+                            self.status = None;
                         }
                         Err(err) => {
-                            self.status = Some(format!("Explorer WebView error: {err}"));
+                            #[cfg(target_os = "linux")]
+                            {
+                                self.status = Some(format!(
+                                    "Explorer WebView error: {err}. Ensure webkit2gtk is installed (e.g. libwebkit2gtk-4.1-dev or webkit2gtk4.0-devel).",
+                                ));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                self.status = Some(format!("Explorer WebView error: {err}"));
+                            }
                             return;
                         }
                     }
