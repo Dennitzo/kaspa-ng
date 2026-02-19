@@ -281,8 +281,8 @@ cfg_if! {
                     };
 
                     #[cfg(target_os = "linux")]
-                    if let Err(err) = gdk::init() {
-                        log_warn!("GDK init failed: {err}");
+                    {
+                        gdk::init();
                     }
 
                     // let application_events = ApplicationEventsChannel::unbounded();
