@@ -54,9 +54,10 @@ export default function Blocks() {
     },
   });
 
-  const totalTxCount = isLoadingTxCount
-    ? ""
-    : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
+  const totalTxCount =
+    isLoadingTxCount || !transactionsCount
+      ? ""
+      : Math.floor((transactionsCount.regular + transactionsCount.coinbase) / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
   const formatBlockTimestamp = (timestamp: string) => {
     const raw = Number(timestamp);

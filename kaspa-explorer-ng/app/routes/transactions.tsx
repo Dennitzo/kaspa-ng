@@ -35,9 +35,10 @@ export default function Transactions() {
   const { data: transactionsCountTotal, isLoading: isLoadingTxCountTotal } = useTransactionsCount();
   const { mempoolSize: mempoolSize } = useMempoolSize();
 
-  const totalTxCount = isLoadingTxCountTotal
-    ? ""
-    : Math.floor((transactionsCountTotal!.regular + transactionsCountTotal!.coinbase) / 1_000_000).toString();
+  const totalTxCount =
+    isLoadingTxCountTotal || !transactionsCountTotal
+      ? ""
+      : Math.floor((transactionsCountTotal.regular + transactionsCountTotal.coinbase) / 1_000_000).toString();
 
   const txCount =
     transactionCount && transactionCount.length > 0
