@@ -132,8 +132,8 @@ fn embedded_explorer_enabled() -> bool {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-fn ensure_gtk_initialized() -> Result<(), String> {
-    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
+fn ensure_gtk_initialized() -> std::result::Result<(), String> {
+    static INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
     let result = INIT.get_or_init(|| gtk::init().map_err(|err| format!("{err}")));
     match result {
         Ok(()) => Ok(()),
