@@ -5,14 +5,51 @@ export const useTransactionById = (transactionId: string) =>
   useQuery({
     queryKey: ["transaction", { transactionId }],
     queryFn: async () => {
-      const { data } = await axios.get(
-        `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
-      );
-      return data as TransactionData;
+      try {
+        const { data } = await axios.get(
+          `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
+        );
+        return data as TransactionData;
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          const { data } = await axios.post(
+            `https://api.kaspa.org/transactions/search`,
+            { transactionIds: [transactionId] },
+            {
+              params: {
+                fields: "",
+                resolve_previous_outpoints: "light",
+              },
+            },
+          );
+          if (Array.isArray(data) && data.length > 0) {
+            return data[0] as TransactionData;
+          }
+        }
+        if (axios.isAxiosError(err)) {
+          const status = err.response?.status;
+          const statusText = err.response?.statusText;
+          throw new Error(status ? `API ${status}${statusText ? ` ${statusText}` : ""}` : err.message);
+        }
+        throw err;
+      }
     },
     enabled: !!transactionId,
-    retry: 10,
-    retryDelay: 1000,
+    retry: (failureCount, error) => {
+      if (error instanceof Error && error.message.startsWith("API 429")) {
+        return failureCount < 3;
+      }
+      return failureCount < 5;
+    },
+    retryDelay: (attempt, error) => {
+      if (error instanceof Error && error.message.startsWith("API 429")) {
+        return Math.min(10_000, 1000 * 2 ** attempt);
+      }
+      return 1000;
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+    cacheTime: 5 * 60_000,
   });
 
 export interface TransactionData {
