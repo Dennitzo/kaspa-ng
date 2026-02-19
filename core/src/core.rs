@@ -9,6 +9,8 @@ use kaspa_wallet_core::events::Events as CoreWallet;
 use kaspa_wallet_core::storage::{Binding, Hint, PrvKeyDataInfo};
 use std::borrow::Cow;
 use std::future::IntoFuture;
+#[cfg(target_os = "linux")]
+use gtk;
 #[allow(unused_imports)]
 use workflow_i18n::*;
 use workflow_wasm::callback::CallbackMap;
@@ -483,6 +485,15 @@ impl eframe::App for Core {
 
 impl Core {
     fn render_frame(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        #[cfg(target_os = "linux")]
+        {
+            if gtk::rt::is_initialized() {
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+            }
+        }
+
         window_frame(self.window_frame, ctx, "Kaspa NG", |ui| {
             if !self.settings.initialized {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
