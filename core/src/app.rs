@@ -268,9 +268,15 @@ cfg_if! {
                     ));
 
                     if window_frame {
-                        viewport = viewport
-                            .with_decorations(false)
-                            .with_transparent(true);
+                        viewport = viewport.with_decorations(false);
+                        #[cfg(target_os = "linux")]
+                        {
+                            viewport = viewport.with_transparent(false);
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            viewport = viewport.with_transparent(true);
+                        }
                     }
 
                     let native_options = eframe::NativeOptions {
@@ -283,7 +289,7 @@ cfg_if! {
                     #[cfg(target_os = "linux")]
                     {
                         gdk::init();
-                        gtk::init();
+                        let _ = gtk::init();
                     }
 
                     // let application_events = ApplicationEventsChannel::unbounded();
