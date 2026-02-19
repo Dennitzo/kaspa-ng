@@ -283,6 +283,7 @@ cfg_if! {
                     #[cfg(target_os = "linux")]
                     {
                         gdk::init();
+                        gtk::init();
                     }
 
                     // let application_events = ApplicationEventsChannel::unbounded();
