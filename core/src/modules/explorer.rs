@@ -182,6 +182,7 @@ impl ModuleT for Explorer {
                         self.server = Some(server);
                     }
                     Err(err) => {
+                        log_warn!("Explorer server start failed: {err}");
                         self.status = Some(err);
                     }
                 }
@@ -411,10 +412,21 @@ impl ExplorerServer {
 #[cfg(not(target_arch = "wasm32"))]
 fn find_explorer_root() -> Option<PathBuf> {
     let mut candidates = Vec::new();
+    if let Ok(root) = std::env::var("KASPA_NG_EXPLORER_ROOT") {
+        let root = PathBuf::from(root);
+        candidates.push(root.join("build").join("client"));
+        candidates.push(root.join("build"));
+        candidates.push(root.join("dist"));
+    }
     if let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.join("kaspa-explorer-ng").join("build").join("client"));
         candidates.push(cwd.join("kaspa-explorer-ng").join("build"));
         candidates.push(cwd.join("kaspa-explorer-ng").join("dist"));
+        for ancestor in cwd.ancestors().skip(1).take(3) {
+            candidates.push(ancestor.join("kaspa-explorer-ng").join("build").join("client"));
+            candidates.push(ancestor.join("kaspa-explorer-ng").join("build"));
+            candidates.push(ancestor.join("kaspa-explorer-ng").join("dist"));
+        }
     }
 
     if let Ok(exe) = std::env::current_exe() {
@@ -422,6 +434,11 @@ fn find_explorer_root() -> Option<PathBuf> {
             candidates.push(dir.join("kaspa-explorer-ng").join("build").join("client"));
             candidates.push(dir.join("kaspa-explorer-ng").join("build"));
             candidates.push(dir.join("kaspa-explorer-ng").join("dist"));
+            for ancestor in dir.ancestors().skip(1).take(4) {
+                candidates.push(ancestor.join("kaspa-explorer-ng").join("build").join("client"));
+                candidates.push(ancestor.join("kaspa-explorer-ng").join("build"));
+                candidates.push(ancestor.join("kaspa-explorer-ng").join("dist"));
+            }
         }
     }
 
