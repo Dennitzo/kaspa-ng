@@ -11,35 +11,33 @@ export const useTransactionById = (transactionId: string) =>
         );
         return data as TransactionData;
       } catch (err) {
+        // Fallback to search endpoint (some nodes/indexers expose data here sooner)
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          const { data } = await axios.post(
+            `https://api.kaspa.org/transactions/search`,
+            { transactionIds: [transactionId] },
+            {
+              params: {
+                fields: "",
+                resolve_previous_outpoints: "light",
+              },
+            },
+          );
+          if (Array.isArray(data) && data.length > 0) {
+            return data[0] as TransactionData;
+          }
+        }
         if (axios.isAxiosError(err)) {
           const status = err.response?.status;
           const statusText = err.response?.statusText;
-          const message = status
-            ? `API ${status}${statusText ? ` ${statusText}` : ""}`
-            : err.message || "Network error";
-          throw new Error(message);
+          throw new Error(status ? `API ${status}${statusText ? ` ${statusText}` : ""}` : err.message);
         }
         throw err;
       }
     },
     enabled: !!transactionId,
-    retry: (failureCount, error) => {
-      if (error instanceof Error && error.message.startsWith("API 404")) {
-        return failureCount < 15;
-      }
-      return failureCount < 3;
-    },
-    retryDelay: 3000,
-    refetchOnWindowFocus: false,
-    refetchInterval: (query) => {
-      const err = query.state.error;
-      if (err instanceof Error && err.message.startsWith("API 404")) {
-        return 5000;
-      }
-      return false;
-    },
-    staleTime: 10_000,
-    cacheTime: 60_000,
+    retry: 10,
+    retryDelay: 1000,
   });
 
 export interface TransactionData {

@@ -29,60 +29,34 @@ export function meta() {
 
 export default function Transactions() {
   const { transactions } = useIncomingBlocks();
-  const {
-    data: transactionCount,
-    isLoading: isLoadingTxCount,
-    isError: isTransactionCountError,
-    error: transactionCountError,
-  } = useTransactionCount();
-  const {
-    data: feeEstimate,
-    isLoading: isLoadingFee,
-    isError: isFeeEstimateError,
-    error: feeEstimateError,
-  } = useFeeEstimate();
+  const { data: transactionCount, isLoading: isLoadingTxCount } = useTransactionCount();
+  const { data: feeEstimate, isLoading: isLoadingFee } = useFeeEstimate();
   const marketData = useContext(MarketDataContext);
-  const {
-    data: transactionsCountTotal,
-    isLoading: isLoadingTxCountTotal,
-    isError: isTransactionsCountError,
-    error: transactionsCountError,
-  } = useTransactionsCount();
+  const { data: transactionsCountTotal, isLoading: isLoadingTxCountTotal } = useTransactionsCount();
   const { mempoolSize: mempoolSize } = useMempoolSize();
 
-  const totalTxCount =
-    isLoadingTxCountTotal || isTransactionsCountError || !transactionsCountTotal
-      ? ""
-      : Math.floor((transactionsCountTotal.regular + transactionsCountTotal.coinbase) / 1_000_000).toString();
+  const totalTxCount = isLoadingTxCountTotal
+    ? ""
+    : Math.floor((transactionsCountTotal!.regular + transactionsCountTotal!.coinbase) / 1_000_000).toString();
 
   const txCount =
-    !isTransactionCountError && transactionCount && transactionCount.length > 0
+    transactionCount && transactionCount.length > 0
       ? (transactionCount[0].regular + transactionCount[0].coinbase) / 3600
       : "-";
 
-  const regularBucket = feeEstimate?.normalBuckets?.[0];
-  const regularFee = regularBucket ? (regularBucket.feerate * 2036) / 1_0000_0000 : null;
-  const regularFeeUsd = regularFee != null ? (regularFee * (marketData?.price ?? 0)).toFixed(6) : null;
+  const regularFee = feeEstimate ? (feeEstimate.normalBuckets[0].feerate * 2036) / 1_0000_0000 : 0;
+  const regularFeeUsd = (regularFee * (marketData?.price ?? 0)).toFixed(6);
 
   return (
     <>
       <MainBox>
-        {(isTransactionCountError || isFeeEstimateError || isTransactionsCountError) && (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            Data unavailable.{" "}
-            {[transactionCountError, feeEstimateError, transactionsCountError]
-              .filter(Boolean)
-              .map((err) => (err instanceof Error ? err.message : String(err)))
-              .join(" | ")}
-          </div>
-        )}
         <CardContainer title="Transactions">
           <Card title="Total transactions" value={`${numeral(totalTxCount).format("0")} M`} />
           <Card title="Average TPS (1 hr)" value={`${numeral(txCount).format("0.0")}`} loading={isLoadingTxCount} />
           <Card
             title="Regular fee"
-            value={regularFee == null ? "--" : `${numeral(regularFee).format("0.00000000")} KAS`}
-            subtext={regularFeeUsd == null ? "--" : `${numeral(regularFeeUsd).format("0,0.00[000000]")} $`}
+            value={`${numeral(regularFee).format("0.00000000")} KAS`}
+            subtext={`${numeral(regularFeeUsd).format("0,0.00[000000]")} $`}
             loading={isLoadingFee}
           />
           <Card title="Mempool size" value={mempoolSize} />
