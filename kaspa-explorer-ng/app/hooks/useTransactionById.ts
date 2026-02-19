@@ -5,14 +5,29 @@ export const useTransactionById = (transactionId: string) =>
   useQuery({
     queryKey: ["transaction", { transactionId }],
     queryFn: async () => {
-      const { data } = await axios.get(
-        `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
-      );
-      return data as TransactionData;
+      try {
+        const { data } = await axios.get(
+          `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
+        );
+        return data as TransactionData;
+      } catch (err) {
+        if (axios.isAxiosError(err)) {
+          const status = err.response?.status;
+          const statusText = err.response?.statusText;
+          const message = status
+            ? `API ${status}${statusText ? ` ${statusText}` : ""}`
+            : err.message || "Network error";
+          throw new Error(message);
+        }
+        throw err;
+      }
     },
     enabled: !!transactionId,
-    retry: 10,
-    retryDelay: 1000,
+    retry: 3,
+    retryDelay: 2000,
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
+    cacheTime: 60_000,
   });
 
 export interface TransactionData {
