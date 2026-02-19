@@ -406,7 +406,14 @@ impl Core {
 }
 
 impl eframe::App for Core {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "linux")))]
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.is_shutdown_pending = true;
+        crate::runtime::halt();
+        println!("{}", i18n("bye!"));
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
     fn on_exit(&mut self) {
         self.is_shutdown_pending = true;
         crate::runtime::halt();

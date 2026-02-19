@@ -288,10 +288,17 @@ cfg_if! {
 
                     #[cfg(target_os = "linux")]
                     {
-                        gdk::init();
-                        if let Err(err) = gtk::init() {
-                            log_warn!("GTK init failed: {err}");
-                        }
+                        use winit::platform::x11::register_xlib_error_hook;
+
+                        register_xlib_error_hook(Box::new(|_display, event| {
+                            if event.is_null() {
+                                return false;
+                            }
+                            unsafe {
+                                let err = &*(event as *const x11_dl::xlib::XErrorEvent);
+                                err.error_code == 170 && err.request_code == 152
+                            }
+                        }));
                     }
 
                     // let application_events = ApplicationEventsChannel::unbounded();

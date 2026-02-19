@@ -1,5 +1,6 @@
 import { displayAcceptance } from "../Accepted";
 import Coinbase from "../Coinbase";
+import Button from "../Button";
 import ErrorMessage from "../ErrorMessage";
 import IconMessageBox from "../IconMessageBox";
 import KasLink from "../KasLink";
@@ -49,7 +50,7 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
   const isTabActive = (tab: string) => (new URLSearchParams(location.search).get("tab") || "general") === tab;
   const { virtualChainBlueScore } = useVirtualChainBlueScore();
 
-  const { data: transaction, isLoading, isError } = useTransactionById(transactionId);
+  const { data: transaction, isLoading, isError, error, refetch, isFetching } = useTransactionById(transactionId);
   const marketData = useContext(MarketDataContext);
   const [graphMode, setGraphMode] = useState<"minimal" | "detailed">("minimal");
   const flowContainerRef = useRef<HTMLDivElement>(null);
@@ -88,7 +89,17 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
   if (isError || !transaction) {
     return (
       <ErrorMessage>
-        The requested transaction could not be found. Please verify the transaction ID and try again.
+        The requested transaction could not be found. It may not be indexed yet. Please verify the transaction ID and
+        try again.
+        <div className="mt-4 flex flex-col items-center gap-2">
+          {error && <span className="text-xs text-gray-500">{error instanceof Error ? error.message : String(error)}</span>}
+          <Button
+            className="h-10"
+            value={isFetching ? "Retrying..." : "Retry"}
+            primary
+            onClick={() => refetch()}
+          />
+        </div>
       </ErrorMessage>
     );
   }

@@ -4819,7 +4819,6 @@ dependencies = [
  "epaint",
  "futures",
  "futures-util",
- "gdk",
  "gtk",
  "image 0.24.9",
  "js-sys",
@@ -4866,6 +4865,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "winit",
  "workflow-core",
  "workflow-dom",
  "workflow-http",
@@ -4874,6 +4874,7 @@ dependencies = [
  "workflow-store",
  "workflow-wasm",
  "wry",
+ "x11-dl",
  "xxhash-rust",
  "zeroize",
 ]
