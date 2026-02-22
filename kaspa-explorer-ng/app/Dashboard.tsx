@@ -24,7 +24,8 @@ import { useBlockReward } from "./hooks/useBlockReward";
 import { useCoinSupply } from "./hooks/useCoinSupply";
 import { useHalving } from "./hooks/useHalving";
 import { useTransactionsCount } from "./hooks/useTransactionsCount";
-import { SAVED_ADDRESS_KEY } from "./utils/storage";
+import { NETWORK_ID } from "./api/config";
+import { savedAddressKeyForNetwork } from "./utils/storage";
 import numeral from "numeral";
 import { NavLink } from "react-router";
 import { useEffect, useState } from "react";
@@ -48,8 +49,9 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const storageKey = savedAddressKeyForNetwork(NETWORK_ID);
     const loadSavedAddress = () => {
-      const value = window.localStorage.getItem(SAVED_ADDRESS_KEY);
+      const value = window.localStorage.getItem(storageKey);
       setSavedAddress(value || null);
     };
     loadSavedAddress();

@@ -39,6 +39,16 @@ pub struct Inner {
     update_monitor_service: Arc<UpdateMonitorService>,
     market_monitor_service: Arc<MarketMonitorService>,
     stratum_bridge_service: Arc<StratumBridgeService>,
+    cpu_miner_service: Arc<CpuMinerService>,
+    rothschild_service: Arc<RothschildService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_db_service: Arc<SelfHostedDbService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_indexer_service: Arc<SelfHostedIndexerService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_postgres_service: Arc<SelfHostedPostgresService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_explorer_service: Arc<SelfHostedExplorerService>,
 
     // #[cfg(not(feature = "lean"))]
     metrics_service: Arc<MetricsService>,
@@ -89,6 +99,45 @@ impl Runtime {
             application_events.clone(),
             settings,
         ));
+        let cpu_miner_service = Arc::new(CpuMinerService::new(
+            application_events.clone(),
+            settings,
+        ));
+        let rothschild_service = Arc::new(RothschildService::new(
+            application_events.clone(),
+            settings,
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_logs = LogStores {
+            postgres: Arc::new(LogStore::new(1000)),
+            indexer: Arc::new(LogStore::new(1000)),
+            rest: Arc::new(LogStore::new(1000)),
+            socket: Arc::new(LogStore::new(1000)),
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_db_service = Arc::new(SelfHostedDbService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_indexer_service = Arc::new(SelfHostedIndexerService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_postgres_service = Arc::new(SelfHostedPostgresService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_explorer_service = Arc::new(SelfHostedExplorerService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
 
         let update_monitor_service = Arc::new(UpdateMonitorService::new(
             application_events.clone(),
@@ -117,6 +166,16 @@ impl Runtime {
             feerate_monitor_service.clone(),
             market_monitor_service.clone(),
             stratum_bridge_service.clone(),
+            cpu_miner_service.clone(),
+            rothschild_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_db_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_indexer_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_postgres_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_explorer_service.clone(),
             update_monitor_service.clone(),
             // #[cfg(not(feature = "lean"))]
             metrics_service.clone(),
@@ -134,6 +193,16 @@ impl Runtime {
                 peer_monitor_service,
                 market_monitor_service,
                 stratum_bridge_service,
+                cpu_miner_service,
+                rothschild_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_db_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_indexer_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_postgres_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_explorer_service,
                 update_monitor_service,
                 egui_ctx: egui_ctx.clone(),
                 is_running: Arc::new(AtomicBool::new(false)),
@@ -268,6 +337,34 @@ impl Runtime {
 
     pub fn stratum_bridge_service(&self) -> &Arc<StratumBridgeService> {
         &self.inner.stratum_bridge_service
+    }
+
+    pub fn cpu_miner_service(&self) -> &Arc<CpuMinerService> {
+        &self.inner.cpu_miner_service
+    }
+
+    pub fn rothschild_service(&self) -> &Arc<RothschildService> {
+        &self.inner.rothschild_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_db_service(&self) -> &Arc<SelfHostedDbService> {
+        &self.inner.self_hosted_db_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_indexer_service(&self) -> &Arc<SelfHostedIndexerService> {
+        &self.inner.self_hosted_indexer_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_postgres_service(&self) -> &Arc<SelfHostedPostgresService> {
+        &self.inner.self_hosted_postgres_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_explorer_service(&self) -> &Arc<SelfHostedExplorerService> {
+        &self.inner.self_hosted_explorer_service
     }
 
     pub fn update_monitor_service(&self) -> &Arc<UpdateMonitorService> {
@@ -445,10 +542,18 @@ pub fn halt() {
         runtime.try_send(Events::Exit).ok();
         runtime.kaspa_service().clone().terminate();
 
-        let handle = tokio::spawn(async move { runtime.shutdown().await });
-
-        while !handle.is_finished() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let join_handle = handle.spawn(async move { runtime.shutdown().await });
+            while !join_handle.is_finished() {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        } else if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            let _ = rt.block_on(async move { runtime.shutdown().await });
+        } else {
+            log_error!("runtime::halt(): unable to create tokio runtime for shutdown");
         }
     }
 }

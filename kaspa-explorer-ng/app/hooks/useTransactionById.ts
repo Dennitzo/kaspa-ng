@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
+import { API_BASE } from "../api/config";
 
 export const useTransactionById = (transactionId: string) =>
   useQuery({
@@ -7,13 +8,13 @@ export const useTransactionById = (transactionId: string) =>
     queryFn: async () => {
       try {
         const { data } = await axios.get(
-          `https://api.kaspa.org/transactions/${transactionId}?resolve_previous_outpoints=light`,
+          `${API_BASE}/transactions/${transactionId}?resolve_previous_outpoints=light`,
         );
         return data as TransactionData;
       } catch (err) {
         if (axios.isAxiosError(err) && err.response?.status === 404) {
           const { data } = await axios.post(
-            `https://api.kaspa.org/transactions/search`,
+            `${API_BASE}/transactions/search`,
             { transactionIds: [transactionId] },
             {
               params: {

@@ -23,6 +23,37 @@ pub use metrics_monitor::MetricsService;
 
 pub mod stratum_bridge;
 pub use stratum_bridge::StratumBridgeService;
+
+pub mod cpu_miner;
+pub use cpu_miner::CpuMinerService;
+
+pub mod rothschild;
+pub use rothschild::RothschildService;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_db;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_db::SelfHostedDbService;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod log_store;
+#[cfg(not(target_arch = "wasm32"))]
+pub use log_store::{LogStore, LogStores};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_indexer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_indexer::SelfHostedIndexerService;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_explorer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_explorer::SelfHostedExplorerService;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_postgres;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_postgres::SelfHostedPostgresService;
 cfg_if! {
     if #[cfg(not(feature = "lean"))] {
 

@@ -57,6 +57,7 @@ impl From<Network> for Preset {
         match network {
             Network::Mainnet => PRESETS[0].clone(),
             Network::Testnet10 => PRESETS[3].clone(),
+            Network::Testnet12 => PRESETS[3].clone(),
         }
     }
 }
@@ -525,4 +526,3 @@ impl ModuleT for BlockDag {
     }
 
 }
-

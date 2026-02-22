@@ -15,6 +15,7 @@ use workflow_wasm::callback::CallbackMap;
 pub const TRANSACTION_PAGE_SIZE: u64 = 20;
 pub const MAINNET_EXPLORER: &str = "https://explorer.kaspa.org";
 pub const TESTNET10_EXPLORER: &str = "https://explorer-tn10.kaspa.org";
+pub const TESTNET12_EXPLORER: &str = "https://explorer-tn12.kaspa.org";
 
 pub enum Exception {
     #[allow(dead_code)]
@@ -276,6 +277,14 @@ impl Core {
                     type_id == TypeId::of::<modules::RkBridgeLogs>(),
                     Ordering::Relaxed,
                 );
+                crate::runtime::services::cpu_miner::update_logs_flag().store(
+                    type_id == TypeId::of::<modules::CpuMinerLogs>(),
+                    Ordering::Relaxed,
+                );
+                crate::runtime::services::rothschild::update_logs_flag().store(
+                    type_id == TypeId::of::<modules::RothschildLogs>(),
+                    Ordering::Relaxed,
+                );
             }
         }
     }
@@ -393,8 +402,20 @@ impl Core {
     pub fn change_current_network(&mut self, network: Network) {
         if self.settings.node.network != network {
             self.settings.node.network = network;
+            if !matches!(network, Network::Mainnet) && self.settings.node.stratum_bridge_enabled {
+                self.settings.node.stratum_bridge_enabled = false;
+                self.runtime
+                    .stratum_bridge_service()
+                    .enable(false, &self.settings.node);
+            }
             self.get_mut::<modules::Settings>()
                 .change_current_network(network);
+            self.runtime
+                .cpu_miner_service()
+                .update_settings(network, &self.settings.node.cpu_miner);
+            self.runtime
+                .rothschild_service()
+                .update_settings(network, &self.settings.node.rothschild);
             self.store_settings();
             self.runtime
                 .kaspa_service()
@@ -709,6 +730,12 @@ impl Core {
                 self.select_with_type_id(type_id);
             }
             Events::NetworkChange(network) => {
+                self.runtime
+                    .cpu_miner_service()
+                    .update_settings(network, &self.settings.node.cpu_miner);
+                self.runtime
+                    .rothschild_service()
+                    .update_settings(network, &self.settings.node.rothschild);
                 self.modules.clone().values().for_each(|module| {
                     module.network_change(self, network);
                 });
@@ -1226,7 +1253,13 @@ impl Core {
         account_descriptors: Vec<AccountDescriptor>,
     ) -> Result<()> {
         let network = Network::from(network_id);
-        if self.network() != network {
+        let selected_network = self.network();
+        let same_effective_network = selected_network == network
+            || matches!(
+                (selected_network, network),
+                (Network::Testnet12, Network::Testnet10)
+            );
+        if !same_effective_network {
             return Err(Error::InvalidNetwork(network.to_string()));
         }
 

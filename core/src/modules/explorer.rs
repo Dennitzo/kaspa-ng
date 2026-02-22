@@ -154,6 +154,8 @@ pub struct Explorer {
     #[cfg(not(target_arch = "wasm32"))]
     last_path: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
+    last_endpoint_signature: Option<(ExplorerDataSource, Network, String, String, String)>,
+    #[cfg(not(target_arch = "wasm32"))]
     status: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     last_webview_attempt: Option<std::time::Instant>,
@@ -171,6 +173,8 @@ impl Explorer {
             last_bounds: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_endpoint_signature: None,
             #[cfg(not(target_arch = "wasm32"))]
             status: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -279,6 +283,20 @@ impl ModuleT for Explorer {
                     .into(),
                 };
 
+                let endpoint = core.settings.explorer.endpoint(core.settings.node.network);
+                let endpoint_signature = Some((
+                    core.settings.explorer.source,
+                    core.settings.node.network,
+                    endpoint.api_base.clone(),
+                    endpoint.socket_url.clone(),
+                    endpoint.socket_path.clone(),
+                ));
+
+                if self.webview.is_some() && self.last_endpoint_signature != endpoint_signature {
+                    self.webview.take();
+                    self.last_bounds = None;
+                }
+
                 if self.webview.is_none() {
                     if let Some(last_attempt) = self.last_webview_attempt {
                         if last_attempt.elapsed() < std::time::Duration::from_secs(2) {
@@ -288,6 +306,8 @@ impl ModuleT for Explorer {
                     self.last_webview_attempt = Some(std::time::Instant::now());
 
                     let start_url = explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
+                    let config_script =
+                        explorer_runtime_config_script(endpoint, core.settings.node.network);
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
                         .with_bounds(bounds)
@@ -295,6 +315,7 @@ impl ModuleT for Explorer {
                         .with_accept_first_mouse(true)
                         .with_focused(true)
                         .with_initialization_script(WEBVIEW_SHORTCUTS_JS)
+                        .with_initialization_script(config_script.as_str())
                         .build_as_child(frame)
                     {
                         Ok(webview) => {
@@ -303,6 +324,7 @@ impl ModuleT for Explorer {
                             self.webview = Some(webview);
                             self.last_bounds = Some(bounds);
                             self.last_path = Some(core.settings.user_interface.explorer_last_path.clone());
+                            self.last_endpoint_signature = endpoint_signature;
                             self.status = None;
                         }
                         Err(err) => {
@@ -619,4 +641,33 @@ fn extract_explorer_path(current_url: &str, base_url: &str) -> Option<String> {
     } else {
         Some(format!("/{remainder}"))
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn js_quote(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn explorer_runtime_config_script(endpoint: &ExplorerEndpoint, network: Network) -> String {
+    format!(
+        "window.__KASPA_EXPLORER_CONFIG__={{apiBase:{},socketUrl:{},socketPath:{},networkId:{}}};",
+        js_quote(endpoint.api_base.as_str()),
+        js_quote(endpoint.socket_url.as_str()),
+        js_quote(endpoint.socket_path.as_str()),
+        js_quote(network.to_string().as_str())
+    )
 }

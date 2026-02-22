@@ -1,0 +1,24 @@
+[package]
+name = "simply-kaspa-cli"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+
+[lib]
+name = "simply_kaspa_cli"
+crate-type = ["cdylib", "lib"]
+
+[build-dependencies]
+vergen-git2.workspace = true
+
+[dependencies]
+clap.workspace = true
+utoipa.workspace = true
+serde.workspace = true
+humantime.workspace = true
+humantime-serde.workspace = true

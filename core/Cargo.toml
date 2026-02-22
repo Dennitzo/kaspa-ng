@@ -65,6 +65,7 @@ pad.workspace = true
 passwords.workspace = true
 qrcode.workspace = true
 rand.workspace = true
+secp256k1.workspace = true
 rfd.workspace = true
 ritehash.workspace = true
 separator.workspace = true
@@ -105,6 +106,7 @@ features = [
 nix.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+axum.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 env_logger.workspace = true
@@ -118,6 +120,8 @@ open.workspace = true
 rlimit.workspace = true
 sysinfo.workspace = true
 tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-stream.workspace = true
 wry = { git = "https://github.com/tauri-apps/wry", tag = "wry-v0.54.1" }
 
 [target.'cfg(target_os = "linux")'.dependencies]

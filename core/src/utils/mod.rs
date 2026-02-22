@@ -25,6 +25,8 @@ mod secret;
 pub use secret::*;
 mod mnemonic;
 pub use mnemonic::*;
+mod rothschild;
+pub use rothschild::*;
 mod wallet;
 pub use wallet::*;
 

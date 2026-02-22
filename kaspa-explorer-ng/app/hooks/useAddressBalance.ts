@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
+import { API_BASE } from "../api/config";
 
 export const useAddressBalance = (address: string) =>
   useQuery({
     queryKey: ["addresses", { address }],
     queryFn: async () => {
-      const { data } = await axios.get(`https://api.kaspa.org/addresses/${address}/balance`);
+      const { data } = await axios.get(`${API_BASE}/addresses/${address}/balance`);
       return data as AddressBalance;
     },
   });

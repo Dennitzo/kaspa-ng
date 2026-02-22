@@ -16,8 +16,9 @@ import { useAddressTxCount } from "../hooks/useAddressTxCount";
 import { useAddressUtxos } from "../hooks/useAddressUtxos";
 import { useTransactions } from "../hooks/useTransactions";
 import FooterHelper from "../layout/FooterHelper";
+import { NETWORK_ID } from "../api/config";
 import { isValidKaspaAddressSyntax } from "../utils/kaspa";
-import { SAVED_ADDRESS_KEY } from "../utils/storage";
+import { savedAddressKeyForNetwork } from "../utils/storage";
 import type { Route } from "./+types/addressdetails";
 import dayjs from "dayjs";
 import localeData from "dayjs/plugin/localeData";
@@ -53,6 +54,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
   const [beforeAfter, setBeforeAfter] = useState<number[]>([0, 0]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isSavedAddress, setIsSavedAddress] = useState(false);
+  const savedAddressKey = savedAddressKeyForNetwork(NETWORK_ID);
 
   const [expand, setExpand] = useState<string[]>([]);
 
@@ -60,10 +62,10 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
     setBeforeAfter([0, 0]); // Reset beforeAfter state
     setCurrentPage(1); // Reset currentPage state
     if (typeof window !== "undefined") {
-      const saved = window.localStorage.getItem(SAVED_ADDRESS_KEY);
+      const saved = window.localStorage.getItem(savedAddressKey);
       setIsSavedAddress(saved === address);
     }
-  }, [address]);
+  }, [address, savedAddressKey]);
 
   const pageSize = 25;
 
@@ -125,11 +127,11 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
   const toggleSavedAddress = () => {
     if (typeof window === "undefined") return;
     if (isSavedAddress) {
-      window.localStorage.removeItem(SAVED_ADDRESS_KEY);
+      window.localStorage.removeItem(savedAddressKey);
       setIsSavedAddress(false);
       window.dispatchEvent(new CustomEvent("kaspa:saved-address", { detail: null }));
     } else {
-      window.localStorage.setItem(SAVED_ADDRESS_KEY, address);
+      window.localStorage.setItem(savedAddressKey, address);
       setIsSavedAddress(true);
       window.dispatchEvent(new CustomEvent("kaspa:saved-address", { detail: address }));
     }

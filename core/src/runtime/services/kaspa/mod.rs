@@ -130,7 +130,7 @@ impl KaspaService {
             #[cfg(not(target_arch = "wasm32"))]
             kaspad: Mutex::new(None),
             #[cfg(not(target_arch = "wasm32"))]
-            logs: Mutex::new(vec![Log::Info(format!("rusty-kaspa:v{}", kaspa_version()))]),
+            logs: Mutex::new(Vec::new()),
         }
     }
 

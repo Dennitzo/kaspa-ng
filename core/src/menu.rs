@@ -491,6 +491,21 @@ impl<'core> Menu<'core> {
                 ui.close_menu();
             }
 
+            if self.core.settings.self_hosted.enabled {
+                ui.separator();
+                if self
+                    .menu_tab_button(
+                        ui,
+                        i18n("Database"),
+                        active == TypeId::of::<modules::Database>(),
+                    )
+                    .clicked()
+                {
+                    self.select::<modules::Database>();
+                    ui.close_menu();
+                }
+            }
+
             if self.core.settings.node.node_kind.is_local() {
                 ui.separator();
                 if self
@@ -505,17 +520,50 @@ impl<'core> Menu<'core> {
                     ui.close_menu();
                 }
 
-                ui.separator();
-                if self
-                    .menu_tab_button(
-                        ui,
-                        i18n("RK Bridge"),
-                        active == TypeId::of::<modules::RkBridgeLogs>(),
-                    )
-                    .clicked()
-                {
-                    self.select::<modules::RkBridgeLogs>();
-                    ui.close_menu();
+                if matches!(self.core.settings.node.network, Network::Mainnet) {
+                    ui.separator();
+                    if self
+                        .menu_tab_button(
+                            ui,
+                            i18n("RK Bridge"),
+                            active == TypeId::of::<modules::RkBridgeLogs>(),
+                        )
+                        .clicked()
+                    {
+                        self.select::<modules::RkBridgeLogs>();
+                        ui.close_menu();
+                    }
+                }
+
+                if matches!(
+                    self.core.settings.node.network,
+                    Network::Testnet10 | Network::Testnet12
+                ) {
+                    ui.separator();
+                    if self
+                        .menu_tab_button(
+                            ui,
+                            i18n("CPU Miner"),
+                            active == TypeId::of::<modules::CpuMinerLogs>(),
+                        )
+                        .clicked()
+                    {
+                        self.select::<modules::CpuMinerLogs>();
+                        ui.close_menu();
+                    }
+
+                    ui.separator();
+                    if self
+                        .menu_tab_button(
+                            ui,
+                            i18n("Rothschild"),
+                            active == TypeId::of::<modules::RothschildLogs>(),
+                        )
+                        .clicked()
+                    {
+                        self.select::<modules::RothschildLogs>();
+                        ui.close_menu();
+                    }
                 }
             }
         }

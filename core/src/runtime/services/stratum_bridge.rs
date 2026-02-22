@@ -74,10 +74,7 @@ cfg_if! {
                     is_enabled: AtomicBool::new(enabled),
                     starting: AtomicBool::new(false),
                     restart_pending: AtomicBool::new(false),
-                    logs: Mutex::new(vec![Log::Info(format!(
-                        "rusty-kaspa:v{}",
-                        kaspa_version()
-                    ))]),
+                    logs: Mutex::new(Vec::new()),
                     blocks: Mutex::new(Vec::new()),
                     last_block_hash: Mutex::new(None),
                     node_settings: Mutex::new(settings.node.clone()),

@@ -7,6 +7,7 @@ import FooterHelper from "../layout/FooterHelper";
 import Box from "../assets/box.svg";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useSocketRoom } from "../hooks/useSocketRoom";
+import { API_BASE } from "../api/config";
 import type { Route } from "./+types/miners";
 import axios from "axios";
 import dayjs from "dayjs";
@@ -21,7 +22,6 @@ dayjs.extend(relativeTime);
 dayjs.extend(localeData);
 dayjs.extend(localizedFormat);
 
-const API_BASE = "https://api.kaspa.org";
 const INITIAL_BLOCK_SAMPLE = 40;
 const stripKaspaPrefix = (value: string) => {
   if (value.startsWith("kaspa:")) return value.slice("kaspa:".length);

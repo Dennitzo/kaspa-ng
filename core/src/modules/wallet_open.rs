@@ -8,11 +8,17 @@ pub enum State {
     Unlocking { wallet_descriptor : WalletDescriptor },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Focus {
+    #[default]
+    WalletSecret,
+}
+
 pub struct WalletOpen {
     #[allow(dead_code)]
     runtime: Runtime,
     wallet_secret: String,
-    focus_unlock_editor: bool,
+    focus: FocusManager<Focus>,
     pub state: State,
     pub message: Option<String>,
 }
@@ -22,14 +28,14 @@ impl WalletOpen {
         Self {
             runtime,
             wallet_secret: String::new(),
-            focus_unlock_editor: false,
+            focus: FocusManager::default(),
             state: State::Select,
             message: None,
         }
     }
 
     pub fn open(&mut self, wallet_descriptor: WalletDescriptor) {
-        self.focus_unlock_editor = true;
+        self.focus.next(Focus::WalletSecret);
         self.state = State::Unlock { wallet_descriptor, error : None};
     }
 
@@ -85,7 +91,7 @@ impl ModuleT for WalletOpen {
                                     wallet_descriptor.title.as_deref().unwrap_or_else(||i18n("NO NAME")),
                                     wallet_descriptor.filename.clone(),
                                 )).clicked() {
-                                    this.focus_unlock_editor = true;
+                                    this.focus.next(Focus::WalletSecret);
                                     this.state = State::Unlock { wallet_descriptor : wallet_descriptor.clone(), error : None };
                                 }
                             }
@@ -135,21 +141,23 @@ impl ModuleT for WalletOpen {
                         ui.label(" ");
 
 
-                        let response = ui.add_sized(
-                                theme_style().panel_editor_size,
-                                TextEdit::singleline(&mut ctx.wallet_secret)
-                                    .password(true)
-                                    .vertical_align(Align::Center),
-                            );
-
-                        if ctx.focus_unlock_editor {
-                            response.request_focus();
-                            ctx.focus_unlock_editor = false;
-                        }
-
-                        if response.text_edit_submit(ui) {
+                        TextEditor::new(
+                            &mut ctx.wallet_secret,
+                            &mut ctx.focus,
+                            Focus::WalletSecret,
+                            |ui, text| {
+                                ui.add_sized(
+                                    theme_style().panel_editor_size,
+                                    TextEdit::singleline(text)
+                                        .password(true)
+                                        .vertical_align(Align::Center),
+                                )
+                            },
+                        )
+                        .submit(|_, _| {
                             *unlock.borrow_mut() = true;
-                        }
+                        })
+                        .build(ui);
 
                     })
                     .with_footer(|_,ui|{
@@ -194,7 +202,7 @@ impl ModuleT for WalletOpen {
                             }
                             Err(err) => {
                                 // println!("Unlock error: {}", err);
-                                self.focus_unlock_editor = true;
+                                self.focus.next(Focus::WalletSecret);
                                 self.state = State::Unlock { wallet_descriptor, error : Some(Arc::new(err)) };
                             }
                         }

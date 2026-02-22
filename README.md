@@ -63,6 +63,15 @@ Once you have Rusty Kaspa built, you will be able to build and run this project 
 ### From GitHub repository:
 #### Start Custom Build
 ```bash
+cd simply-kaspa-indexer
+cargo build --release
+cd ..
+cd kaspa-rest-server
+poetry install
+cd ..
+cd kaspa-socket-server
+pipenv install --deploy --clear
+cd ..
 cd kaspa-explorer-ng
 npm install
 npm run build

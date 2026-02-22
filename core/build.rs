@@ -15,6 +15,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     export_rusty_kaspa_workspace_version()?;
     build_explorer_if_needed()?;
+    build_cpu_miner_if_needed()?;
+    build_rothschild_if_needed()?;
+    build_simply_kaspa_indexer_if_needed()?;
     build_stratum_bridge_if_needed()?;
     Ok(())
 }
@@ -210,6 +213,225 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn build_cpu_miner_if_needed() -> Result<(), Box<dyn Error>> {
+    let host = std::env::var("HOST").unwrap_or_default();
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !host.is_empty() && !target.is_empty() && host != target {
+        println!("cargo:warning=Skipping cpu miner build (cross-compile: {host} -> {target})");
+        return Ok(());
+    }
+
+    if target.contains("wasm32") {
+        println!("cargo:warning=Skipping cpu miner build (wasm32 target)");
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let miner_root = repo_root.join("cpuminer");
+    if !miner_root.exists() {
+        return Ok(());
+    }
+
+    let miner_src = miner_root.join("src");
+    let miner_toml = miner_root.join("Cargo.toml");
+
+    println!("cargo:rerun-if-changed={}", miner_toml.display());
+    println!("cargo:rerun-if-changed={}", miner_src.display());
+
+    let bin_name = if cfg!(windows) {
+        "kaspa-miner.exe"
+    } else {
+        "kaspa-miner"
+    };
+    let bin_path = miner_root.join("target").join("release").join(bin_name);
+
+    let latest_src = newest_mtime(&miner_src)
+        .into_iter()
+        .chain(newest_mtime(&miner_toml))
+        .max();
+
+    if bin_path.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
+        && bin_time >= src_time
+    {
+        sync_cpu_miner_binary(&bin_path, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building kaspa-miner (release)...");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = Command::new(cargo)
+        .current_dir(&miner_root)
+        .args(["build", "--release"])
+        .status()?;
+
+    if !status.success() {
+        return Err("failed to build kaspa-miner".into());
+    }
+
+    sync_cpu_miner_binary(&bin_path, &repo_root)?;
+
+    Ok(())
+}
+
+fn build_rothschild_if_needed() -> Result<(), Box<dyn Error>> {
+    let host = std::env::var("HOST").unwrap_or_default();
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !host.is_empty() && !target.is_empty() && host != target {
+        println!("cargo:warning=Skipping rothschild build (cross-compile: {host} -> {target})");
+        return Ok(());
+    }
+
+    if target.contains("wasm32") {
+        println!("cargo:warning=Skipping rothschild build (wasm32 target)");
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let rusty_kaspa = repo_root.join("rusty-kaspa");
+    let rothschild_root = rusty_kaspa.join("rothschild");
+    if !rothschild_root.exists() {
+        return Ok(());
+    }
+
+    let rothschild_src = rothschild_root.join("src");
+    let rothschild_toml = rothschild_root.join("Cargo.toml");
+    let rusty_toml = rusty_kaspa.join("Cargo.toml");
+
+    println!("cargo:rerun-if-changed={}", rothschild_toml.display());
+    println!("cargo:rerun-if-changed={}", rusty_toml.display());
+    println!("cargo:rerun-if-changed={}", rothschild_src.display());
+
+    let bin_name = if cfg!(windows) {
+        "rothschild.exe"
+    } else {
+        "rothschild"
+    };
+    let bin_path = rusty_kaspa.join("target").join("release").join(bin_name);
+
+    let latest_src = newest_mtime(&rothschild_src)
+        .into_iter()
+        .chain(newest_mtime(&rothschild_toml))
+        .chain(newest_mtime(&rusty_toml))
+        .max();
+
+    if bin_path.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
+        && bin_time >= src_time
+    {
+        sync_rothschild_binary(&bin_path, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building rothschild (release)...");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = Command::new(cargo)
+        .current_dir(&rusty_kaspa)
+        .args(["build", "-p", "rothschild", "--release"])
+        .status()?;
+
+    if !status.success() {
+        return Err("failed to build rothschild".into());
+    }
+
+    sync_rothschild_binary(&bin_path, &repo_root)?;
+
+    Ok(())
+}
+
+fn build_simply_kaspa_indexer_if_needed() -> Result<(), Box<dyn Error>> {
+    let host = std::env::var("HOST").unwrap_or_default();
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !host.is_empty() && !target.is_empty() && host != target {
+        println!(
+            "cargo:warning=Skipping simply-kaspa-indexer build (cross-compile: {host} -> {target})"
+        );
+        return Ok(());
+    }
+
+    if target.contains("wasm32") {
+        println!("cargo:warning=Skipping simply-kaspa-indexer build (wasm32 target)");
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let indexer_root = repo_root.join("simply-kaspa-indexer");
+    if !indexer_root.exists() {
+        return Ok(());
+    }
+
+    let indexer_toml = indexer_root.join("Cargo.toml");
+    let indexer_lock = indexer_root.join("Cargo.lock");
+    let cli_src = indexer_root.join("cli").join("src");
+    let database_src = indexer_root.join("database").join("src");
+    let mapping_src = indexer_root.join("mapping").join("src");
+    let kaspad_src = indexer_root.join("kaspad").join("src");
+    let indexer_src = indexer_root.join("indexer").join("src");
+    let signal_src = indexer_root.join("signal").join("src");
+
+    println!("cargo:rerun-if-changed={}", indexer_toml.display());
+    println!("cargo:rerun-if-changed={}", indexer_lock.display());
+    println!("cargo:rerun-if-changed={}", cli_src.display());
+    println!("cargo:rerun-if-changed={}", database_src.display());
+    println!("cargo:rerun-if-changed={}", mapping_src.display());
+    println!("cargo:rerun-if-changed={}", kaspad_src.display());
+    println!("cargo:rerun-if-changed={}", indexer_src.display());
+    println!("cargo:rerun-if-changed={}", signal_src.display());
+
+    let bin_name = if cfg!(windows) {
+        "simply-kaspa-indexer.exe"
+    } else {
+        "simply-kaspa-indexer"
+    };
+    let bin_path = indexer_root.join("target").join("release").join(bin_name);
+
+    let latest_src = newest_mtime(&indexer_toml)
+        .into_iter()
+        .chain(newest_mtime(&indexer_lock))
+        .chain(newest_mtime(&cli_src))
+        .chain(newest_mtime(&database_src))
+        .chain(newest_mtime(&mapping_src))
+        .chain(newest_mtime(&kaspad_src))
+        .chain(newest_mtime(&indexer_src))
+        .chain(newest_mtime(&signal_src))
+        .max();
+
+    if bin_path.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
+        && bin_time >= src_time
+    {
+        sync_simply_kaspa_indexer_binary(&bin_path, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building simply-kaspa-indexer (release)...");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = Command::new(cargo)
+        .current_dir(&indexer_root)
+        .args(["build", "-p", "simply-kaspa-indexer", "--release"])
+        .status()?;
+
+    if !status.success() {
+        return Err("failed to build simply-kaspa-indexer".into());
+    }
+
+    sync_simply_kaspa_indexer_binary(&bin_path, &repo_root)?;
+
+    Ok(())
+}
+
 fn sync_explorer_build(explorer_root: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
     let build_root = explorer_root.join("build");
     let dist_root = explorer_root.join("dist");
@@ -252,6 +474,75 @@ fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), B
         bin_path
             .file_name()
             .ok_or("failed to resolve stratum-bridge filename")?,
+    );
+
+    let src_time = mtime(bin_path);
+    let dest_time = mtime(&dest_path);
+    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    std::fs::copy(bin_path, dest_path)?;
+    Ok(())
+}
+
+fn sync_cpu_miner_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    if !bin_path.exists() {
+        return Ok(());
+    }
+
+    let target_dir = target_profile_dir(repo_root);
+    std::fs::create_dir_all(&target_dir)?;
+    let dest_path = target_dir.join(
+        bin_path
+            .file_name()
+            .ok_or("failed to resolve cpu miner filename")?,
+    );
+
+    let src_time = mtime(bin_path);
+    let dest_time = mtime(&dest_path);
+    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    std::fs::copy(bin_path, dest_path)?;
+    Ok(())
+}
+
+fn sync_rothschild_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    if !bin_path.exists() {
+        return Ok(());
+    }
+
+    let target_dir = target_profile_dir(repo_root);
+    std::fs::create_dir_all(&target_dir)?;
+    let dest_path = target_dir.join(
+        bin_path
+            .file_name()
+            .ok_or("failed to resolve rothschild filename")?,
+    );
+
+    let src_time = mtime(bin_path);
+    let dest_time = mtime(&dest_path);
+    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    std::fs::copy(bin_path, dest_path)?;
+    Ok(())
+}
+
+fn sync_simply_kaspa_indexer_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    if !bin_path.exists() {
+        return Ok(());
+    }
+
+    let target_dir = target_profile_dir(repo_root);
+    std::fs::create_dir_all(&target_dir)?;
+    let dest_path = target_dir.join(
+        bin_path
+            .file_name()
+            .ok_or("failed to resolve simply-kaspa-indexer filename")?,
     );
 
     let src_time = mtime(bin_path);

@@ -6,6 +6,7 @@ members = [
     "macros",
     "extensions/chrome",
 ]
+exclude = ["cpuminer"]
 default-members = ["app", "core"]
 
 [workspace.package]
@@ -208,6 +209,7 @@ workflow-wasm = "0.18.0"
 
 ahash = "0.8.6"
 async-trait = "0.1.88"
+axum = "0.7.9"
 borsh = { version = "1.5.1", features = ["derive", "rc"] }
 cfg-if = "1.0.0"
 chrome-sys = "0.2.0"
@@ -245,6 +247,7 @@ smallvec = { version = "1.11.1", features = ["serde", "const_generics"] }
 sysinfo = "0.31.2"
 thiserror = "1.0.50"
 tokio = { version = "1.33.0", features = ["sync", "rt-multi-thread", "process"] }
+tokio-postgres = "0.7.12"
 toml = "0.8.8"
 walkdir = "2.4.0"
 wasm-bindgen = { version = "=0.2.100", features = ["serde-serialize"] }

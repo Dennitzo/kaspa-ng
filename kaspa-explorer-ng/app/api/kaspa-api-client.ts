@@ -1,4 +1,4 @@
-const API_BASE = "https://api.kaspa.org";
+import { API_BASE } from "./config";
 
 const DEFAULT_HEADERS = {
   "Access-Control-Allow-Origin": "*",

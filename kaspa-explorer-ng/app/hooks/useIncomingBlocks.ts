@@ -1,6 +1,7 @@
 import { useSocketRoom } from "./useSocketRoom";
 import { useBlockdagInfo } from "./useBlockDagInfo";
 import { useSocketConnected } from "../api/socket";
+import { API_BASE } from "../api/config";
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -19,7 +20,6 @@ export interface Block {
 
 const MAX_BLOCK_BUFFER = 200;
 const MAX_TX_BUFFER = 200;
-const API_BASE = "https://api.kaspa.org";
 
 export const useIncomingBlocks = () => {
   const { connected } = useSocketConnected();

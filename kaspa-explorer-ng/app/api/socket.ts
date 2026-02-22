@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
-
-const SOCKET_URL = "wss://t2-3.kaspa.ws";
+import { SOCKET_PATH, SOCKET_URL } from "./config";
 export const socket = io(SOCKET_URL, {
-  path: "/ws/socket.io",
+  path: SOCKET_PATH,
   autoConnect: true,
 });
 

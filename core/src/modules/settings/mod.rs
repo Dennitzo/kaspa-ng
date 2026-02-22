@@ -7,6 +7,7 @@ pub struct Settings {
     wrpc_borsh_network_interface : NetworkInterfaceEditor,
     wrpc_json_network_interface : NetworkInterfaceEditor,
     grpc_network_interface : NetworkInterfaceEditor,
+    reset_network_settings : bool,
     reset_settings : bool,
 }
 
@@ -18,6 +19,7 @@ impl Settings {
             wrpc_borsh_network_interface : NetworkInterfaceEditor::default(),
             wrpc_json_network_interface : NetworkInterfaceEditor::default(),
             grpc_network_interface : NetworkInterfaceEditor::default(),
+            reset_network_settings : false,
             reset_settings : false,
         }
     }
@@ -32,6 +34,52 @@ impl Settings {
 
     pub fn change_current_network(&mut self, network : Network) {
         self.settings.node.network = network;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn connect_host_for_bind(bind: &str) -> &str {
+        match bind.trim() {
+            "0.0.0.0" | "::" | "[::]" | "" => "127.0.0.1",
+            other => other,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn port_accepts_connections(host: &str, port: u16) -> bool {
+        use std::net::{TcpStream, ToSocketAddrs};
+        use std::time::Duration;
+
+        let Ok(addresses) = (host, port).to_socket_addrs() else {
+            return false;
+        };
+
+        addresses.into_iter().any(|addr| {
+            TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_for_self_hosted_ready(settings: &SelfHostedSettings) -> bool {
+        use std::thread::sleep;
+        use std::time::{Duration, Instant};
+
+        let host = Self::connect_host_for_bind(&settings.api_bind);
+        let deadline = Instant::now() + Duration::from_secs(15);
+
+        while Instant::now() < deadline {
+            let rest_ready = Self::port_accepts_connections(host, settings.explorer_rest_port);
+            let socket_ready = Self::port_accepts_connections(host, settings.explorer_socket_port);
+            let indexer_ready = Self::port_accepts_connections(host, settings.api_port);
+            let postgres_ready = Self::port_accepts_connections(&settings.db_host, settings.db_port);
+
+            if rest_ready && socket_ready && indexer_ready && postgres_ready {
+                return true;
+            }
+
+            sleep(Duration::from_millis(350));
+        }
+
+        false
     }
 
     pub fn render_remote_settings(_core: &mut Core, ui: &mut Ui, settings : &mut NodeSettings) -> Option<&'static str> {
@@ -417,6 +465,10 @@ impl Settings {
                             Confirm::Ack => {
 
                                 core.settings = self.settings.clone();
+                                if !matches!(core.settings.node.network, Network::Mainnet) {
+                                    core.settings.node.stratum_bridge_enabled = false;
+                                    self.settings.node.stratum_bridge_enabled = false;
+                                }
                                 core.settings.store_sync().unwrap();
 
                                 cfg_if! {
@@ -429,6 +481,23 @@ impl Settings {
                                 self.runtime
                                     .stratum_bridge_service()
                                     .update_settings(&core.settings.node);
+                                if !matches!(core.settings.node.network, Network::Mainnet) {
+                                    self.runtime
+                                        .stratum_bridge_service()
+                                        .enable(false, &core.settings.node);
+                                }
+                                self.runtime.cpu_miner_service().update_settings(
+                                    core.settings.node.network,
+                                    &core.settings.node.cpu_miner,
+                                );
+                                self.runtime.rothschild_service().update_settings(
+                                    core.settings.node.network,
+                                    &core.settings.node.rothschild,
+                                );
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_explorer_service()
+                                    .update_node_settings(core.settings.node.clone());
 
                                 if restart {
                                     self.runtime.kaspa_service().update_services(&self.settings.node, None);
@@ -607,15 +676,345 @@ impl Settings {
 
         self.render_ui_settings(core,ui);
 
+        #[cfg(not(target_arch = "wasm32"))]
+        CollapsingHeader::new(i18n("Explorer API"))
+            .default_open(false)
+            .show(ui, |ui| {
+                let mut changed = false;
+                let active_network = self.settings.node.network;
+                let mut explorer = self.settings.explorer.clone();
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(i18n("Data Source:"));
+                    changed |= ui
+                        .radio_value(
+                            &mut explorer.source,
+                            ExplorerDataSource::Official,
+                            i18n("Official"),
+                        )
+                        .changed();
+                    changed |= ui
+                        .radio_value(
+                            &mut explorer.source,
+                            ExplorerDataSource::SelfHosted,
+                            i18n("Self-hosted"),
+                        )
+                        .changed();
+                });
+
+                ui.add_space(6.0);
+                ui.label(format!(
+                    "{} {}",
+                    i18n("Active network:"),
+                    active_network.name()
+                ));
+
+                let active_endpoint = explorer.endpoint(active_network);
+                ui.monospace(format!(
+                    "{} {}",
+                    i18n("Active API:"),
+                    active_endpoint.api_base
+                ));
+                ui.monospace(format!(
+                    "{} {}",
+                    i18n("Active Socket:"),
+                    active_endpoint.socket_url
+                ));
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                CollapsingHeader::new(i18n("Official Endpoints"))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        changed |= Self::render_explorer_network_profiles(
+                            ui,
+                            &mut explorer.official,
+                            "explorer_official",
+                        );
+                    });
+
+                CollapsingHeader::new(i18n("Self-hosted Endpoints"))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        changed |= Self::render_explorer_network_profiles(
+                            ui,
+                            &mut explorer.self_hosted,
+                            "explorer_self_hosted",
+                        );
+                    });
+
+                if changed {
+                    self.settings.explorer = explorer.clone();
+                    core.settings.explorer = explorer;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.runtime
+                            .self_hosted_db_service()
+                            .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_explorer_service()
+                            .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_explorer_service()
+                            .update_node_settings(core.settings.node.clone());
+                        self.runtime
+                            .self_hosted_postgres_service()
+                            .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_indexer_service()
+                            .update_settings(self.settings.self_hosted.clone());
+                    }
+                    core.store_settings();
+                }
+            });
+
         CollapsingHeader::new(i18n("Services"))
             .default_open(true)
             .show(ui, |ui| {
+                #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("Self Hosted"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        use egui_phosphor::light::CLIPBOARD_TEXT;
+
+                        let mut changed = false;
+                        let mut settings = self.settings.self_hosted.clone();
+
+                        if ui
+                            .checkbox(
+                                &mut settings.enabled,
+                                i18n("Enable self-hosted database services"),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
+
+                        if !matches!(self.settings.explorer.source, ExplorerDataSource::SelfHosted) {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Explorer API source is currently set to Official."),
+                            );
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+
+                        Grid::new("self_hosted_settings_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(i18n("API Bind Address"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut settings.api_bind).desired_width(200.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("API Port"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut settings.api_port).range(1..=65535))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Explorer REST Port"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut settings.explorer_rest_port).range(1..=65535))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Explorer Socket Port"));
+                                changed |= ui
+                                    .add(
+                                        DragValue::new(&mut settings.explorer_socket_port)
+                                            .range(1..=65535),
+                                    )
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Database Host"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut settings.db_host).desired_width(200.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Database Port"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut settings.db_port).range(1..=65535))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Database User"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut settings.db_user).desired_width(200.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Database Password"));
+                                ui.horizontal(|ui| {
+                                    changed |= ui
+                                        .add(
+                                            TextEdit::singleline(&mut settings.db_password)
+                                                .desired_width(220.0),
+                                        )
+                                        .changed();
+                                    if ui.small_button(i18n("Regenerate")).clicked() {
+                                        settings.db_password = crate::settings::generate_db_password();
+                                        changed = true;
+                                    }
+                                    if ui
+                                        .small_button(RichText::new(format!(" {CLIPBOARD_TEXT} ")))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(settings.db_password.clone());
+                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                    }
+                                });
+                                ui.end_row();
+
+                                ui.label(i18n("Database Name"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut settings.db_name).desired_width(200.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Indexer RPC URL"));
+                                changed |= ui
+                                    .add(
+                                        TextEdit::singleline(&mut settings.indexer_rpc_url)
+                                            .desired_width(260.0),
+                                    )
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Indexer Listen"));
+                                changed |= ui
+                                    .add(
+                                        TextEdit::singleline(&mut settings.indexer_listen)
+                                            .desired_width(200.0),
+                                    )
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Indexer Extra Args"));
+                                changed |= ui
+                                    .add(
+                                        TextEdit::singleline(&mut settings.indexer_extra_args)
+                                            .desired_width(360.0),
+                                    )
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Upgrade DB"));
+                                changed |= ui
+                                    .checkbox(&mut settings.indexer_upgrade_db, i18n("Enable --upgrade-db"))
+                                    .changed();
+                                ui.end_row();
+                            });
+
+                        if changed {
+                            if settings.db_password.trim().is_empty() || settings.db_password == "kaspa" {
+                                settings.db_password = crate::settings::generate_db_password();
+                            }
+                            // These toggles are intentionally hidden in UI and should stay enabled.
+                            settings.postgres_enabled = true;
+                            settings.indexer_enabled = true;
+
+                            let previous_enabled = core.settings.self_hosted.enabled;
+                            self.settings.self_hosted = settings.clone();
+                            core.settings.self_hosted = settings.clone();
+
+                            self.runtime
+                                .self_hosted_db_service()
+                                .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_explorer_service()
+                                .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_explorer_service()
+                                .update_node_settings(core.settings.node.clone());
+                            self.runtime
+                                .self_hosted_postgres_service()
+                                .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_indexer_service()
+                                .update_settings(core.settings.self_hosted.clone());
+
+                            if previous_enabled != settings.enabled {
+                                self.runtime.self_hosted_postgres_service().enable(
+                                    settings.enabled && core.settings.self_hosted.postgres_enabled,
+                                );
+                                self.runtime.self_hosted_indexer_service().enable(
+                                    settings.enabled && core.settings.self_hosted.indexer_enabled,
+                                );
+                                self.runtime
+                                    .self_hosted_db_service()
+                                    .enable(settings.enabled);
+                                self.runtime
+                                    .self_hosted_explorer_service()
+                                    .enable(settings.enabled);
+                            }
+
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                let switched_to_enabled = !previous_enabled && settings.enabled;
+                                let switched_to_disabled = previous_enabled && !settings.enabled;
+
+                                if switched_to_enabled {
+                                    if Self::wait_for_self_hosted_ready(&settings) {
+                                        if !matches!(
+                                            core.settings.explorer.source,
+                                            ExplorerDataSource::SelfHosted
+                                        ) {
+                                            core.settings.explorer.source =
+                                                ExplorerDataSource::SelfHosted;
+                                            self.settings.explorer.source =
+                                                ExplorerDataSource::SelfHosted;
+                                            self.runtime.toast(
+                                                UserNotification::success(i18n(
+                                                    "Self-hosted services are ready. Explorer switched to Self-hosted.",
+                                                )),
+                                            );
+                                        }
+                                    } else {
+                                        core.settings.explorer.source = ExplorerDataSource::Official;
+                                        self.settings.explorer.source = ExplorerDataSource::Official;
+                                        self.runtime.toast(
+                                            UserNotification::warning(i18n(
+                                                "Self-hosted services are not fully reachable yet (REST/Socket/Indexer/Postgres). Explorer stays on Official.",
+                                            )),
+                                        );
+                                    }
+                                } else if switched_to_disabled
+                                    && matches!(
+                                        core.settings.explorer.source,
+                                        ExplorerDataSource::SelfHosted
+                                    )
+                                {
+                                    core.settings.explorer.source = ExplorerDataSource::Official;
+                                    self.settings.explorer.source = ExplorerDataSource::Official;
+                                    self.runtime.toast(UserNotification::info(i18n(
+                                        "Self-hosted services disabled. Explorer switched to Official.",
+                                    )));
+                                }
+                            }
+
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+                    });
 
                 #[cfg(not(target_arch = "wasm32"))]
                 CollapsingHeader::new(i18n("RK Bridge"))
                     .default_open(true)
                     .show(ui, |ui| {
-                        let can_enable = core.settings.node.node_kind.is_local();
+                        let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
+                        let can_enable = core.settings.node.node_kind.is_local() && is_mainnet;
                         let mut enabled = self.settings.node.stratum_bridge_enabled;
 
                         let response = ui.add_enabled(
@@ -623,10 +1022,15 @@ impl Settings {
                             Checkbox::new(&mut enabled, i18n("Enable RK Bridge (Stratum)")),
                         );
 
-                        if !can_enable {
+                        if !core.settings.node.node_kind.is_local() {
                             ui.colored_label(
                                 theme_color().warning_color,
                                 i18n("RK Bridge requires a local node."),
+                            );
+                        } else if !is_mainnet {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("RK Bridge is available only on Mainnet."),
                             );
                         } else if !core.settings.node.enable_grpc {
                             ui.colored_label(
@@ -653,96 +1057,461 @@ impl Settings {
 
                         let mut extranonce_size = bridge.extranonce_size as u32;
 
-                        Grid::new("rk_bridge_settings_grid")
-                            .num_columns(2)
-                            .spacing([16.0, 6.0])
-                            .show(ui, |ui| {
-                                ui.label(i18n("Stratum Port"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut bridge.stratum_port).desired_width(140.0))
-                                    .changed();
-                                ui.end_row();
+                        ui.add_enabled_ui(can_enable, |ui| {
+                            Grid::new("rk_bridge_settings_grid")
+                                .num_columns(2)
+                                .spacing([16.0, 6.0])
+                                .show(ui, |ui| {
+                                    ui.label(i18n("Stratum Port"));
+                                    changed |= ui
+                                        .add(
+                                            TextEdit::singleline(&mut bridge.stratum_port)
+                                                .desired_width(140.0),
+                                        )
+                                        .changed();
+                                    ui.end_row();
 
-                                let local_ip = local_ip_for_stratum();
-                                let stratum_port = stratum_port_for_display(&bridge.stratum_port);
-                                let mut stratum_url = format!("stratum+tcp://{local_ip}:{stratum_port}");
-                                ui.label(i18n("Miner connection"));
-                                ui.add(
-                                    TextEdit::singleline(&mut stratum_url)
-                                        .desired_width(260.0)
-                                        .interactive(false),
-                                );
-                                ui.end_row();
+                                    let local_ip = local_ip_for_stratum();
+                                    let stratum_port = stratum_port_for_display(&bridge.stratum_port);
+                                    let mut stratum_url =
+                                        format!("stratum+tcp://{local_ip}:{stratum_port}");
+                                    ui.label(i18n("Miner connection"));
+                                    ui.add(
+                                        TextEdit::singleline(&mut stratum_url)
+                                            .desired_width(260.0)
+                                            .interactive(false),
+                                    );
+                                    ui.end_row();
 
-                                ui.label(i18n("Min Share Difficulty"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut bridge.min_share_diff).speed(1).range(1..=u32::MAX))
-                                    .changed();
-                                ui.end_row();
+                                    ui.label(i18n("Min Share Difficulty"));
+                                    changed |= ui
+                                        .add(
+                                            DragValue::new(&mut bridge.min_share_diff)
+                                                .speed(1)
+                                                .range(1..=u32::MAX),
+                                        )
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Var Diff"));
-                                changed |= ui.checkbox(&mut bridge.var_diff, i18n("Enabled")).changed();
-                                ui.end_row();
+                                    ui.label(i18n("Var Diff"));
+                                    changed |=
+                                        ui.checkbox(&mut bridge.var_diff, i18n("Enabled")).changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Shares Per Min"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut bridge.shares_per_min).speed(1).range(1..=10_000))
-                                    .changed();
-                                ui.end_row();
+                                    ui.label(i18n("Shares Per Min"));
+                                    changed |= ui
+                                        .add(
+                                            DragValue::new(&mut bridge.shares_per_min)
+                                                .speed(1)
+                                                .range(1..=10_000),
+                                        )
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Var Diff Stats"));
-                                changed |= ui.checkbox(&mut bridge.var_diff_stats, i18n("Enabled")).changed();
-                                ui.end_row();
+                                    ui.label(i18n("Var Diff Stats"));
+                                    changed |= ui
+                                        .checkbox(&mut bridge.var_diff_stats, i18n("Enabled"))
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Pow2 Clamp"));
-                                changed |= ui.checkbox(&mut bridge.pow2_clamp, i18n("Enabled")).changed();
-                                ui.end_row();
+                                    ui.label(i18n("Pow2 Clamp"));
+                                    changed |=
+                                        ui.checkbox(&mut bridge.pow2_clamp, i18n("Enabled")).changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Block Wait (ms)"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut bridge.block_wait_time_ms).speed(50).range(1..=120_000))
-                                    .changed();
-                                ui.end_row();
+                                    ui.label(i18n("Block Wait (ms)"));
+                                    changed |= ui
+                                        .add(
+                                            DragValue::new(&mut bridge.block_wait_time_ms)
+                                                .speed(50)
+                                                .range(1..=120_000),
+                                        )
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Print Stats"));
-                                changed |= ui.checkbox(&mut bridge.print_stats, i18n("Enabled")).changed();
-                                ui.end_row();
+                                    ui.label(i18n("Print Stats"));
+                                    changed |= ui
+                                        .checkbox(&mut bridge.print_stats, i18n("Enabled"))
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Log To File"));
-                                changed |= ui.checkbox(&mut bridge.log_to_file, i18n("Enabled")).changed();
-                                ui.end_row();
+                                    ui.label(i18n("Log To File"));
+                                    changed |= ui
+                                        .checkbox(&mut bridge.log_to_file, i18n("Enabled"))
+                                        .changed();
+                                    ui.end_row();
 
-                                ui.label(i18n("Health Check Port"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut bridge.health_check_port).desired_width(140.0))
-                                    .changed();
-                                ui.end_row();
+                                    ui.label(i18n("Extranonce Size"));
+                                    let response = ui
+                                        .add(DragValue::new(&mut extranonce_size).speed(1).range(0..=3));
+                                    if response.changed() {
+                                        changed = true;
+                                        bridge.extranonce_size = extranonce_size as u8;
+                                    }
+                                    ui.end_row();
 
-                                ui.label(i18n("Extranonce Size"));
-                                let response = ui
-                                    .add(DragValue::new(&mut extranonce_size).speed(1).range(0..=3));
-                                if response.changed() {
-                                    changed = true;
-                                    bridge.extranonce_size = extranonce_size as u8;
-                                }
-                                ui.end_row();
-
-                                ui.label(i18n("Coinbase Tag Suffix"));
-                                changed |= ui
-                                    .add(
-                                        TextEdit::singleline(&mut bridge.coinbase_tag_suffix)
-                                            .desired_width(160.0)
-                                            .hint_text(i18n("optional")),
-                                    )
-                                    .changed();
-                                ui.end_row();
-                            });
+                                    ui.label(i18n("Coinbase Tag Suffix"));
+                                    changed |= ui
+                                        .add(
+                                            TextEdit::singleline(&mut bridge.coinbase_tag_suffix)
+                                                .desired_width(160.0)
+                                                .hint_text(i18n("optional")),
+                                        )
+                                        .changed();
+                                    ui.end_row();
+                                });
+                        });
 
                         if changed {
                             core.settings.node.stratum_bridge = bridge.clone();
                             self.runtime
                                 .stratum_bridge_service()
                                 .update_settings(&core.settings.node);
+                            core.store_settings();
+                        }
+                    });
+
+                #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("CPU Miner"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let is_testnet = matches!(
+                            core.settings.node.network,
+                            Network::Testnet10 | Network::Testnet12
+                        );
+                        let can_enable = core.settings.node.node_kind.is_local() && is_testnet;
+                        let mut enabled = self.settings.node.cpu_miner_enabled;
+
+                        let response = ui.add_enabled(
+                            can_enable,
+                            Checkbox::new(&mut enabled, i18n("Enable CPU Miner")),
+                        );
+
+                        if !core.settings.node.node_kind.is_local() {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("CPU Miner requires a local node."),
+                            );
+                        } else if !is_testnet {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("CPU Miner is available only on Testnet 10 and Testnet 12."),
+                            );
+                        } else if !core.settings.node.enable_grpc {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Enable gRPC in Node settings to use CPU Miner."),
+                            );
+                        }
+
+                        if response.changed() {
+                            self.settings.node.cpu_miner_enabled = enabled;
+                            core.settings.node.cpu_miner_enabled = enabled;
+                            self.runtime.cpu_miner_service().enable(
+                                enabled,
+                                core.settings.node.network,
+                                &core.settings.node.cpu_miner,
+                            );
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+
+                        let mut changed = false;
+                        let miner = &mut self.settings.node.cpu_miner;
+
+                        Grid::new("cpu_miner_settings_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(i18n("Mining Address"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut miner.mining_address).desired_width(260.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Kaspad Address"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut miner.kaspad_address).desired_width(160.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Kaspad Port"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut miner.kaspad_port).speed(1).range(1..=u16::MAX))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Threads"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut miner.threads).speed(1).range(1..=u16::MAX))
+                                    .changed();
+                                ui.end_row();
+
+                            });
+
+                        if changed {
+                            core.settings.node.cpu_miner = miner.clone();
+                            self.runtime.cpu_miner_service().update_settings(
+                                core.settings.node.network,
+                                &core.settings.node.cpu_miner,
+                            );
+                            core.store_settings();
+                        }
+                    });
+
+                #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("Rothschild"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let is_testnet = matches!(
+                            core.settings.node.network,
+                            Network::Testnet10 | Network::Testnet12
+                        );
+                        let can_enable = core.settings.node.node_kind.is_local() && is_testnet;
+                        let mut enabled = self.settings.node.rothschild_enabled;
+
+                        let response = ui.add_enabled(
+                            can_enable,
+                            Checkbox::new(&mut enabled, i18n("Enable Rothschild")),
+                        );
+
+                        if !core.settings.node.node_kind.is_local() {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Rothschild requires a local node."),
+                            );
+                        } else if !is_testnet {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Rothschild is available only on Testnet 10 and Testnet 12."),
+                            );
+                        } else if !core.settings.node.enable_grpc {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Enable gRPC in Node settings to use Rothschild."),
+                            );
+                        }
+
+                        if response.changed() {
+                            self.settings.node.rothschild_enabled = enabled;
+                            core.settings.node.rothschild_enabled = enabled;
+                            if enabled {
+                                let mut settings_changed = false;
+
+                                if core.settings.node.rothschild.private_key.trim().is_empty() {
+                                    let (private_key, address) =
+                                        generate_rothschild_credentials(core.settings.node.network);
+                                    core.settings.node.rothschild.private_key = private_key;
+                                    core.settings.node.rothschild.address = address;
+                                    settings_changed = true;
+                                    if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                        &core.settings.node.rothschild.private_key,
+                                    ) {
+                                        core.settings.node.rothschild.mnemonic = mnemonic;
+                                    }
+                                } else if core.settings.node.rothschild.address.trim().is_empty() {
+                                    if let Ok(address) = rothschild_address_from_private_key(
+                                        core.settings.node.network,
+                                        &core.settings.node.rothschild.private_key,
+                                    ) {
+                                        core.settings.node.rothschild.address = address;
+                                        settings_changed = true;
+                                    }
+                                }
+                                if core.settings.node.rothschild.mnemonic.trim().is_empty()
+                                    && core.settings.node.rothschild.private_key.trim().is_not_empty()
+                                {
+                                    if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                        &core.settings.node.rothschild.private_key,
+                                    ) {
+                                        core.settings.node.rothschild.mnemonic = mnemonic;
+                                        settings_changed = true;
+                                    }
+                                }
+
+                                if core.settings.node.cpu_miner.mining_address.trim().is_empty()
+                                    && core.settings.node.rothschild.address.trim().is_not_empty()
+                                {
+                                    core.settings.node.cpu_miner.mining_address =
+                                        core.settings.node.rothschild.address.clone();
+                                    settings_changed = true;
+                                }
+
+                                if settings_changed {
+                                    self.settings.node.rothschild = core.settings.node.rothschild.clone();
+                                    self.settings.node.cpu_miner = core.settings.node.cpu_miner.clone();
+                                    self.runtime.rothschild_service().update_settings(
+                                        core.settings.node.network,
+                                        &core.settings.node.rothschild,
+                                    );
+                                    self.runtime.cpu_miner_service().update_settings(
+                                        core.settings.node.network,
+                                        &core.settings.node.cpu_miner,
+                                    );
+                                }
+                            }
+                            self.runtime.rothschild_service().enable(
+                                enabled,
+                                core.settings.node.network,
+                                &core.settings.node.rothschild,
+                            );
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+
+                        let mut changed = false;
+                        let mut private_key_changed = false;
+                        let rothschild = &mut self.settings.node.rothschild;
+                        use egui_phosphor::light::CLIPBOARD_TEXT;
+
+                        Grid::new("rothschild_settings_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(i18n("Wallet Mnemonic (Import in Wallet)"));
+                                ui.horizontal(|ui| {
+                                    let response = ui.add(
+                                        TextEdit::singleline(&mut rothschild.mnemonic)
+                                            .desired_width(260.0)
+                                            .interactive(false),
+                                    );
+                                    if ui
+                                        .small_button(RichText::new(format!(" {CLIPBOARD_TEXT} ")))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(rothschild.mnemonic.clone());
+                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                    }
+                                    response.on_hover_text(i18n("Read-only"));
+                                });
+                                ui.end_row();
+
+                                ui.label(i18n("Private Key"));
+                                ui.horizontal(|ui| {
+                                    let private_key_response = ui.add(
+                                        TextEdit::singleline(&mut rothschild.private_key)
+                                            .desired_width(260.0)
+                                            .hint_text(i18n("leave empty to generate")),
+                                    );
+                                    if private_key_response.changed() {
+                                        changed = true;
+                                        private_key_changed = true;
+                                    }
+                                    if ui
+                                        .small_button(RichText::new(format!(" {CLIPBOARD_TEXT} ")))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(rothschild.private_key.clone());
+                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                    }
+                                });
+                                ui.end_row();
+
+                                ui.label(i18n("Address"));
+                                ui.horizontal(|ui| {
+                                    changed |= ui
+                                        .add(TextEdit::singleline(&mut rothschild.address).desired_width(260.0))
+                                        .changed();
+                                    if ui
+                                        .small_button(RichText::new(format!(" {CLIPBOARD_TEXT} ")))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(rothschild.address.clone());
+                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                    }
+                                });
+                                ui.end_row();
+
+                                ui.label(i18n("RPC Server"));
+                                changed |= ui
+                                    .add(TextEdit::singleline(&mut rothschild.rpc_server).desired_width(160.0))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Transactions Per Second"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut rothschild.tps).speed(1).range(1..=50))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("Threads"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut rothschild.threads).speed(1).range(0..=u8::MAX))
+                                    .changed();
+                                ui.end_row();
+                            });
+
+                        if changed {
+                            if private_key_changed && rothschild.private_key.trim().is_not_empty() {
+                                if let Ok(mnemonic) =
+                                    rothschild_mnemonic_from_private_key(&rothschild.private_key)
+                                {
+                                    rothschild.mnemonic = mnemonic;
+                                }
+
+                                if let Ok(address) = rothschild_address_from_private_key(
+                                    core.settings.node.network,
+                                    &rothschild.private_key,
+                                ) {
+                                    rothschild.address = address;
+                                }
+                            }
+
+                            if rothschild.mnemonic.trim().is_empty()
+                                && rothschild.private_key.trim().is_not_empty()
+                            {
+                                if let Ok(mnemonic) =
+                                    rothschild_mnemonic_from_private_key(&rothschild.private_key)
+                                {
+                                    rothschild.mnemonic = mnemonic;
+                                }
+                            }
+
+                            if rothschild.address.trim().is_empty()
+                                && rothschild.private_key.trim().is_not_empty()
+                            {
+                                if let Ok(address) = rothschild_address_from_private_key(
+                                    core.settings.node.network,
+                                    &rothschild.private_key,
+                                ) {
+                                    rothschild.address = address;
+                                }
+                            }
+
+                            if rothschild.private_key.trim().is_empty() {
+                                let (private_key, address) =
+                                    generate_rothschild_credentials(core.settings.node.network);
+                                rothschild.private_key = private_key;
+                                rothschild.address = address;
+                                if let Ok(mnemonic) =
+                                    rothschild_mnemonic_from_private_key(&rothschild.private_key)
+                                {
+                                    rothschild.mnemonic = mnemonic;
+                                }
+                            }
+
+                            core.settings.node.rothschild = rothschild.clone();
+                            self.runtime.rothschild_service().update_settings(
+                                core.settings.node.network,
+                                &core.settings.node.rothschild,
+                            );
+
+                            if core.settings.node.cpu_miner.mining_address.trim().is_empty()
+                                && rothschild.address.trim().is_not_empty()
+                            {
+                                core.settings.node.cpu_miner.mining_address = rothschild.address.clone();
+                                self.settings.node.cpu_miner = core.settings.node.cpu_miner.clone();
+                                self.runtime.cpu_miner_service().update_settings(
+                                    core.settings.node.network,
+                                    &core.settings.node.cpu_miner,
+                                );
+                            }
                             core.store_settings();
                         }
                     });
@@ -893,7 +1662,191 @@ impl Settings {
                     }
                     ui.separator();
                 }
+
+                if !self.reset_network_settings {
+                    ui.vertical(|ui| {
+                        if ui
+                            .medium_button(i18n("Reset Current Network Settings"))
+                            .clicked()
+                        {
+                            self.reset_network_settings = true;
+                        }
+                    });
+                } else {
+                    let network_name = self.settings.node.network.name();
+                    ui.add_space(16.);
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {}?",
+                            i18n("Reset settings for network"),
+                            network_name
+                        ))
+                        .color(theme_color().warning_color),
+                    );
+                    ui.add_space(16.);
+                    if let Some(response) = ui.confirm_medium_apply_cancel(Align::Min) {
+                        match response {
+                            Confirm::Ack => {
+                                self.reset_current_network_settings(core);
+                                self.reset_network_settings = false;
+                            }
+                            Confirm::Nack => {
+                                self.reset_network_settings = false;
+                            }
+                        }
+                    }
+                    ui.separator();
+                }
             });
+    }
+
+    fn reset_current_network_settings(&mut self, core: &mut Core) {
+        let network = self.settings.node.network;
+        let defaults = crate::settings::Settings::default();
+
+        match network {
+            Network::Mainnet => {
+                self.settings.node.stratum_bridge = defaults.node.stratum_bridge.clone();
+                self.settings.node.stratum_bridge_enabled = defaults.node.stratum_bridge_enabled;
+            }
+            Network::Testnet10 | Network::Testnet12 => {
+                self.settings.node.cpu_miner = defaults.node.cpu_miner.clone();
+                self.settings.node.cpu_miner_enabled = defaults.node.cpu_miner_enabled;
+                self.settings.node.rothschild = defaults.node.rothschild.clone();
+                self.settings.node.rothschild_enabled = defaults.node.rothschild_enabled;
+            }
+        }
+
+        match network {
+            Network::Mainnet => {
+                self.settings.explorer.official.mainnet = defaults.explorer.official.mainnet.clone();
+                self.settings.explorer.self_hosted.mainnet =
+                    defaults.explorer.self_hosted.mainnet.clone();
+            }
+            Network::Testnet10 => {
+                self.settings.explorer.official.testnet10 =
+                    defaults.explorer.official.testnet10.clone();
+                self.settings.explorer.self_hosted.testnet10 =
+                    defaults.explorer.self_hosted.testnet10.clone();
+            }
+            Network::Testnet12 => {
+                self.settings.explorer.official.testnet12 =
+                    defaults.explorer.official.testnet12.clone();
+                self.settings.explorer.self_hosted.testnet12 =
+                    defaults.explorer.self_hosted.testnet12.clone();
+            }
+        }
+
+        core.settings.node = self.settings.node.clone();
+        core.settings.explorer = self.settings.explorer.clone();
+        core.settings.node.network = network;
+
+        self.runtime
+            .stratum_bridge_service()
+            .update_settings(&core.settings.node);
+        self.runtime
+            .stratum_bridge_service()
+            .enable(core.settings.node.stratum_bridge_enabled, &core.settings.node);
+
+        self.runtime.cpu_miner_service().update_settings(
+            core.settings.node.network,
+            &core.settings.node.cpu_miner,
+        );
+        self.runtime.cpu_miner_service().enable(
+            core.settings.node.cpu_miner_enabled,
+            core.settings.node.network,
+            &core.settings.node.cpu_miner,
+        );
+
+        self.runtime.rothschild_service().update_settings(
+            core.settings.node.network,
+            &core.settings.node.rothschild,
+        );
+        self.runtime.rothschild_service().enable(
+            core.settings.node.rothschild_enabled,
+            core.settings.node.network,
+            &core.settings.node.rothschild,
+        );
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.runtime
+                .self_hosted_explorer_service()
+                .update_node_settings(core.settings.node.clone());
+        }
+
+        core.store_settings();
+    }
+
+    fn render_explorer_endpoint_grid(
+        ui: &mut Ui,
+        endpoint: &mut ExplorerEndpoint,
+        grid_id: &str,
+    ) -> bool {
+        let mut changed = false;
+        Grid::new(grid_id)
+            .num_columns(2)
+            .spacing([16.0, 6.0])
+            .show(ui, |ui| {
+                ui.label(i18n("API Base"));
+                changed |= ui
+                    .add(TextEdit::singleline(&mut endpoint.api_base).desired_width(320.0))
+                    .changed();
+                ui.end_row();
+
+                ui.label(i18n("Socket URL"));
+                changed |= ui
+                    .add(TextEdit::singleline(&mut endpoint.socket_url).desired_width(320.0))
+                    .changed();
+                ui.end_row();
+
+                ui.label(i18n("Socket Path"));
+                changed |= ui
+                    .add(TextEdit::singleline(&mut endpoint.socket_path).desired_width(320.0))
+                    .changed();
+                ui.end_row();
+            });
+        changed
+    }
+
+    fn render_explorer_network_profiles(
+        ui: &mut Ui,
+        profiles: &mut ExplorerNetworkProfiles,
+        id_prefix: &str,
+    ) -> bool {
+        let mut changed = false;
+
+        CollapsingHeader::new(i18n("Mainnet"))
+            .default_open(false)
+            .show(ui, |ui| {
+                changed |= Self::render_explorer_endpoint_grid(
+                    ui,
+                    &mut profiles.mainnet,
+                    &format!("{id_prefix}_mainnet"),
+                );
+            });
+
+        CollapsingHeader::new(i18n("Testnet 10"))
+            .default_open(false)
+            .show(ui, |ui| {
+                changed |= Self::render_explorer_endpoint_grid(
+                    ui,
+                    &mut profiles.testnet10,
+                    &format!("{id_prefix}_testnet10"),
+                );
+            });
+
+        CollapsingHeader::new(i18n("Testnet 12"))
+            .default_open(false)
+            .show(ui, |ui| {
+                changed |= Self::render_explorer_endpoint_grid(
+                    ui,
+                    &mut profiles.testnet12,
+                    &format!("{id_prefix}_testnet12"),
+                );
+            });
+
+        changed
     }
 }
 

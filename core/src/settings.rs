@@ -1,6 +1,7 @@
 use crate::imports::*;
 use kaspa_metrics_core::Metric;
 use kaspa_utils::networking::ContextualNetAddress;
+use rand::distributions::Alphanumeric;
 use kaspa_wallet_core::storage::local::storage::Storage;
 use kaspa_wrpc_client::WrpcEncoding;
 use workflow_core::{runtime, task::spawn};
@@ -403,6 +404,54 @@ impl Default for StratumBridgeSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub struct CpuMinerSettings {
+    pub mining_address: String,
+    pub kaspad_address: String,
+    pub kaspad_port: u16,
+    pub threads: u16,
+    pub mine_when_not_synced: bool,
+}
+
+impl Default for CpuMinerSettings {
+    fn default() -> Self {
+        Self {
+            mining_address: String::new(),
+            kaspad_address: "127.0.0.1".to_string(),
+            kaspad_port: 16210,
+            threads: 1,
+            mine_when_not_synced: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RothschildSettings {
+    #[serde(default)]
+    pub mnemonic: String,
+    pub private_key: String,
+    #[serde(default)]
+    pub address: String,
+    pub tps: u64,
+    pub rpc_server: String,
+    pub threads: u8,
+}
+
+impl Default for RothschildSettings {
+    fn default() -> Self {
+        Self {
+            mnemonic: String::new(),
+            private_key: String::new(),
+            address: String::new(),
+            tps: 1,
+            rpc_server: "localhost:16210".to_string(),
+            threads: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct NodeSettings {
     pub connection_config_kind: NodeConnectionConfigKind,
     pub rpc_kind: RpcKind,
@@ -432,6 +481,14 @@ pub struct NodeSettings {
     pub stratum_bridge: StratumBridgeSettings,
     #[serde(default = "default_stratum_bridge_enabled")]
     pub stratum_bridge_enabled: bool,
+    #[serde(default)]
+    pub cpu_miner: CpuMinerSettings,
+    #[serde(default)]
+    pub cpu_miner_enabled: bool,
+    #[serde(default)]
+    pub rothschild: RothschildSettings,
+    #[serde(default)]
+    pub rothschild_enabled: bool,
 }
 
 fn default_stratum_bridge_enabled() -> bool {
@@ -465,6 +522,10 @@ impl Default for NodeSettings {
             kaspad_daemon_storage_folder: String::default(),
             stratum_bridge: StratumBridgeSettings::default(),
             stratum_bridge_enabled: default_stratum_bridge_enabled(),
+            cpu_miner: CpuMinerSettings::default(),
+            cpu_miner_enabled: false,
+            rothschild: RothschildSettings::default(),
+            rothschild_enabled: false,
         }
     }
 }
@@ -613,6 +674,180 @@ impl Default for UserInterfaceSettings {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExplorerDataSource {
+    #[default]
+    Official,
+    SelfHosted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct ExplorerEndpoint {
+    pub api_base: String,
+    pub socket_url: String,
+    pub socket_path: String,
+}
+
+impl ExplorerEndpoint {
+    pub fn new(
+        api_base: impl Into<String>,
+        socket_url: impl Into<String>,
+        socket_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            api_base: api_base.into(),
+            socket_url: socket_url.into(),
+            socket_path: socket_path.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct ExplorerNetworkProfiles {
+    pub mainnet: ExplorerEndpoint,
+    pub testnet10: ExplorerEndpoint,
+    pub testnet12: ExplorerEndpoint,
+}
+
+impl ExplorerNetworkProfiles {
+    pub fn for_network(&self, network: Network) -> &ExplorerEndpoint {
+        match network {
+            Network::Mainnet => &self.mainnet,
+            Network::Testnet10 => &self.testnet10,
+            Network::Testnet12 => &self.testnet12,
+        }
+    }
+}
+
+impl Default for ExplorerNetworkProfiles {
+    fn default() -> Self {
+        Self {
+            mainnet: ExplorerEndpoint::new(
+                "https://api.kaspa.org",
+                "wss://t2-3.kaspa.ws",
+                "/ws/socket.io",
+            ),
+            testnet10: ExplorerEndpoint::new(
+                "https://api-tn10.kaspa.org",
+                "wss://t-2.kaspa.ws",
+                "/ws/socket.io",
+            ),
+            testnet12: ExplorerEndpoint::new(
+                "https://api-tn12.kaspa.org",
+                "wss://t2-3.kaspa.ws",
+                "/ws/socket.io",
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct ExplorerSettings {
+    pub source: ExplorerDataSource,
+    pub official: ExplorerNetworkProfiles,
+    pub self_hosted: ExplorerNetworkProfiles,
+}
+
+impl ExplorerSettings {
+    pub fn endpoint(&self, network: Network) -> &ExplorerEndpoint {
+        match self.source {
+            ExplorerDataSource::Official => self.official.for_network(network),
+            ExplorerDataSource::SelfHosted => self.self_hosted.for_network(network),
+        }
+    }
+}
+
+impl Default for ExplorerSettings {
+    fn default() -> Self {
+        let local_profile = ExplorerNetworkProfiles {
+            mainnet: ExplorerEndpoint::new(
+                "http://127.0.0.1:19112",
+                "http://127.0.0.1:19113",
+                "/ws/socket.io",
+            ),
+            testnet10: ExplorerEndpoint::new(
+                "http://127.0.0.1:19112",
+                "http://127.0.0.1:19113",
+                "/ws/socket.io",
+            ),
+            testnet12: ExplorerEndpoint::new(
+                "http://127.0.0.1:19112",
+                "http://127.0.0.1:19113",
+                "/ws/socket.io",
+            ),
+        };
+
+        Self {
+            source: ExplorerDataSource::Official,
+            official: ExplorerNetworkProfiles::default(),
+            self_hosted: local_profile,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct SelfHostedSettings {
+    pub enabled: bool,
+    pub api_bind: String,
+    pub api_port: u16,
+    #[serde(default = "default_explorer_rest_port")]
+    pub explorer_rest_port: u16,
+    #[serde(default = "default_explorer_socket_port")]
+    pub explorer_socket_port: u16,
+    pub db_host: String,
+    pub db_port: u16,
+    pub db_user: String,
+    pub db_password: String,
+    pub db_name: String,
+    pub indexer_enabled: bool,
+    pub indexer_binary: String,
+    pub indexer_rpc_url: String,
+    pub indexer_listen: String,
+    pub indexer_extra_args: String,
+    pub indexer_upgrade_db: bool,
+    pub postgres_enabled: bool,
+    pub postgres_data_dir: String,
+}
+
+fn default_explorer_rest_port() -> u16 {
+    19112
+}
+
+fn default_explorer_socket_port() -> u16 {
+    19113
+}
+
+impl Default for SelfHostedSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_bind: "127.0.0.1".to_string(),
+            api_port: 19111,
+            explorer_rest_port: default_explorer_rest_port(),
+            explorer_socket_port: default_explorer_socket_port(),
+            db_host: "127.0.0.1".to_string(),
+            db_port: 5432,
+            db_user: "kaspa".to_string(),
+            db_password: String::new(),
+            db_name: "kaspa".to_string(),
+            indexer_enabled: true,
+            indexer_binary: String::new(),
+            indexer_rpc_url: "ws://127.0.0.1:17110".to_string(),
+            indexer_listen: "127.0.0.1:8500".to_string(),
+            indexer_extra_args: "--prune-db --retention=7d --enable=transactions_inputs_resolve"
+                .to_string(),
+            indexer_upgrade_db: true,
+            postgres_enabled: true,
+            postgres_data_dir: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct DeveloperSettings {
@@ -696,6 +931,10 @@ pub struct Settings {
     pub developer: DeveloperSettings,
     #[serde(default)]
     pub estimator: EstimatorSettings,
+    #[serde(default)]
+    pub explorer: ExplorerSettings,
+    #[serde(default)]
+    pub self_hosted: SelfHostedSettings,
     pub node: NodeSettings,
     pub user_interface: UserInterfaceSettings,
     pub language_code: String,
@@ -716,6 +955,8 @@ impl Default for Settings {
             update: crate::app::VERSION.to_string(),
             developer: DeveloperSettings::default(),
             estimator: EstimatorSettings::default(),
+            explorer: ExplorerSettings::default(),
+            self_hosted: SelfHostedSettings::default(),
             node: NodeSettings::default(),
             user_interface: UserInterfaceSettings::default(),
             language_code: "en".to_string(),
@@ -727,6 +968,14 @@ impl Default for Settings {
 }
 
 impl Settings {}
+
+pub(crate) fn generate_db_password() -> String {
+    rand::thread_rng()
+        .sample_iter(Alphanumeric)
+        .take(24)
+        .map(char::from)
+        .collect()
+}
 
 fn storage() -> Result<Storage> {
     Ok(Storage::try_new("kaspa-ng.settings")?)
@@ -788,8 +1037,121 @@ impl Settings {
                             settings.node.stratum_bridge.var_diff_stats = true;
                             migrated = true;
                         }
+                        if settings.node.cpu_miner.kaspad_address.trim().is_empty() {
+                            settings.node.cpu_miner.kaspad_address = "127.0.0.1".to_string();
+                            migrated = true;
+                        }
+                        if settings.node.cpu_miner.kaspad_port == 0 {
+                            settings.node.cpu_miner.kaspad_port = 16210;
+                            migrated = true;
+                        }
+                        if settings.node.cpu_miner.threads == 0 {
+                            settings.node.cpu_miner.threads = 1;
+                            migrated = true;
+                        }
+                        if settings.node.rothschild.rpc_server.trim().is_empty() {
+                            settings.node.rothschild.rpc_server = "localhost:16210".to_string();
+                            migrated = true;
+                        }
+                        if settings.node.rothschild.tps == 0 {
+                            settings.node.rothschild.tps = 1;
+                            migrated = true;
+                        }
+                        if settings.node.rothschild_enabled
+                            && settings.node.rothschild.private_key.trim().is_empty()
+                            && matches!(settings.node.network, Network::Testnet10 | Network::Testnet12)
+                        {
+                            let (private_key, address) =
+                                generate_rothschild_credentials(settings.node.network);
+                            settings.node.rothschild.private_key = private_key;
+                            settings.node.rothschild.address = address;
+                            if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                &settings.node.rothschild.private_key,
+                            ) {
+                                settings.node.rothschild.mnemonic = mnemonic;
+                            }
+                            if settings.node.cpu_miner.mining_address.trim().is_empty() {
+                                settings.node.cpu_miner.mining_address =
+                                    settings.node.rothschild.address.clone();
+                            }
+                            migrated = true;
+                        }
+                        if settings.node.rothschild_enabled
+                            && settings.node.rothschild.mnemonic.trim().is_empty()
+                            && settings.node.rothschild.private_key.trim().is_not_empty()
+                        {
+                            if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
+                                &settings.node.rothschild.private_key,
+                            ) {
+                                settings.node.rothschild.mnemonic = mnemonic;
+                                migrated = true;
+                            }
+                        }
                         if settings.user_interface.explorer_port == 0 {
                             settings.user_interface.explorer_port = 51963;
+                            migrated = true;
+                        }
+                        if settings.self_hosted.db_user.trim().is_empty() {
+                            settings.self_hosted.db_user = "kaspa".to_string();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.db_name.trim().is_empty() {
+                            settings.self_hosted.db_name = "kaspa".to_string();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.db_password.trim().is_empty()
+                            || settings.self_hosted.db_password == "kaspa"
+                        {
+                            settings.self_hosted.db_password = generate_db_password();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.db_port == 0 {
+                            settings.self_hosted.db_port = 5432;
+                            migrated = true;
+                        }
+                        if !settings.self_hosted.postgres_enabled {
+                            settings.self_hosted.postgres_enabled = true;
+                            migrated = true;
+                        }
+                        if !settings.self_hosted.indexer_enabled {
+                            settings.self_hosted.indexer_enabled = true;
+                            migrated = true;
+                        }
+                        if settings.self_hosted.explorer_rest_port == 0 {
+                            settings.self_hosted.explorer_rest_port = default_explorer_rest_port();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.explorer_rest_port == 8000 {
+                            settings.self_hosted.explorer_rest_port = default_explorer_rest_port();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.explorer_socket_port == 0 {
+                            settings.self_hosted.explorer_socket_port =
+                                default_explorer_socket_port();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.explorer_socket_port == 8001 {
+                            settings.self_hosted.explorer_socket_port =
+                                default_explorer_socket_port();
+                            migrated = true;
+                        }
+                        if settings.explorer.self_hosted.mainnet.api_base == "http://127.0.0.1:8000"
+                            && settings.explorer.self_hosted.mainnet.socket_url
+                                == "http://127.0.0.1:8001"
+                            && settings.explorer.self_hosted.testnet10.api_base
+                                == "http://127.0.0.1:8000"
+                            && settings.explorer.self_hosted.testnet10.socket_url
+                                == "http://127.0.0.1:8001"
+                            && settings.explorer.self_hosted.testnet12.api_base
+                                == "http://127.0.0.1:8000"
+                            && settings.explorer.self_hosted.testnet12.socket_url
+                                == "http://127.0.0.1:8001"
+                        {
+                            settings.explorer.self_hosted = ExplorerSettings::default().self_hosted;
+                            migrated = true;
+                        }
+                        if settings.explorer.official.mainnet.api_base.trim().is_empty() {
+                            settings.explorer = ExplorerSettings::default();
                             migrated = true;
                         }
                         if migrated {

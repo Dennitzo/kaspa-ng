@@ -12,8 +12,10 @@ pub const BASIC_TRANSACTION_MASS: u64 = 2036;
 pub enum Network {
     #[default]
     Mainnet,
-    #[serde(alias = "testnet-10")]
+    #[serde(rename = "testnet-10", alias = "testnet10")]
     Testnet10,
+    #[serde(rename = "testnet-12", alias = "testnet12")]
+    Testnet12,
 }
 
 impl std::fmt::Display for Network {
@@ -21,6 +23,7 @@ impl std::fmt::Display for Network {
         match self {
             Network::Mainnet => write!(f, "mainnet"),
             Network::Testnet10 => write!(f, "testnet-10"),
+            Network::Testnet12 => write!(f, "testnet-12"),
         }
     }
 }
@@ -32,6 +35,7 @@ impl FromStr for Network {
         match s {
             "mainnet" => Ok(Network::Mainnet),
             "testnet-10" => Ok(Network::Testnet10),
+            "testnet-12" => Ok(Network::Testnet12),
             _ => Err(Error::InvalidNetwork(s.to_string())),
         }
     }
@@ -42,6 +46,7 @@ impl From<Network> for NetworkType {
         match network {
             Network::Mainnet => NetworkType::Mainnet,
             Network::Testnet10 => NetworkType::Testnet,
+            Network::Testnet12 => NetworkType::Testnet,
         }
     }
 }
@@ -51,6 +56,7 @@ impl From<&Network> for NetworkType {
         match network {
             Network::Mainnet => NetworkType::Mainnet,
             Network::Testnet10 => NetworkType::Testnet,
+            Network::Testnet12 => NetworkType::Testnet,
         }
     }
 }
@@ -60,6 +66,9 @@ impl From<Network> for NetworkId {
         match network {
             Network::Mainnet => NetworkId::new(network.into()),
             Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
+            // Temporary compatibility mapping:
+            // until full native TN12 consensus params are integrated, TN12 runs on TN10 node id.
+            Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
         }
     }
 }
@@ -81,6 +90,9 @@ impl From<&Network> for NetworkId {
         match network {
             Network::Mainnet => NetworkId::new(network.into()),
             Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
+            // Temporary compatibility mapping:
+            // until full native TN12 consensus params are integrated, TN12 runs on TN10 node id.
+            Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
         }
     }
 }
@@ -91,6 +103,7 @@ impl From<NetworkId> for Network {
             NetworkType::Mainnet => Network::Mainnet,
             NetworkType::Testnet => match value.suffix {
                 Some(10) => Network::Testnet10,
+                Some(12) => Network::Testnet12,
                 Some(x) => unreachable!("Testnet suffix {} is not supported", x),
                 None => panic!("Testnet suffix not provided"),
             },
@@ -124,7 +137,7 @@ impl From<&Network> for &'static NetworkParams {
     }
 }
 
-const NETWORKS: [Network; 2] = [Network::Mainnet, Network::Testnet10];
+const NETWORKS: [Network; 3] = [Network::Mainnet, Network::Testnet10, Network::Testnet12];
 
 impl Network {
     pub fn iter() -> impl Iterator<Item = &'static Network> {
@@ -135,6 +148,7 @@ impl Network {
         match self {
             Network::Mainnet => i18n("Mainnet"),
             Network::Testnet10 => i18n("Testnet 10"),
+            Network::Testnet12 => i18n("Testnet 12"),
         }
     }
 
@@ -142,6 +156,7 @@ impl Network {
         match self {
             Network::Mainnet => i18n("Main Kaspa network"),
             Network::Testnet10 => i18n("10 BPS test network"),
+            Network::Testnet12 => i18n("Covenants test network"),
         }
     }
 

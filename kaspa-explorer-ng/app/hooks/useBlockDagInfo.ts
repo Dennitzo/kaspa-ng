@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
+import { API_BASE } from "../api/config";
 
 interface BlockdagInfo {
   networkName: string;
@@ -17,7 +18,7 @@ export const useBlockdagInfo = () =>
   useQuery({
     queryKey: ["blockdagInfo"],
     queryFn: async () => {
-      const { data } = await axios.get("https://api.kaspa.org/info/blockdag");
+      const { data } = await axios.get(`${API_BASE}/info/blockdag`);
       return data as BlockdagInfo;
     },
     refetchInterval: 20000,

@@ -231,13 +231,31 @@ impl Overview {
                 
                                         ui.hyperlink_to_tab(
                                             format!("• {DATABASE} {}",i18n("Explorer")),
-                                            "https://explorer-tn10.kaspa.org/",
+                                            TESTNET10_EXPLORER,
                                         );
                                         ui.hyperlink_to_tab(
                                             format!("• {HAND_COINS} {}",i18n("Faucet")),
                                             "https://faucet-testnet.kaspanet.io",
                                         );
                 
+                                    });
+                                self.render_network_info(core, ui);
+                                self.render_fee_rate(core, ui);
+                            });
+                    }
+                    Network::Testnet12 => {
+                        CollapsingHeader::new(i18n("Testnet 12"))
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                CollapsingHeader::new(i18n("Resources"))
+                                    .default_open(true)
+                                    .show(ui, |ui| {
+                                        use egui_phosphor::light::DATABASE;
+
+                                        ui.hyperlink_to_tab(
+                                            format!("• {DATABASE} {}", i18n("Explorer")),
+                                            TESTNET12_EXPLORER,
+                                        );
                                     });
                                 self.render_network_info(core, ui);
                                 self.render_fee_rate(core, ui);

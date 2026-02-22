@@ -68,6 +68,7 @@ pub use crate::collection::Collection;
 pub use crate::core::Core;
 pub use crate::core::MAINNET_EXPLORER;
 pub use crate::core::TESTNET10_EXPLORER;
+pub use crate::core::TESTNET12_EXPLORER;
 pub use crate::device::{Device, Orientation};
 pub use crate::egui::*;
 pub use crate::error::Error;
@@ -88,9 +89,11 @@ pub use crate::primitives::{
 pub use crate::result::Result;
 pub use crate::runtime::{Payload, Runtime, Service, runtime, spawn, spawn_with_result};
 pub use crate::settings::{
-    EstimatorMode, EstimatorSettings, KaspadNodeKind, NetworkInterfaceConfig, NetworkInterfaceKind,
-    NodeConnectionConfigKind, NodeMemoryScale, NodeSettings, RpcConfig, RpcOptions, Settings,
-    StratumBridgeSettings, UserInterfaceSettings,
+    CpuMinerSettings, EstimatorMode, EstimatorSettings, ExplorerDataSource, ExplorerEndpoint,
+    ExplorerNetworkProfiles, ExplorerSettings, KaspadNodeKind, NetworkInterfaceConfig,
+    NetworkInterfaceKind, NodeConnectionConfigKind, NodeMemoryScale, NodeSettings, RothschildSettings,
+    RpcConfig, RpcOptions, SelfHostedSettings, Settings, StratumBridgeSettings,
+    UserInterfaceSettings,
 };
 pub use crate::state::State;
 pub use crate::status::Status;

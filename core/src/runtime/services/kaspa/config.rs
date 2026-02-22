@@ -68,6 +68,10 @@ cfg_if! {
                         args.testnet = true;
                         args.testnet_suffix = 10;
                     }
+                    Network::Testnet12 => {
+                        args.testnet = true;
+                        args.testnet_suffix = 12;
+                    }
                 }
 
                 args.perf_metrics = true;
@@ -97,6 +101,10 @@ cfg_if! {
                     Network::Testnet10 => {
                         args.push("--testnet");
                         args.push("--netsuffix=10");
+                    }
+                    Network::Testnet12 => {
+                        args.push("--testnet");
+                        args.push("--netsuffix=12");
                     }
                 }
 
