@@ -52,6 +52,12 @@ sudo apt-get install \
 sudo dnf install glib2-devel atk-devel gtk3-devel webkit2gtk4.0-devel pkgconf-pkg-config
 ```
 
+#### Windows:
+```bash
+# Install protoc
+winget install protobuf
+```
+
 Once you have Rusty Kaspa built, you will be able to build and run this project as follows:
 
 ### From GitHub repository:
