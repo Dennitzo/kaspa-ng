@@ -50,6 +50,7 @@ impl LogStore {
 pub struct LogStores {
     pub postgres: Arc<LogStore>,
     pub indexer: Arc<LogStore>,
+    pub k_indexer: Arc<LogStore>,
     pub rest: Arc<LogStore>,
     pub socket: Arc<LogStore>,
 }
@@ -59,15 +60,44 @@ fn strip_ansi_codes(input: &str) -> String {
     let mut chars = input.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\u{1b}' {
-            if let Some('[') = chars.peek().copied() {
-                let _ = chars.next();
-                while let Some(inner) = chars.next() {
-                    if inner.is_ascii_alphabetic() {
-                        break;
+            match chars.next() {
+                Some('[') => {
+                    // CSI: ESC [ ... final-byte(0x40..0x7E)
+                    while let Some(inner) = chars.next() {
+                        let b = inner as u32;
+                        if (0x40..=0x7e).contains(&b) {
+                            break;
+                        }
                     }
                 }
-                continue;
+                Some(']') => {
+                    // OSC: ESC ] ... BEL or ESC \
+                    while let Some(inner) = chars.next() {
+                        if inner == '\u{7}' {
+                            break;
+                        }
+                        if inner == '\u{1b}' && matches!(chars.peek().copied(), Some('\\')) {
+                            let _ = chars.next();
+                            break;
+                        }
+                    }
+                }
+                Some('P') | Some('X') | Some('^') | Some('_') => {
+                    // DCS/SOS/PM/APC: ESC <type> ... ESC \
+                    while let Some(inner) = chars.next() {
+                        if inner == '\u{1b}' && matches!(chars.peek().copied(), Some('\\')) {
+                            let _ = chars.next();
+                            break;
+                        }
+                    }
+                }
+                Some(_) | None => {}
             }
+            continue;
+        }
+
+        // Keep printable chars and common whitespace only.
+        if ch.is_control() && !matches!(ch, '\n' | '\r' | '\t') {
             continue;
         }
         out.push(ch);

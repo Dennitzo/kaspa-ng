@@ -320,3 +320,142 @@ This file tracks fixes that may need to be re-applied after upstream changes or 
 - Notes:
   - `api_bind` wildcard values (`0.0.0.0` / `::`) are probed via `127.0.0.1` for local readiness checks.
 - File touched: `core/src/modules/settings/mod.rs`.
+
+## 2026-02-22 - Integrate K + K-indexer into main kaspa-ng project
+- Goal: remove dependency on external side folders and make K/K-indexer part of regular build/runtime flow.
+- Build integration (`core/build.rs`):
+  - Auto-sync repositories in workspace root on build:
+    - `K` from `https://github.com/thesheepcat/K.git`
+    - `K-indexer` from `https://github.com/thesheepcat/K-indexer.git`
+  - Auto-build K frontend (`npm install` if needed + `npm run build`) and sync `K/dist` into `target/<profile>/K/dist`.
+  - Auto-build K-indexer binaries (`K-webserver`, `K-transaction-processor`) and sync binaries into `target/<profile>/`.
+  - Added optional fast-check bypass env var: `KASPA_NG_SKIP_EXTERNAL_BUILDS=1` (does not change default behavior).
+
+## 2026-02-22 - Add K-indexer runtime service and DB/log integration
+- Added new native service: `SelfHostedKIndexerService` (`core/src/runtime/services/self_hosted_k_indexer.rs`).
+- Service behavior:
+  - Starts/stops `K-transaction-processor` and `K-webserver` as child processes.
+  - Uses same self-hosted Postgres credentials/database as existing stack.
+  - Uses selected node network mapping:
+    - mainnet -> `mainnet`
+    - testnet10 -> `testnet-10`
+    - testnet12 -> not supported (logs warning and does not start).
+  - `K-webserver` bind port uses new self-hosted setting `k_web_port` (default `3000`).
+- Runtime wiring:
+  - Added new log store channel `k_indexer`.
+  - Added service to runtime startup/shutdown and settings update pathways.
+- Self-hosted DB API:
+  - Added logs endpoint source `k-indexer` via `/api/logs/k-indexer`.
+- Database UI:
+  - Added `K-indexer` selectable log source.
+  - Added K tables to `Indexer Tables` section:
+    - `k_vars`, `k_broadcasts`, `k_votes`, `k_mentions`, `k_blocks`, `k_follows`, `k_contents`, `k_hashtags`.
+
+## 2026-02-22 - Add K-Social WebView tab with settings toggle
+- Added new native module/tab: `K-Social` (`core/src/modules/k_social.rs`).
+- Module behavior:
+  - Hosts built `K` frontend via local static server (similar embedded web approach as Explorer).
+  - Injects runtime config into localStorage (`kaspa_user_settings`) so K uses local `K-webserver` URL (`http://<api_bind>:<k_web_port>`) and active network.
+- Menu/tab visibility:
+  - `K-Social` tab shown only when:
+    - `self_hosted.enabled == true`
+    - `self_hosted.k_enabled == true`
+- Settings:
+  - Added `Enable K-Social services` toggle.
+  - Added `K API Port` setting field (default `3000`).
+  - `k_enabled` defaults to `false`.
+
+## 2026-02-22 - Improve K-Social readiness diagnostics and avoid endless loading
+- Problem: K-Social could appear to load forever without clear UI state when backend API was not fully ready.
+- Fixes in `core/src/modules/k_social.rs`:
+  - Replaced plain TCP probe with HTTP `/health` probe and status parsing.
+  - Added explicit K-indexer API status line in the K-Social tab header (ready/not ready + HTTP state).
+  - Added waiting timer display while K-indexer is initializing.
+  - Added non-fatal initialization info after prolonged wait (`>=30s`) instead of ambiguous blank loading.
+  - Improved log signal by recording API reachability transitions and preserving existing WebView attach/error logs.
+
+## 2026-02-22 - Keep K private-key fix stable across git auto-updates
+- Problem: `K` is git-synced during build, so direct edits in `K/src/...` can be overwritten by `git pull`.
+- Fix in `core/build.rs`:
+  - Added auto-stash/unstash around external repo pulls when local changes exist (for `K` and other synced repos).
+  - Added idempotent compatibility patch application for:
+    - `K/src/services/kaspaService.ts`
+    - `K/src/contexts/AuthContext.tsx`
+  - Patch is applied before K build and survives upstream updates without manual re-editing.
+
+## 2026-02-22 - Remove remaining terminal control bytes from UI log rendering
+- Symptom: sporadic `epaint` warning about missing replacement glyphs (`◻` / `?`) while services were running.
+- Root cause: some subprocess outputs include non-printable terminal control sequences that were not fully removed by the simple ANSI stripper.
+- Fix:
+  - Hardened `strip_ansi_codes` in `core/src/runtime/services/log_store.rs` to handle CSI/OSC/DCS/SOS/PM/APC escape families.
+  - Dropped non-printable control chars (except `\\n`, `\\r`, `\\t`) before storing UI log lines.
+
+## 2026-02-22 - Ensure K-Social API status and logs are always visible in UI
+- Symptom: `K-Social` log panel and API status message could disappear when waiting/not-ready states were active.
+- Fix in `core/src/modules/k_social.rs`:
+  - Reordered render flow so API status and log panel are rendered before WebView allocation.
+  - Removed early returns that skipped the log panel in waiting/disabled states.
+  - WebView now attaches only after status/log section is shown and API is ready.
+
+## 2026-02-22 - K-Social UI: remove log panel, add Hard Reset next to API readiness
+- Requirement:
+  - Remove `K-Social Logs` section from the tab.
+  - Keep API readiness label (e.g. `K-indexer API: ready (HTTP/1.1 200 OK)`).
+  - Add a `Hard Reset` button near API status to recover from stuck loading.
+- Implementation in `core/src/modules/k_social.rs`:
+  - Removed log panel rendering in UI.
+  - Added `Hard Reset` button beside API status (or standalone if status not yet present).
+  - `Hard Reset` now force-reinitializes K-Social embed by dropping/recreating:
+    - WebView
+    - local static server
+    - probe/signature/bounds state
+
+## 2026-02-22 - K-Social hard reset stability + deeper K serve diagnostics
+- Fixed `Hard Reset` regression where `K-Social` could stay blank after reset:
+  - Added lazy local server re-init in render (`ensure_local_server`) so WebView can reattach after reset.
+  - Made reset execution deferred (`pending_hard_reset`) to avoid unsafe in-frame destruction side effects.
+- Added deeper direct serve diagnostics:
+  - K static server now logs every request with method/path/status/content-type (`k-social-server: ...`) to runtime logs.
+  - Added `K Web Server: ...` HTTP readiness line in K-Social UI (`GET /` probe) alongside `K-indexer API: ...`.
+
+## 2026-02-22 - Explorer price visibility fix: MarketDataProvider wiring restored
+- Root cause: `MarketDataProvider` was not wrapped in explorer root layout, so Coingecko market data context stayed undefined in UI.
+- Fix: re-added `<MarketDataProvider>` wrapper in `kaspa-explorer-ng/app/root.tsx` around header/content/footer.
+- Follow-up fix:
+  - Re-added missing `<Price />` component mount in `kaspa-explorer-ng/app/header/Header.tsx` (was present in `kaspa-explorer-ng-main` only).
+  - Without this, market-data was fetched but never rendered in header.
+
+## 2026-02-22 - Test mode: revert K private-key patch
+- Reverted testwise changes in:
+  - `K/src/services/kaspaService.ts`
+  - `K/src/contexts/AuthContext.tsx`
+- Disabled automatic re-application during build by default:
+  - `core/build.rs` now applies the K private-key patch only when `KASPA_NG_ENABLE_K_PRIVATE_KEY_PATCH=1`.
+
+## 2026-02-22 - Self-hosted shutdown order: terminate Postgres last
+- Symptom: On app shutdown, `simply-kaspa-indexer` could panic because Postgres was terminated while indexer workers were still writing.
+- Fix in `core/src/runtime/mod.rs`:
+  - `Runtime::stop_services()` now terminates all services except `self-hosted-postgres` first.
+  - Added a short grace delay (`750ms`) before sending terminate to `self-hosted-postgres`.
+  - Postgres shutdown is now explicitly last in service termination order.
+
+## 2026-02-22 - Prevent Ctrl+C from signaling DB/indexers directly (unix process groups)
+- Symptom: subprocesses (`simply-kaspa-indexer`, `K-*`, postgres) could receive terminal `SIGINT` directly, bypassing runtime shutdown sequencing.
+- Fix:
+  - Spawned these services in separate process groups on Unix (`process_group(0)`):
+    - `core/src/runtime/services/self_hosted_postgres.rs`
+    - `core/src/runtime/services/self_hosted_indexer.rs`
+    - `core/src/runtime/services/self_hosted_k_indexer.rs`
+- Result:
+  - Shutdown now follows kaspa-ng service order reliably.
+  - Verified no indexer panic on stop; postgres now logs smart shutdown after dependent services stop.
+
+## 2026-02-22 - Restore Explorer CoinGecko price flow and USD value under KAS amount
+- Reference checked against `kaspa-explorer-ng-main`.
+- Fixes in `kaspa-explorer-ng`:
+  - Re-added missing `getMarketData()` export in `app/api/kaspa-api-client.ts` (`/info/market-data`).
+  - Hardened `app/context/MarketDataProvider.tsx` with fallback handling if market-data is unavailable (e.g. non-mainnet/self-hosted modes).
+  - Restored fiat conversion display in transaction details:
+    - `app/routes/transactiondetails.tsx` now shows USD value under the KAS transfer amount via `MarketDataContext`.
+  - Restored fiat conversion display in address details balance block:
+    - `app/routes/addressdetails.tsx` now shows USD value under KAS balance via `MarketDataContext`.

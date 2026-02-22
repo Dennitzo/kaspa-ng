@@ -16,11 +16,22 @@ export const MarketDataProvider = ({ children }: { children: React.ReactNode }) 
   });
 
   const updateMarketData = async () => {
-    const marketDataResp = await getMarketData();
-    setMarketData({
-      price: marketDataResp["current_price"]["usd"],
-      change24h: numeral(marketDataResp["price_change_percentage_24h"]).format("+0.00"),
-    });
+    try {
+      const marketDataResp = await getMarketData();
+      const price = marketDataResp?.current_price?.usd;
+      const change24hRaw = marketDataResp?.price_change_percentage_24h;
+      setMarketData({
+        price: typeof price === "number" ? price : undefined,
+        change24h: typeof change24hRaw === "number" ? numeral(change24hRaw).format("+0.00") : undefined,
+      });
+    } catch {
+      // Price endpoint may be unavailable on non-mainnet/self-hosted setups.
+      setMarketData((current) =>
+        current.price === undefined && current.change24h === undefined
+          ? current
+          : { price: undefined, change24h: undefined },
+      );
+    }
   };
 
   useEffect(() => {

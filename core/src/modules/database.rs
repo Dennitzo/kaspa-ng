@@ -41,6 +41,7 @@ struct DatabaseState {
     in_flight: bool,
     logs_postgres: Vec<LogLine>,
     logs_indexer: Vec<LogLine>,
+    logs_k_indexer: Vec<LogLine>,
     logs_rest: Vec<LogLine>,
     logs_socket: Vec<LogLine>,
     logs_last_error: Option<String>,
@@ -52,6 +53,7 @@ struct DatabaseState {
 enum LogService {
     Postgres,
     Indexer,
+    KIndexer,
     Rest,
     Socket,
 }
@@ -68,7 +70,7 @@ pub struct Database {
 }
 
 impl Database {
-    const INDEXER_TABLES: [&'static str; 11] = [
+    const INDEXER_TABLES: [&'static str; 19] = [
         "vars",
         "blocks",
         "block_parent",
@@ -80,6 +82,14 @@ impl Database {
         "transactions_outputs",
         "addresses_transactions",
         "scripts_transactions",
+        "k_vars",
+        "k_broadcasts",
+        "k_votes",
+        "k_mentions",
+        "k_blocks",
+        "k_follows",
+        "k_contents",
+        "k_hashtags",
     ];
 
     pub fn new(runtime: Runtime) -> Self {
@@ -113,6 +123,7 @@ impl Database {
         let service = match service {
             LogService::Postgres => "postgres",
             LogService::Indexer => "indexer",
+            LogService::KIndexer => "k-indexer",
             LogService::Rest => "rest",
             LogService::Socket => "socket",
         };
@@ -201,6 +212,7 @@ impl Database {
                     match service {
                         LogService::Postgres => guard.logs_postgres = response.lines,
                         LogService::Indexer => guard.logs_indexer = response.lines,
+                        LogService::KIndexer => guard.logs_k_indexer = response.lines,
                         LogService::Rest => guard.logs_rest = response.lines,
                         LogService::Socket => guard.logs_socket = response.lines,
                     }
@@ -230,6 +242,12 @@ impl Database {
         } else {
             value.to_string()
         }
+    }
+
+    fn is_indexer_initializing_error(error: &str) -> bool {
+        let lower = error.to_ascii_lowercase();
+        lower.contains("503")
+            && lower.contains("unable to collect indexer metrics")
     }
 
     fn render_disabled(&self, _core: &mut Core, ui: &mut Ui) {
@@ -297,11 +315,21 @@ impl ModuleT for Database {
                     ui.separator();
 
                     if let Some(error) = &error {
-                        ui.label(
-                            RichText::new(error)
-                                .color(theme_color().warning_color)
+                        if Self::is_indexer_initializing_error(error) {
+                            ui.label(
+                                RichText::new(i18n(
+                                    "Indexer metrics are still initializing. Database startup is in progress.",
+                                ))
+                                .color(theme_color().node_data_color)
                                 .size(12.0),
-                        );
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(error)
+                                    .color(theme_color().warning_color)
+                                    .size(12.0),
+                            );
+                        }
                     }
 
                     ui.add_space(8.0);
@@ -401,6 +429,7 @@ impl ModuleT for Database {
                             .selected_text(match self.log_service {
                                 LogService::Postgres => i18n("Postgres"),
                                 LogService::Indexer => i18n("Indexer"),
+                                LogService::KIndexer => i18n("K-indexer"),
                                 LogService::Rest => i18n("REST API"),
                                 LogService::Socket => i18n("Socket"),
                             })
@@ -414,6 +443,11 @@ impl ModuleT for Database {
                                     &mut self.log_service,
                                     LogService::Indexer,
                                     i18n("Indexer"),
+                                );
+                                ui.selectable_value(
+                                    &mut self.log_service,
+                                    LogService::KIndexer,
+                                    i18n("K-indexer"),
                                 );
                                 ui.selectable_value(
                                     &mut self.log_service,
@@ -432,6 +466,7 @@ impl ModuleT for Database {
                             let lines = match self.log_service {
                                 LogService::Postgres => &state.logs_postgres,
                                 LogService::Indexer => &state.logs_indexer,
+                                LogService::KIndexer => &state.logs_k_indexer,
                                 LogService::Rest => &state.logs_rest,
                                 LogService::Socket => &state.logs_socket,
                             };
@@ -452,6 +487,7 @@ impl ModuleT for Database {
                         let lines = match self.log_service {
                             LogService::Postgres => state.logs_postgres.clone(),
                             LogService::Indexer => state.logs_indexer.clone(),
+                            LogService::KIndexer => state.logs_k_indexer.clone(),
                             LogService::Rest => state.logs_rest.clone(),
                             LogService::Socket => state.logs_socket.clone(),
                         };
@@ -459,11 +495,21 @@ impl ModuleT for Database {
                     };
 
                     if let Some(log_error) = log_error {
-                        ui.label(
-                            RichText::new(log_error)
-                                .color(theme_color().warning_color)
+                        if Self::is_indexer_initializing_error(&log_error) {
+                            ui.label(
+                                RichText::new(i18n(
+                                    "Logs are initializing while the database services are starting.",
+                                ))
+                                .color(theme_color().node_data_color)
                                 .size(12.0),
-                        );
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(log_error)
+                                    .color(theme_color().warning_color)
+                                    .size(12.0),
+                            );
+                        }
                     }
 
                     let row_height = ui.fonts(|fonts| {

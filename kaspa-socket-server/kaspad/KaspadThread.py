@@ -76,8 +76,15 @@ class KaspadThread(object):
 
             print("loop done...")
 
+        except asyncio.CancelledError:
+            return
         except (grpc.aio._call.AioRpcError, _MultiThreadedRendezvous) as e:
-            raise KaspadCommunicationError(str(e))
+            message = str(e)
+            if "StatusCode.UNAVAILABLE" in message or "Connection refused" in message:
+                # Normal during local node/service shutdown; avoid noisy tracebacks.
+                print("kaspad notify stream closed (unavailable)")
+                return
+            raise KaspadCommunicationError(message)
 
     async def yield_cmd(self, cmd, params=None):
         msg = KaspadMessage()

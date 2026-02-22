@@ -1,6 +1,6 @@
 use crate::imports::*;
 use kaspa_addresses::{Prefix, Version};
-use secp256k1::{PublicKey, SecretKey, SECP256K1};
+use secp256k1::{PublicKey, SECP256K1, SecretKey};
 
 fn network_prefix(network: Network) -> Prefix {
     match network {
@@ -31,8 +31,8 @@ pub fn rothschild_address_from_private_key(
 
     let key_bytes =
         Vec::from_hex(private_key_hex.trim()).map_err(|err| Error::custom(err.to_string()))?;
-    let secret_key = SecretKey::from_slice(&key_bytes)
-        .map_err(|err| Error::custom(err.to_string()))?;
+    let secret_key =
+        SecretKey::from_slice(&key_bytes).map_err(|err| Error::custom(err.to_string()))?;
     let public_key = PublicKey::from_secret_key(SECP256K1, &secret_key);
     let (xonly_public_key, _) = public_key.x_only_public_key();
     let address = Address::new(prefix, Version::PubKey, &xonly_public_key.serialize());

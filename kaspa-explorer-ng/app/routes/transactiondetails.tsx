@@ -10,6 +10,7 @@ import InfoIcon from "../assets/info.svg";
 import Kaspa from "../assets/kaspa.svg";
 import Swap from "../assets/swap.svg";
 import Transaction from "../assets/transaction.svg";
+import { MarketDataContext } from "../context/MarketDataProvider";
 import { useTransactionById } from "../hooks/useTransactionById";
 import { useTransactionCount } from "../hooks/useTransactionCount";
 import { useVirtualChainBlueScore } from "../hooks/useVirtualChainBlueScore";
@@ -20,7 +21,7 @@ import localeData from "dayjs/plugin/localeData";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
 import numeral from "numeral";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 
 dayjs().locale("en");
@@ -47,6 +48,7 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
   const location = useLocation();
   const isTabActive = (tab: string) => (new URLSearchParams(location.search).get("tab") || "general") === tab;
   const { virtualChainBlueScore } = useVirtualChainBlueScore();
+  const marketData = useContext(MarketDataContext);
 
   const { data: transaction, isLoading, isError } = useTransactionById(transactionId);
   const [graphMode, setGraphMode] = useState<"minimal" | "detailed">("minimal");
@@ -95,6 +97,7 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
   const transactionSum = (transaction.outputs || []).reduce((sum, output) => sum + output.amount, 0);
   const displayKAS = (x: number) => numeral((x || 0) / 1_0000_0000).format("0,0.00[000000]");
   const displaySum = displayKAS(transactionSum);
+  const displayUsd = numeral(((transactionSum || 0) / 1_0000_0000) * (marketData?.price || 0)).format("$0,0.00");
   const inputSum = transaction?.inputs?.reduce((sum, input) => sum + input.previous_outpoint_amount, 0) || 0;
   const feeAmountAtomic = Math.max(0, inputSum - transactionSum);
   const outputTooltip = `Total outputs: ${displayKAS(transactionSum)} KAS`;
@@ -198,6 +201,7 @@ export default function TransactionDetails({ params }: Route.ComponentProps) {
           {displaySum.split(".")[0]}.<span className="self-end pb-[0.4rem] text-2xl">{displaySum.split(".")[1]}</span>
           <Kaspa className="fill-primary ml-1 h-8 w-8" />
         </span>
+        <span className="ml-1 text-gray-500">{displayUsd}</span>
         {/*horizontal rule*/}
         <div className={`my-4 h-[1px] bg-gray-100 sm:col-span-2`} />
 

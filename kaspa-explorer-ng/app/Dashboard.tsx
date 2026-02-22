@@ -42,10 +42,11 @@ const Dashboard = () => {
   const { data: halving, isLoading: isLoadingHalving } = useHalving();
   const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
   const { data: addressDistribution, isLoading: isLoadingDistribution } = useAddressDistribution();
+  const totalTransactionsRaw = (transactionsCount?.regular || 0) + (transactionsCount?.coinbase || 0);
 
   const totalTxCount = isLoadingTxCount
     ? ""
-    : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
+    : Math.floor(totalTransactionsRaw / 1_000_000).toString();
 
   useEffect(() => {
     if (typeof window === "undefined") return;

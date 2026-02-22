@@ -30,6 +30,7 @@ kaspa_ng_macros::register_modules!(
         changelog,
         database,
         explorer,
+        k_social,
         logs,
         rk_bridge_logs,
         cpu_miner_logs,

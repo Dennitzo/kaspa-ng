@@ -25,11 +25,11 @@ impl SelfHostedPostgresService {
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
         // During crash recovery Postgres emits transient connection errors while still booting.
-        // Treat these as informational startup progress to avoid noisy false alarms.
+        // Suppress these noisy transient lines and rely on periodic redo progress logs.
         if upper.contains("DATABASE SYSTEM IS NOT YET ACCEPTING CONNECTIONS")
             || upper.contains("CONSISTENT RECOVERY STATE HAS NOT BEEN YET REACHED")
         {
-            return "INFO";
+            return "IGNORE";
         }
         if upper.contains("FATAL:")
             || upper.contains("PANIC:")
@@ -265,7 +265,7 @@ impl SelfHostedPostgresService {
                 }
             }
 
-            task::sleep(Duration::from_secs(1)).await;
+            task::sleep(Duration::from_secs(2)).await;
         }
 
         Err(Error::Custom("postgres not ready".to_string()))
@@ -312,11 +312,8 @@ impl SelfHostedPostgresService {
             db_user.replace('\"', "\"\""),
         );
 
-        let run_psql = |admin: Option<&str>,
-                        host: Option<&str>,
-                        use_tcp: bool,
-                        sql: &str|
-         -> Result<String> {
+        let run_psql =
+            |admin: Option<&str>, host: Option<&str>, use_tcp: bool, sql: &str| -> Result<String> {
                 let mut cmd = std::process::Command::new(&psql_bin);
                 cmd.arg("-X")
                     .arg("-v")
@@ -499,9 +496,9 @@ impl SelfHostedPostgresService {
             .arg("-h")
             .arg(settings.db_host.clone())
             .arg("-c")
-            .arg("max_wal_size=4GB")
+            .arg("max_wal_size=1GB")
             .arg("-c")
-            .arg("checkpoint_timeout=15min")
+            .arg("checkpoint_timeout=5min")
             .arg("-c")
             .arg("checkpoint_completion_target=0.9")
             .arg("-c")
@@ -517,6 +514,11 @@ impl SelfHostedPostgresService {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
         }
 
         let mut child = match cmd.spawn() {
@@ -535,6 +537,9 @@ impl SelfHostedPostgresService {
                 let mut reader = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let level = Self::detect_log_level(&line, "INFO");
+                    if level == "IGNORE" {
+                        continue;
+                    }
                     match level {
                         "ERROR" => log_warn!("self-hosted-postgres: {line}"),
                         "WARN" => log_warn!("self-hosted-postgres: {line}"),
@@ -551,6 +556,9 @@ impl SelfHostedPostgresService {
                 let mut reader = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let level = Self::detect_log_level(&line, "WARN");
+                    if level == "IGNORE" {
+                        continue;
+                    }
                     match level {
                         "ERROR" => log_warn!("self-hosted-postgres: {line}"),
                         "WARN" => log_warn!("self-hosted-postgres: {line}"),
@@ -571,8 +579,35 @@ impl SelfHostedPostgresService {
     async fn stop_postgres(&self) -> Result<()> {
         let child = self.child.lock().unwrap().take();
         if let Some(mut child) = child {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            let mut exited = false;
+
+            #[cfg(unix)]
+            {
+                if let Some(pid_u32) = child.id() {
+                    use nix::sys::signal::{Signal, kill};
+                    use nix::unistd::Pid;
+
+                    if let Ok(pid_i32) = i32::try_from(pid_u32) {
+                        let _ = kill(Pid::from_raw(pid_i32), Signal::SIGTERM);
+                        self.logs
+                            .push("INFO", "sent SIGTERM to postgres for graceful shutdown");
+                    }
+                }
+            }
+
+            if tokio::time::timeout(Duration::from_secs(12), child.wait())
+                .await
+                .is_ok()
+            {
+                exited = true;
+            }
+
+            if !exited {
+                self.logs
+                    .push("WARN", "postgres did not exit in time; forcing termination");
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
         Ok(())
     }

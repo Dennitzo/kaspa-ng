@@ -39,6 +39,7 @@ export default function Blocks() {
   const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
   const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
   const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
+  const totalTransactionsRaw = (transactionsCount?.regular || 0) + (transactionsCount?.coinbase || 0);
 
   const [blocks, setBlocks] = useState<Block[]>([]);
 
@@ -62,7 +63,7 @@ export default function Blocks() {
 
   const totalTxCount = isLoadingTxCount
     ? ""
-    : Math.floor((transactionsCount!.regular + transactionsCount!.coinbase) / 1_000_000).toString();
+    : Math.floor(totalTransactionsRaw / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
 
   return (

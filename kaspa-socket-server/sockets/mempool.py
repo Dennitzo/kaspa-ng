@@ -8,9 +8,20 @@ from server import sio, app
 mempool = 0
 
 
+def room_has_clients(room_name: str) -> bool:
+    try:
+        namespace_rooms = sio.manager.rooms.get("/", {})
+        clients = namespace_rooms.get(room_name)
+        return bool(clients)
+    except Exception:
+        return False
+
+
 @app.on_event("startup")
-@repeat_every(seconds=1)
+@repeat_every(seconds=5)
 async def periodical_mempool():
+    if not room_has_clients("mempool"):
+        return
     await emit_mempool()
 
 

@@ -51,6 +51,11 @@ pub mod self_hosted_explorer;
 pub use self_hosted_explorer::SelfHostedExplorerService;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_k_indexer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_k_indexer::SelfHostedKIndexerService;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod self_hosted_postgres;
 #[cfg(not(target_arch = "wasm32"))]
 pub use self_hosted_postgres::SelfHostedPostgresService;

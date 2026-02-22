@@ -491,6 +491,24 @@ impl<'core> Menu<'core> {
                 ui.close_menu();
             }
 
+            if self.core.settings.self_hosted.enabled
+                && self.core.settings.self_hosted.k_enabled
+                && matches!(self.core.settings.node.network, Network::Mainnet)
+            {
+                ui.separator();
+                if self
+                    .menu_tab_button(
+                        ui,
+                        i18n("K-Social"),
+                        active == TypeId::of::<modules::KSocial>(),
+                    )
+                    .clicked()
+                {
+                    self.select::<modules::KSocial>();
+                    ui.close_menu();
+                }
+            }
+
             if self.core.settings.self_hosted.enabled {
                 ui.separator();
                 if self

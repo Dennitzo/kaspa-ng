@@ -5,7 +5,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 #[cfg(unix)]
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{Duration, sleep, timeout};
 
 const DEFAULT_GRPC_PORT: u16 = 16110;
 
@@ -138,45 +138,51 @@ impl SelfHostedExplorerService {
 
         #[cfg(target_os = "macos")]
         {
-            candidates.extend([
-                "/opt/homebrew/opt/python@3.12/bin/python3.12",
-                "/opt/homebrew/opt/python@3.11/bin/python3.11",
-                "/opt/homebrew/opt/python@3.10/bin/python3.10",
-                "/usr/local/opt/python@3.12/bin/python3.12",
-                "/usr/local/opt/python@3.11/bin/python3.11",
-                "/usr/local/opt/python@3.10/bin/python3.10",
-                "/opt/homebrew/opt/python/bin/python3",
-                "/usr/local/opt/python/bin/python3",
-            ]
-            .into_iter()
-            .map(PathBuf::from));
+            candidates.extend(
+                [
+                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
+                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
+                    "/usr/local/opt/python@3.12/bin/python3.12",
+                    "/usr/local/opt/python@3.11/bin/python3.11",
+                    "/usr/local/opt/python@3.10/bin/python3.10",
+                    "/opt/homebrew/opt/python/bin/python3",
+                    "/usr/local/opt/python/bin/python3",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
         }
 
         #[cfg(target_os = "linux")]
         {
-            candidates.extend([
-                "/usr/bin/python3.12",
-                "/usr/bin/python3.11",
-                "/usr/bin/python3.10",
-                "/usr/local/bin/python3.12",
-                "/usr/local/bin/python3.11",
-                "/usr/local/bin/python3.10",
-                "/usr/bin/python3",
-                "/usr/local/bin/python3",
-            ]
-            .into_iter()
-            .map(PathBuf::from));
+            candidates.extend(
+                [
+                    "/usr/bin/python3.12",
+                    "/usr/bin/python3.11",
+                    "/usr/bin/python3.10",
+                    "/usr/local/bin/python3.12",
+                    "/usr/local/bin/python3.11",
+                    "/usr/local/bin/python3.10",
+                    "/usr/bin/python3",
+                    "/usr/local/bin/python3",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
         }
 
         #[cfg(target_os = "windows")]
         {
-            candidates.extend([
-                "C:\\Python312\\python.exe",
-                "C:\\Python311\\python.exe",
-                "C:\\Python310\\python.exe",
-            ]
-            .into_iter()
-            .map(PathBuf::from));
+            candidates.extend(
+                [
+                    "C:\\Python312\\python.exe",
+                    "C:\\Python311\\python.exe",
+                    "C:\\Python310\\python.exe",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
         }
 
         for candidate in candidates {
@@ -563,7 +569,7 @@ impl SelfHostedExplorerService {
 
     #[cfg(unix)]
     async fn terminate_process_tree(child: &mut Child) {
-        use nix::sys::signal::{killpg, Signal};
+        use nix::sys::signal::{Signal, killpg};
         use nix::unistd::Pid;
 
         if let Some(pid) = child.id() {

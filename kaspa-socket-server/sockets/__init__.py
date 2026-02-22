@@ -9,6 +9,15 @@ from sockets.mempool import emit_mempool
 VALID_ROOMS = ["blocks", "coinsupply", "blockdag", "bluescore", "mempool"]
 
 
+def room_has_clients(room_name: str) -> bool:
+    try:
+        namespace_rooms = sio.manager.rooms.get("/", {})
+        clients = namespace_rooms.get(room_name)
+        return bool(clients)
+    except Exception:
+        return False
+
+
 @sio.on("join-room")
 async def join_room(sid, room_name):
     if room_name in VALID_ROOMS:

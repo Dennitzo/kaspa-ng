@@ -66,4 +66,10 @@ class KaspadClient(object):
 
     async def notify(self, command, params, callback):
         t = KaspadThread(self.kaspad_host, self.kaspad_port, async_thread=True)
-        return await t.notify(command, params, callback)
+        try:
+            return await t.notify(command, params, callback)
+        finally:
+            try:
+                await t.close()
+            except Exception:
+                pass

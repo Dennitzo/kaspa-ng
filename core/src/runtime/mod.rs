@@ -49,6 +49,8 @@ pub struct Inner {
     self_hosted_postgres_service: Arc<SelfHostedPostgresService>,
     #[cfg(not(target_arch = "wasm32"))]
     self_hosted_explorer_service: Arc<SelfHostedExplorerService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_k_indexer_service: Arc<SelfHostedKIndexerService>,
 
     // #[cfg(not(feature = "lean"))]
     metrics_service: Arc<MetricsService>,
@@ -99,18 +101,15 @@ impl Runtime {
             application_events.clone(),
             settings,
         ));
-        let cpu_miner_service = Arc::new(CpuMinerService::new(
-            application_events.clone(),
-            settings,
-        ));
-        let rothschild_service = Arc::new(RothschildService::new(
-            application_events.clone(),
-            settings,
-        ));
+        let cpu_miner_service =
+            Arc::new(CpuMinerService::new(application_events.clone(), settings));
+        let rothschild_service =
+            Arc::new(RothschildService::new(application_events.clone(), settings));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_logs = LogStores {
             postgres: Arc::new(LogStore::new(1000)),
             indexer: Arc::new(LogStore::new(1000)),
+            k_indexer: Arc::new(LogStore::new(1000)),
             rest: Arc::new(LogStore::new(1000)),
             socket: Arc::new(LogStore::new(1000)),
         };
@@ -134,6 +133,12 @@ impl Runtime {
         ));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_explorer_service = Arc::new(SelfHostedExplorerService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_k_indexer_service = Arc::new(SelfHostedKIndexerService::new(
             application_events.clone(),
             settings,
             self_hosted_logs.clone(),
@@ -176,6 +181,8 @@ impl Runtime {
             self_hosted_postgres_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             self_hosted_explorer_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_k_indexer_service.clone(),
             update_monitor_service.clone(),
             // #[cfg(not(feature = "lean"))]
             metrics_service.clone(),
@@ -203,6 +210,8 @@ impl Runtime {
                 self_hosted_postgres_service,
                 #[cfg(not(target_arch = "wasm32"))]
                 self_hosted_explorer_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_k_indexer_service,
                 update_monitor_service,
                 egui_ctx: egui_ctx.clone(),
                 is_running: Arc::new(AtomicBool::new(false)),
@@ -255,9 +264,22 @@ impl Runtime {
     }
 
     pub fn stop_services(&self) {
-        self.services()
-            .into_iter()
-            .for_each(|service| service.terminate());
+        let services = self.services();
+
+        // Shutdown order matters for self-hosted stack:
+        // stop dependents first, postgres last.
+        services
+            .iter()
+            .filter(|service| service.name() != "self-hosted-postgres")
+            .for_each(|service| service.clone().terminate());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::sleep(std::time::Duration::from_millis(750));
+
+        services
+            .iter()
+            .filter(|service| service.name() == "self-hosted-postgres")
+            .for_each(|service| service.clone().terminate());
     }
 
     pub async fn join_services(&self) {
@@ -365,6 +387,11 @@ impl Runtime {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn self_hosted_explorer_service(&self) -> &Arc<SelfHostedExplorerService> {
         &self.inner.self_hosted_explorer_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_k_indexer_service(&self) -> &Arc<SelfHostedKIndexerService> {
+        &self.inner.self_hosted_k_indexer_service
     }
 
     pub fn update_monitor_service(&self) -> &Arc<UpdateMonitorService> {

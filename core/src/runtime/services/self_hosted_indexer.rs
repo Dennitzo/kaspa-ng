@@ -76,7 +76,7 @@ impl SelfHostedIndexerService {
 
     async fn wait_for_database(settings: &SelfHostedSettings) -> Result<()> {
         let mut last_error: Option<String> = None;
-        for _ in 0..15 {
+        for attempt in 0..20 {
             let admin_conn_str = format!(
                 "host={} port={} user={} password={} dbname=postgres connect_timeout=3",
                 settings.db_host, settings.db_port, settings.db_user, settings.db_password
@@ -119,14 +119,16 @@ impl SelfHostedIndexerService {
                             }
                         }
                     } else {
-                        last_error = Some(format!("database '{}' is not ready yet", settings.db_name));
+                        last_error =
+                            Some(format!("database '{}' is not ready yet", settings.db_name));
                     }
                 }
                 Err(err) => {
                     last_error = Some(err.to_string());
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let sleep_secs = if attempt < 5 { 2 } else { 3 };
+            tokio::time::sleep(std::time::Duration::from_secs(sleep_secs)).await;
         }
 
         if let Some(err) = last_error {
@@ -134,7 +136,9 @@ impl SelfHostedIndexerService {
                 "database not ready after retries: {err}"
             )))
         } else {
-            Err(Error::Custom("database not ready after retries".to_string()))
+            Err(Error::Custom(
+                "database not ready after retries".to_string(),
+            ))
         }
     }
 
@@ -205,11 +209,11 @@ impl SelfHostedIndexerService {
         let binary = match Self::find_indexer_binary(&settings) {
             Some(path) => path,
             None => {
-                log_warn!(
-                    "self-hosted-indexer: binary not found in default locations"
+                log_warn!("self-hosted-indexer: binary not found in default locations");
+                self.logs.push(
+                    "ERROR",
+                    "binary not found; unable to start simply-kaspa-indexer",
                 );
-                self.logs
-                    .push("ERROR", "binary not found; unable to start simply-kaspa-indexer");
                 return Ok(());
             }
         };
@@ -244,6 +248,11 @@ impl SelfHostedIndexerService {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
         }
 
         let mut child = match cmd.spawn() {

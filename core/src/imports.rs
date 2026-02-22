@@ -91,8 +91,8 @@ pub use crate::runtime::{Payload, Runtime, Service, runtime, spawn, spawn_with_r
 pub use crate::settings::{
     CpuMinerSettings, EstimatorMode, EstimatorSettings, ExplorerDataSource, ExplorerEndpoint,
     ExplorerNetworkProfiles, ExplorerSettings, KaspadNodeKind, NetworkInterfaceConfig,
-    NetworkInterfaceKind, NodeConnectionConfigKind, NodeMemoryScale, NodeSettings, RothschildSettings,
-    RpcConfig, RpcOptions, SelfHostedSettings, Settings, StratumBridgeSettings,
+    NetworkInterfaceKind, NodeConnectionConfigKind, NodeMemoryScale, NodeSettings,
+    RothschildSettings, RpcConfig, RpcOptions, SelfHostedSettings, Settings, StratumBridgeSettings,
     UserInterfaceSettings,
 };
 pub use crate::state::State;

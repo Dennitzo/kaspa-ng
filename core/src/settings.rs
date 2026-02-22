@@ -1,9 +1,9 @@
 use crate::imports::*;
 use kaspa_metrics_core::Metric;
 use kaspa_utils::networking::ContextualNetAddress;
-use rand::distributions::Alphanumeric;
 use kaspa_wallet_core::storage::local::storage::Storage;
 use kaspa_wrpc_client::WrpcEncoding;
+use rand::distributions::Alphanumeric;
 use workflow_core::{runtime, task::spawn};
 
 const SETTINGS_REVISION: &str = "0.0.0";
@@ -810,6 +810,10 @@ pub struct SelfHostedSettings {
     pub indexer_listen: String,
     pub indexer_extra_args: String,
     pub indexer_upgrade_db: bool,
+    #[serde(default)]
+    pub k_enabled: bool,
+    #[serde(default = "default_k_web_port")]
+    pub k_web_port: u16,
     pub postgres_enabled: bool,
     pub postgres_data_dir: String,
 }
@@ -820,6 +824,10 @@ fn default_explorer_rest_port() -> u16 {
 
 fn default_explorer_socket_port() -> u16 {
     19113
+}
+
+fn default_k_web_port() -> u16 {
+    3000
 }
 
 impl Default for SelfHostedSettings {
@@ -842,6 +850,8 @@ impl Default for SelfHostedSettings {
             indexer_extra_args: "--prune-db --retention=7d --enable=transactions_inputs_resolve"
                 .to_string(),
             indexer_upgrade_db: true,
+            k_enabled: false,
+            k_web_port: default_k_web_port(),
             postgres_enabled: true,
             postgres_data_dir: String::new(),
         }
@@ -1059,7 +1069,10 @@ impl Settings {
                         }
                         if settings.node.rothschild_enabled
                             && settings.node.rothschild.private_key.trim().is_empty()
-                            && matches!(settings.node.network, Network::Testnet10 | Network::Testnet12)
+                            && matches!(
+                                settings.node.network,
+                                Network::Testnet10 | Network::Testnet12
+                            )
                         {
                             let (private_key, address) =
                                 generate_rothschild_credentials(settings.node.network);
@@ -1135,6 +1148,16 @@ impl Settings {
                                 default_explorer_socket_port();
                             migrated = true;
                         }
+                        if settings.self_hosted.k_web_port == 0 {
+                            settings.self_hosted.k_web_port = default_k_web_port();
+                            migrated = true;
+                        }
+                        if !matches!(settings.node.network, Network::Mainnet)
+                            && settings.self_hosted.k_enabled
+                        {
+                            settings.self_hosted.k_enabled = false;
+                            migrated = true;
+                        }
                         if settings.explorer.self_hosted.mainnet.api_base == "http://127.0.0.1:8000"
                             && settings.explorer.self_hosted.mainnet.socket_url
                                 == "http://127.0.0.1:8001"
@@ -1150,7 +1173,14 @@ impl Settings {
                             settings.explorer.self_hosted = ExplorerSettings::default().self_hosted;
                             migrated = true;
                         }
-                        if settings.explorer.official.mainnet.api_base.trim().is_empty() {
+                        if settings
+                            .explorer
+                            .official
+                            .mainnet
+                            .api_base
+                            .trim()
+                            .is_empty()
+                        {
                             settings.explorer = ExplorerSettings::default();
                             migrated = true;
                         }

@@ -7,7 +7,6 @@ pub struct Settings {
     wrpc_borsh_network_interface : NetworkInterfaceEditor,
     wrpc_json_network_interface : NetworkInterfaceEditor,
     grpc_network_interface : NetworkInterfaceEditor,
-    reset_network_settings : bool,
     reset_settings : bool,
 }
 
@@ -19,7 +18,6 @@ impl Settings {
             wrpc_borsh_network_interface : NetworkInterfaceEditor::default(),
             wrpc_json_network_interface : NetworkInterfaceEditor::default(),
             grpc_network_interface : NetworkInterfaceEditor::default(),
-            reset_network_settings : false,
             reset_settings : false,
         }
     }
@@ -468,6 +466,8 @@ impl Settings {
                                 if !matches!(core.settings.node.network, Network::Mainnet) {
                                     core.settings.node.stratum_bridge_enabled = false;
                                     self.settings.node.stratum_bridge_enabled = false;
+                                    core.settings.self_hosted.k_enabled = false;
+                                    self.settings.self_hosted.k_enabled = false;
                                 }
                                 core.settings.store_sync().unwrap();
 
@@ -498,6 +498,16 @@ impl Settings {
                                 self.runtime
                                     .self_hosted_explorer_service()
                                     .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_k_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime.self_hosted_k_indexer_service().enable(
+                                    core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.k_enabled
+                                        && matches!(core.settings.node.network, Network::Mainnet),
+                                );
 
                                 if restart {
                                     self.runtime.kaspa_service().update_services(&self.settings.node, None);
@@ -765,6 +775,12 @@ impl Settings {
                         self.runtime
                             .self_hosted_indexer_service()
                             .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_k_indexer_service()
+                            .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_k_indexer_service()
+                            .update_node_settings(core.settings.node.clone());
                     }
                     core.store_settings();
                 }
@@ -781,6 +797,17 @@ impl Settings {
 
                         let mut changed = false;
                         let mut settings = self.settings.self_hosted.clone();
+                        let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
+                        let self_hosted_enabled = settings.enabled;
+
+                        if !is_mainnet && settings.k_enabled {
+                            settings.k_enabled = false;
+                            changed = true;
+                        }
+                        if !self_hosted_enabled && settings.k_enabled {
+                            settings.k_enabled = false;
+                            changed = true;
+                        }
 
                         if ui
                             .checkbox(
@@ -790,6 +817,28 @@ impl Settings {
                             .changed()
                         {
                             changed = true;
+                        }
+
+                        if ui
+                            .add_enabled(
+                                is_mainnet && self_hosted_enabled,
+                                Checkbox::new(&mut settings.k_enabled, i18n("Enable K-Social services")),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
+
+                        if !is_mainnet {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("K-Social services are available only on Mainnet."),
+                            );
+                        } else if !self_hosted_enabled {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Enable self-hosted database services first to use K-Social."),
+                            );
                         }
 
                         if !matches!(self.settings.explorer.source, ExplorerDataSource::SelfHosted) {
@@ -816,6 +865,12 @@ impl Settings {
                                 ui.label(i18n("API Port"));
                                 changed |= ui
                                     .add(DragValue::new(&mut settings.api_port).range(1..=65535))
+                                    .changed();
+                                ui.end_row();
+
+                                ui.label(i18n("K API Port"));
+                                changed |= ui
+                                    .add(DragValue::new(&mut settings.k_web_port).range(1..=65535))
                                     .changed();
                                 ui.end_row();
 
@@ -915,6 +970,9 @@ impl Settings {
                             });
 
                         if changed {
+                            if !is_mainnet || !settings.enabled {
+                                settings.k_enabled = false;
+                            }
                             if settings.db_password.trim().is_empty() || settings.db_password == "kaspa" {
                                 settings.db_password = crate::settings::generate_db_password();
                             }
@@ -941,6 +999,12 @@ impl Settings {
                             self.runtime
                                 .self_hosted_indexer_service()
                                 .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_k_indexer_service()
+                                .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_k_indexer_service()
+                                .update_node_settings(core.settings.node.clone());
 
                             if previous_enabled != settings.enabled {
                                 self.runtime.self_hosted_postgres_service().enable(
@@ -955,6 +1019,21 @@ impl Settings {
                                 self.runtime
                                     .self_hosted_explorer_service()
                                     .enable(settings.enabled);
+                                self.runtime
+                                    .self_hosted_k_indexer_service()
+                                    .enable(
+                                        settings.enabled
+                                            && core.settings.self_hosted.k_enabled
+                                            && is_mainnet,
+                                    );
+                            } else {
+                                self.runtime
+                                    .self_hosted_k_indexer_service()
+                                    .enable(
+                                        settings.enabled
+                                            && core.settings.self_hosted.k_enabled
+                                            && is_mainnet,
+                                    );
                             }
 
                             #[cfg(not(target_arch = "wasm32"))]
@@ -1663,119 +1742,7 @@ impl Settings {
                     ui.separator();
                 }
 
-                if !self.reset_network_settings {
-                    ui.vertical(|ui| {
-                        if ui
-                            .medium_button(i18n("Reset Current Network Settings"))
-                            .clicked()
-                        {
-                            self.reset_network_settings = true;
-                        }
-                    });
-                } else {
-                    let network_name = self.settings.node.network.name();
-                    ui.add_space(16.);
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {}?",
-                            i18n("Reset settings for network"),
-                            network_name
-                        ))
-                        .color(theme_color().warning_color),
-                    );
-                    ui.add_space(16.);
-                    if let Some(response) = ui.confirm_medium_apply_cancel(Align::Min) {
-                        match response {
-                            Confirm::Ack => {
-                                self.reset_current_network_settings(core);
-                                self.reset_network_settings = false;
-                            }
-                            Confirm::Nack => {
-                                self.reset_network_settings = false;
-                            }
-                        }
-                    }
-                    ui.separator();
-                }
             });
-    }
-
-    fn reset_current_network_settings(&mut self, core: &mut Core) {
-        let network = self.settings.node.network;
-        let defaults = crate::settings::Settings::default();
-
-        match network {
-            Network::Mainnet => {
-                self.settings.node.stratum_bridge = defaults.node.stratum_bridge.clone();
-                self.settings.node.stratum_bridge_enabled = defaults.node.stratum_bridge_enabled;
-            }
-            Network::Testnet10 | Network::Testnet12 => {
-                self.settings.node.cpu_miner = defaults.node.cpu_miner.clone();
-                self.settings.node.cpu_miner_enabled = defaults.node.cpu_miner_enabled;
-                self.settings.node.rothschild = defaults.node.rothschild.clone();
-                self.settings.node.rothschild_enabled = defaults.node.rothschild_enabled;
-            }
-        }
-
-        match network {
-            Network::Mainnet => {
-                self.settings.explorer.official.mainnet = defaults.explorer.official.mainnet.clone();
-                self.settings.explorer.self_hosted.mainnet =
-                    defaults.explorer.self_hosted.mainnet.clone();
-            }
-            Network::Testnet10 => {
-                self.settings.explorer.official.testnet10 =
-                    defaults.explorer.official.testnet10.clone();
-                self.settings.explorer.self_hosted.testnet10 =
-                    defaults.explorer.self_hosted.testnet10.clone();
-            }
-            Network::Testnet12 => {
-                self.settings.explorer.official.testnet12 =
-                    defaults.explorer.official.testnet12.clone();
-                self.settings.explorer.self_hosted.testnet12 =
-                    defaults.explorer.self_hosted.testnet12.clone();
-            }
-        }
-
-        core.settings.node = self.settings.node.clone();
-        core.settings.explorer = self.settings.explorer.clone();
-        core.settings.node.network = network;
-
-        self.runtime
-            .stratum_bridge_service()
-            .update_settings(&core.settings.node);
-        self.runtime
-            .stratum_bridge_service()
-            .enable(core.settings.node.stratum_bridge_enabled, &core.settings.node);
-
-        self.runtime.cpu_miner_service().update_settings(
-            core.settings.node.network,
-            &core.settings.node.cpu_miner,
-        );
-        self.runtime.cpu_miner_service().enable(
-            core.settings.node.cpu_miner_enabled,
-            core.settings.node.network,
-            &core.settings.node.cpu_miner,
-        );
-
-        self.runtime.rothschild_service().update_settings(
-            core.settings.node.network,
-            &core.settings.node.rothschild,
-        );
-        self.runtime.rothschild_service().enable(
-            core.settings.node.rothschild_enabled,
-            core.settings.node.network,
-            &core.settings.node.rothschild,
-        );
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.runtime
-                .self_hosted_explorer_service()
-                .update_node_settings(core.settings.node.clone());
-        }
-
-        core.store_settings();
     }
 
     fn render_explorer_endpoint_grid(

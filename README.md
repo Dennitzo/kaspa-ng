@@ -63,8 +63,17 @@ Once you have Rusty Kaspa built, you will be able to build and run this project 
 ### From GitHub repository:
 #### Start Custom Build
 ```bash
+git clone https://github.com/thesheepcat/K.git || true
+git clone https://github.com/thesheepcat/K-indexer.git || true
 cd simply-kaspa-indexer
 cargo build --release
+cd ..
+cd K-indexer
+cargo build -p K-webserver -p K-transaction-processor --release
+cd ..
+cd K
+npm install
+npm run build
 cd ..
 cd kaspa-rest-server
 poetry install
@@ -79,6 +88,8 @@ cd ..
 cargo build --release
 ./target/release/kaspa-ng
 ```
+
+`cargo build --release` in `kaspa-ng` now also tries to auto-sync (`git pull --ff-only`) and build `K` + `K-indexer` components through `core/build.rs`.
 
 While the application is a static serve, you can not load it from the local file system due to CORS restrictions. Due to this, a web server is required. This application is designed to be built with [Trunk](https://trunkrs.dev/) and is served from the `dist/` folder.  This is a self-contained client-side application - once the application is loaded, the web server is no longer required.
 

@@ -16,10 +16,16 @@ use tokio_stream::wrappers::IntervalStream;
 
 const TABLE_STATS_SQL: &str = r#"
 SELECT
-    relname AS table_name,
-    COALESCE(n_live_tup, 0)::bigint AS live_rows,
-    COALESCE(pg_total_relation_size(relid), 0)::bigint AS total_size_bytes
-FROM pg_stat_user_tables
+    c.relname AS table_name,
+    GREATEST(
+        COALESCE(s.n_live_tup, 0)::bigint,
+        COALESCE(c.reltuples, 0)::bigint
+    ) AS live_rows,
+    COALESCE(pg_total_relation_size(c.oid), 0)::bigint AS total_size_bytes
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+WHERE n.nspname = 'public' AND c.relkind = 'r'
 ORDER BY total_size_bytes DESC
 "#;
 
@@ -235,6 +241,7 @@ async fn logs_handler(
     let lines = match service.as_str() {
         "postgres" => state.logs.postgres.snapshot(limit),
         "indexer" => state.logs.indexer.snapshot(limit),
+        "k-indexer" => state.logs.k_indexer.snapshot(limit),
         "rest" => state.logs.rest.snapshot(limit),
         "socket" => state.logs.socket.snapshot(limit),
         _ => {

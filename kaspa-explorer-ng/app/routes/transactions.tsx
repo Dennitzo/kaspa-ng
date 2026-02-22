@@ -31,17 +31,22 @@ export default function Transactions() {
   const { data: feeEstimate, isLoading: isLoadingFee } = useFeeEstimate();
   const { data: transactionsCountTotal, isLoading: isLoadingTxCountTotal } = useTransactionsCount();
   const { mempoolSize: mempoolSize } = useMempoolSize();
+  const totalTransactionsRaw =
+    (transactionsCountTotal?.regular || 0) + (transactionsCountTotal?.coinbase || 0);
 
   const totalTxCount = isLoadingTxCountTotal
     ? ""
-    : Math.floor((transactionsCountTotal!.regular + transactionsCountTotal!.coinbase) / 1_000_000).toString();
+    : Math.floor(totalTransactionsRaw / 1_000_000).toString();
 
   const txCount =
     transactionCount && transactionCount.length > 0
       ? (transactionCount[0].regular + transactionCount[0].coinbase) / 3600
       : "-";
 
-  const regularFee = feeEstimate ? (feeEstimate.normalBuckets[0].feerate * 2036) / 1_0000_0000 : 0;
+  const regularFee =
+    feeEstimate && feeEstimate.normalBuckets && feeEstimate.normalBuckets.length > 0
+      ? (feeEstimate.normalBuckets[0].feerate * 2036) / 1_0000_0000
+      : 0;
 
   return (
     <>
