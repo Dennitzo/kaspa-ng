@@ -37,20 +37,18 @@ jobs:
           npm ci --prefer-offline --no-audit
           npm run build
 
-      - name: Install Protoc (Linux)
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Protoc
+        run: protoc --version
+
+      - name: Configure Linux pkg-config path
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
-
-      - name: Install Protoc (macOS)
-        if: runner.os == 'macOS'
-        run: brew install protobuf
-
-      - name: Install Protoc (Windows)
-        if: runner.os == 'Windows'
-        run: choco install protoc -y
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
