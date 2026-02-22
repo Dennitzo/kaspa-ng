@@ -424,21 +424,24 @@ impl Core {
             self.runtime
                 .rothschild_service()
                 .update_settings(network, &self.settings.node.rothschild);
-            self.runtime
-                .self_hosted_db_service()
-                .update_node_settings(self.settings.node.clone());
-            self.runtime
-                .self_hosted_explorer_service()
-                .update_node_settings(self.settings.node.clone());
-            self.runtime
-                .self_hosted_indexer_service()
-                .update_node_settings(self.settings.node.clone());
-            self.runtime
-                .self_hosted_postgres_service()
-                .update_node_settings(self.settings.node.clone());
-            self.runtime
-                .self_hosted_k_indexer_service()
-                .update_node_settings(self.settings.node.clone());
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.runtime
+                    .self_hosted_db_service()
+                    .update_node_settings(self.settings.node.clone());
+                self.runtime
+                    .self_hosted_explorer_service()
+                    .update_node_settings(self.settings.node.clone());
+                self.runtime
+                    .self_hosted_indexer_service()
+                    .update_node_settings(self.settings.node.clone());
+                self.runtime
+                    .self_hosted_postgres_service()
+                    .update_node_settings(self.settings.node.clone());
+                self.runtime
+                    .self_hosted_k_indexer_service()
+                    .update_node_settings(self.settings.node.clone());
+            }
             self.store_settings();
             self.runtime
                 .kaspa_service()
