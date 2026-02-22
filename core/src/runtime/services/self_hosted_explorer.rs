@@ -217,9 +217,13 @@ impl SelfHostedExplorerService {
         #[cfg(target_os = "linux")]
         {
             candidates.extend(
-                ["/usr/bin/python3.12", "/usr/bin/python3.11", "/usr/bin/python3.10"]
-                    .into_iter()
-                    .map(PathBuf::from),
+                [
+                    "/usr/bin/python3.12",
+                    "/usr/bin/python3.11",
+                    "/usr/bin/python3.10",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
             );
         }
 
