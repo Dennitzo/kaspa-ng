@@ -66,6 +66,10 @@ class KaspadThread(object):
                     return json_format.MessageToDict(resp)
             except grpc.aio._call.AioRpcError as e:
                 raise KaspadCommunicationError(str(e))
+            except Exception as e:
+                if "Channel is closed" in str(e):
+                    raise KaspadCommunicationError(str(e))
+                raise KaspadCommunicationError(str(e))
 
     async def notify(self, command, params=None, callback_func=None):
         try:

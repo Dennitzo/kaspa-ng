@@ -54,15 +54,18 @@ class KaspadClient(object):
 
     async def request(self, command, params=None, timeout=5):
         thread = await self._acquire_thread()
+        discard_thread = False
         try:
             return await thread.request(command, params, wait_for_response=True, timeout=timeout)
         except Exception:
+            discard_thread = True
             try:
                 await thread.close()
             finally:
                 raise
         finally:
-            await self._release_thread(thread)
+            if not discard_thread:
+                await self._release_thread(thread)
 
     async def notify(self, command, params, callback):
         t = KaspadThread(self.kaspad_host, self.kaspad_port, async_thread=True)

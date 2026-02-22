@@ -24,14 +24,17 @@ async def join_room(sid, room_name):
         print(f"{sid} joining {room_name}")
         sio.enter_room(sid, room_name)
 
-        if room_name == "blockdag":
-            await emit_blockdag()
+        try:
+            if room_name == "blockdag":
+                await emit_blockdag()
 
-        if room_name == "coinsupply":
-            await emit_coin_supply()
+            if room_name == "coinsupply":
+                await emit_coin_supply()
 
-        if room_name == "bluescore":
-            await emit_bluescore()
+            if room_name == "bluescore":
+                await emit_bluescore()
 
-        if room_name == "mempool":
-            await emit_mempool()
+            if room_name == "mempool":
+                await emit_mempool()
+        except Exception as exc:
+            print(f"join-room {room_name} initial emit skipped: {exc}")
