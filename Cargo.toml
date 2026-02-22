@@ -46,7 +46,7 @@ eframe = { version = "=0.31.1",  default-features = false, features = [
 egui-phosphor = { version = "=0.9.0", features = ["thin","light","regular","bold"] }
 egui-notify = { version = "=0.19.0"}
 criterion = { version = "0.5.1", default-features = false }
-wasm-bindgen-test = "0.3.50"
+wasm-bindgen-test = "=0.3.50"
 bs58 = { version = "0.5.0", features = ["check"], default-features = false }
 
 
@@ -224,7 +224,7 @@ env_logger = "0.10"
 futures = { version = "0.3.29" }
 futures-util = { version = "0.3.29", default-features = false, features = ["alloc"] }
 image = { version = "0.24.7", default-features = false, features = ["png"] }
-js-sys = "0.3.70"
+js-sys = "=0.3.77"
 log = "0.4.20"
 nix = { version = "0.28.0", features = ["signal"]}
 num_cpus = "1.16.0"
@@ -238,7 +238,7 @@ ritehash = "0.2.0"
 rlimit = "0.10.1"
 separator = "0.4.1"
 serde = { version = "1.0.190", features = ["derive", "rc"] }
-serde-wasm-bindgen = "0.6.1"
+serde-wasm-bindgen = "=0.6.1"
 serde_json = "1.0.107"
 slug = "0.1.5"
 smallvec = { version = "1.11.1", features = ["serde", "const_generics"] }
@@ -247,9 +247,9 @@ thiserror = "1.0.50"
 tokio = { version = "1.33.0", features = ["sync", "rt-multi-thread", "process"] }
 toml = "0.8.8"
 walkdir = "2.4.0"
-wasm-bindgen = { version = "0.2.100", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.43"
-web-sys = { version = "0.3.70", features = ['Window'] }
+wasm-bindgen = { version = "=0.2.100", features = ["serde-serialize"] }
+wasm-bindgen-futures = "=0.4.50"
+web-sys = { version = "=0.3.77", features = ['Window'] }
 xxhash-rust = { version = "0.8.7", features = ["xxh3"] }
 zeroize = { version = "1.6.0", default-features = false, features = ["alloc"] }
 

@@ -487,21 +487,49 @@ fn handle_connection(mut stream: TcpStream, root: &Path) -> std::io::Result<()> 
         .unwrap_or("/");
     let path = sanitize_path(path);
 
-    let mut file_path = root.join(path.trim_start_matches('/'));
-    if path == "/" || !file_path.exists() || !file_path.is_file() {
-        file_path = root.join("index.html");
+    let mut status = "200 OK";
+    let mut file_path = root.join("index.html");
+
+    if path != "/" {
+        let requested_path = root.join(path.trim_start_matches('/'));
+        if requested_path.exists() && requested_path.is_file() {
+            file_path = requested_path;
+        } else {
+            let route_like_path = Path::new(path.trim_start_matches('/'))
+                .extension()
+                .is_none();
+            if !route_like_path {
+                status = "404 Not Found";
+            }
+        }
     }
 
-    let body = std::fs::read(&file_path).unwrap_or_default();
-    let content_type = content_type_for_path(&file_path);
+    let body = if status == "404 Not Found" {
+        b"Not Found".to_vec()
+    } else {
+        match std::fs::read(&file_path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                status = "500 Internal Server Error";
+                b"Internal Server Error".to_vec()
+            }
+        }
+    };
+
+    let content_type = match status {
+        "404 Not Found" | "500 Internal Server Error" => "text/plain; charset=utf-8",
+        _ => content_type_for_path(&file_path),
+    };
 
     let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n",
         body.len()
     );
 
     stream.write_all(header.as_bytes())?;
-    stream.write_all(&body)?;
+    if !body.is_empty() {
+        stream.write_all(&body)?;
+    }
     stream.flush()?;
     Ok(())
 }

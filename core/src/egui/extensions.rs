@@ -543,8 +543,8 @@ where
             editor_submit_fn,
         } = self;
 
-        let mut editor_text = user_text.clone();
-        let response = editor_create_fn(ui, &mut editor_text);
+        let previous_text = user_text.clone();
+        let response = editor_create_fn(ui, user_text);
 
         if focus_manager.matches(focus_value) {
             // Request focus once, then clear to avoid stealing focus later.
@@ -552,13 +552,11 @@ where
             focus_manager.clear();
         }
 
-        if *user_text != editor_text {
-            *user_text = editor_text;
+        if *user_text != previous_text {
             if let Some(editor_change_fn) = editor_change_fn {
                 editor_change_fn(user_text.as_str());
             }
         } else if response.text_edit_submit(ui) {
-            *user_text = editor_text;
             if let Some(editor_submit_fn) = editor_submit_fn {
                 editor_submit_fn(user_text.as_str(), focus_manager);
             }

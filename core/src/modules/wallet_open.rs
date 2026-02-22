@@ -12,6 +12,7 @@ pub struct WalletOpen {
     #[allow(dead_code)]
     runtime: Runtime,
     wallet_secret: String,
+    focus_unlock_editor: bool,
     pub state: State,
     pub message: Option<String>,
 }
@@ -21,12 +22,14 @@ impl WalletOpen {
         Self {
             runtime,
             wallet_secret: String::new(),
+            focus_unlock_editor: false,
             state: State::Select,
             message: None,
         }
     }
 
     pub fn open(&mut self, wallet_descriptor: WalletDescriptor) {
+        self.focus_unlock_editor = true;
         self.state = State::Unlock { wallet_descriptor, error : None};
     }
 
@@ -82,6 +85,7 @@ impl ModuleT for WalletOpen {
                                     wallet_descriptor.title.as_deref().unwrap_or_else(||i18n("NO NAME")),
                                     wallet_descriptor.filename.clone(),
                                 )).clicked() {
+                                    this.focus_unlock_editor = true;
                                     this.state = State::Unlock { wallet_descriptor : wallet_descriptor.clone(), error : None };
                                 }
                             }
@@ -138,10 +142,13 @@ impl ModuleT for WalletOpen {
                                     .vertical_align(Align::Center),
                             );
 
+                        if ctx.focus_unlock_editor {
+                            response.request_focus();
+                            ctx.focus_unlock_editor = false;
+                        }
+
                         if response.text_edit_submit(ui) {
                             *unlock.borrow_mut() = true;
-                        } else {
-                            response.request_focus();
                         }
 
                     })
@@ -187,6 +194,7 @@ impl ModuleT for WalletOpen {
                             }
                             Err(err) => {
                                 // println!("Unlock error: {}", err);
+                                self.focus_unlock_editor = true;
                                 self.state = State::Unlock { wallet_descriptor, error : Some(Arc::new(err)) };
                             }
                         }
