@@ -257,9 +257,11 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                   headers={["Timestamp", "ID", "From", "", "To", "Amount", "Status"]}
                   className="w-full md:text-sm lg:text-base"
                   additionalClassNames={{
+                    1: "md:w-40 lg:w-50",
                     2: "md:w-40 lg:w-50",
                     4: "md:w-40 lg:w-50",
                     3: "hidden md:table-cell",
+                    5: "text-right",
                   }}
                   rows={(filteredTransactions || []).map((transaction) => [
                     <Tooltip
@@ -332,13 +334,15 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                           )) /
                         1_0000_0000;
                       const amountColor = kasAmount >= 0 ? "#70C7BA" : "#C7707D";
+                      const usdAmount = kasAmount * (marketData?.price || 0);
                       return (
-                        <>
-                          <div className="text-right text-nowrap" style={{ color: amountColor }}>
+                        <div className="text-right text-nowrap">
+                          <div style={{ color: amountColor }}>
                             {numeral(kasAmount).format("+0,0.00[000000]")}
                             <span className="text-nowrap"> KAS</span>
                           </div>
-                        </>
+                          <div className="text-xs text-gray-500">{numeral(usdAmount).format("+$0,0.00")}</div>
+                        </div>
                       );
                     })(),
                     <span className="text-sm">{transaction.is_accepted ? <Accepted /> : <NotAccepted />}</span>,

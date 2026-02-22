@@ -58,6 +58,12 @@ sudo dnf install glib2-devel atk-devel gtk3-devel webkit2gtk4.0-devel pkgconf-pk
 winget install protobuf
 ```
 
+#### Required for Self-Hosted Features (all platforms):
+
+PostgreSQL must be installed **before** running self-hosted services.
+
+Install PostgreSQL from: https://www.postgresql.org/download/
+
 Once you have Rusty Kaspa built, you will be able to build and run this project as follows:
 
 ### From GitHub repository:

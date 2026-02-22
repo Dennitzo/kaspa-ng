@@ -633,11 +633,22 @@ fn handle_k_request(mut stream: TcpStream, root: &Path, api_host: &str, api_port
     }
 
     let relative = normalized.trim_start_matches('/');
-    let candidate = if relative.is_empty() {
+    let mut candidate = if relative.is_empty() {
         root.join("index.html")
     } else {
         root.join(relative)
     };
+
+    // Some K routes reference root assets with relative URLs (e.g. /user/Kaspa-logo.svg).
+    // If the nested path does not exist, try resolving by filename from dist root.
+    if !candidate.exists()
+        && let Some(file_name) = std::path::Path::new(relative).file_name()
+    {
+        let root_asset_candidate = root.join(file_name);
+        if root_asset_candidate.exists() && root_asset_candidate.is_file() {
+            candidate = root_asset_candidate;
+        }
+    }
 
     let mut status = "200 OK";
     let body_path = if candidate.exists() && candidate.is_file() {
