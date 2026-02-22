@@ -16,6 +16,10 @@ const MAIN_MENU = [
         linkTo: "/transactions",
       },
       {
+        name: "Mempool",
+        linkTo: "/mempool",
+      },
+      {
         name: "Miners",
         linkTo: "/miners",
       },

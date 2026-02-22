@@ -28,22 +28,17 @@ export default function Transactions() {
   const { blocks, transactions, avgTxRate } = useIncomingBlocks();
   const { data: feeEstimate, isLoading: isLoadingFee } = useFeeEstimate();
   const { mempoolSize: mempoolSize } = useMempoolSize();
-  const [avgTpsSinceOpen, setAvgTpsSinceOpen] = useState(0);
   const [totalTxSinceOpen, setTotalTxSinceOpen] = useState(0);
-  const statsStartedAtRef = useRef<number | null>(null);
+  const statsStartedAtRef = useRef(false);
   const seenBlockHashesRef = useRef<Set<string>>(new Set());
-  const txCountSinceOpenRef = useRef(0);
 
   useEffect(() => {
     if (!blocks.length) return;
 
-    const now = Date.now();
-    if (statsStartedAtRef.current === null) {
-      statsStartedAtRef.current = now;
+    if (!statsStartedAtRef.current) {
+      statsStartedAtRef.current = true;
       seenBlockHashesRef.current = new Set(blocks.map((block) => block.block_hash));
-      txCountSinceOpenRef.current = 0;
       setTotalTxSinceOpen(0);
-      setAvgTpsSinceOpen(0);
       return;
     }
 
@@ -56,10 +51,7 @@ export default function Transactions() {
     }
 
     if (newTxs > 0) {
-      txCountSinceOpenRef.current += newTxs;
-      setTotalTxSinceOpen(txCountSinceOpenRef.current);
-      const elapsedSeconds = Math.max((now - statsStartedAtRef.current) / 1000, 1);
-      setAvgTpsSinceOpen(txCountSinceOpenRef.current / elapsedSeconds);
+      setTotalTxSinceOpen((prev) => prev + newTxs);
     }
   }, [blocks]);
 
@@ -73,7 +65,7 @@ export default function Transactions() {
       <MainBox>
         <CardContainer title="Transactions">
           <Card title="Total transactions" value={numeral(totalTxSinceOpen).format("0,0")} />
-          <Card title="Average TPS" value={`${numeral(avgTpsSinceOpen || avgTxRate).format("0.0")}`} />
+          <Card title="Average transactions" value={`${numeral(avgTxRate).format("0.0")} TPS`} />
           <Card
             title="Regular fee"
             value={`${numeral(regularFee).format("0.00000000")} KAS`}

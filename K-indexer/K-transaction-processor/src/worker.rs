@@ -47,28 +47,16 @@ impl Worker {
 
         match self.fetch_and_process_transaction(&transaction_id).await {
             Ok(Some(transaction)) => {
-                // Process K protocol if payload starts with k:1:
-                if let Some(ref payload_hex) = transaction.payload {
-                    if let Ok(payload_bytes) = hex::decode(payload_hex) {
-                        if let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
-                            if payload_str.starts_with("k:1:") {
-                                //info!("Worker {} - Processing K protocol transaction: {}", self.id, transaction_id);
-                                if let Err(k_err) =
-                                    self.k_processor.process_k_transaction(&transaction).await
-                                {
-                                    error!(
-                                        "Worker {} - Error processing K protocol transaction {}: {}",
-                                        self.id, transaction_id, k_err
-                                    );
-                                }
-                            } else {
-                                info!(
-                                    "Worker {} - Transaction {} does not contain K protocol data",
-                                    self.id, transaction_id
-                                );
-                            }
-                        }
-                    }
+                if let Err(k_err) = self.process_k_protocol_if_present(&transaction).await {
+                    error!(
+                        "Worker {} - Error processing K protocol transaction {}: {}",
+                        self.id, transaction_id, k_err
+                    );
+                } else if !self.is_k_protocol_transaction(&transaction) {
+                    info!(
+                        "Worker {} - Transaction {} does not contain K protocol data",
+                        self.id, transaction_id
+                    );
                 }
             }
             Ok(None) => {
@@ -145,23 +133,11 @@ impl Worker {
                         "Worker {} - Retry successful for transaction {}",
                         self.id, transaction_id
                     );
-                    // Process K protocol if payload starts with k:1:
-                    if let Some(ref payload_hex) = transaction.payload {
-                        if let Ok(payload_bytes) = hex::decode(payload_hex) {
-                            if let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
-                                if payload_str.starts_with("k:1:") {
-                                    //info!("Worker {} - Processing K protocol transaction on retry: {}", self.id, transaction_id);
-                                    if let Err(k_err) =
-                                        self.k_processor.process_k_transaction(&transaction).await
-                                    {
-                                        error!(
-                                            "Worker {} - Error processing K protocol transaction on retry {}: {}",
-                                            self.id, transaction_id, k_err
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                    if let Err(k_err) = self.process_k_protocol_if_present(&transaction).await {
+                        error!(
+                            "Worker {} - Error processing K protocol transaction on retry {}: {}",
+                            self.id, transaction_id, k_err
+                        );
                     }
                     return Ok(());
                 }
@@ -184,6 +160,23 @@ impl Worker {
             "Worker {} - All retry attempts exhausted for transaction {}",
             self.id, transaction_id
         );
+        Ok(())
+    }
+
+    fn is_k_protocol_transaction(&self, transaction: &Transaction) -> bool {
+        if let Some(payload_hex) = &transaction.payload
+            && let Ok(payload_bytes) = hex::decode(payload_hex)
+            && let Ok(payload_str) = std::str::from_utf8(&payload_bytes)
+        {
+            return payload_str.starts_with("k:1:");
+        }
+        false
+    }
+
+    async fn process_k_protocol_if_present(&self, transaction: &Transaction) -> Result<()> {
+        if self.is_k_protocol_transaction(transaction) {
+            self.k_processor.process_k_transaction(transaction).await?;
+        }
         Ok(())
     }
 }

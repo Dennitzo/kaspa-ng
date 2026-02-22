@@ -41,7 +41,6 @@ export default function Blocks() {
   const { isLoading: isLoadingTxCount } = useTransactionsCount();
 
   const [blocks, setBlocks] = useState<Block[]>([]);
-  const [avgBpsSinceOpen, setAvgBpsSinceOpen] = useState(0);
   const [totalBlocksSinceOpen, setTotalBlocksSinceOpen] = useState(0);
   const [totalTxSinceOpen, setTotalTxSinceOpen] = useState(0);
   const statsStartedAtRef = useRef<number | null>(null);
@@ -56,7 +55,6 @@ export default function Blocks() {
     if (statsStartedAtRef.current === null) {
       statsStartedAtRef.current = now;
       seenBlockHashesRef.current = new Set(incomingBlocks.map((block) => block.block_hash));
-      setAvgBpsSinceOpen(0);
       setTotalBlocksSinceOpen(0);
       setTotalTxSinceOpen(0);
       return;
@@ -73,12 +71,7 @@ export default function Blocks() {
     }
 
     if (newBlocks > 0) {
-      const elapsedSeconds = Math.max((now - statsStartedAtRef.current) / 1000, 1);
-      setTotalBlocksSinceOpen((prev) => {
-        const next = prev + newBlocks;
-        setAvgBpsSinceOpen(next / elapsedSeconds);
-        return next;
-      });
+      setTotalBlocksSinceOpen((prev) => prev + newBlocks);
       setTotalTxSinceOpen((prev) => prev + newTxCount);
     }
   }, [incomingBlocks]);
@@ -107,10 +100,7 @@ export default function Blocks() {
         <CardContainer title="Blocks">
           <Card title="Total blocks" value={`${numeral(totalBlocksSinceOpen).format("0,0")}`} />
           <Card loading={isLoadingTxCount} title="Total transactions" value={numeral(totalTxSinceOpen).format("0,0")} />
-          <Card
-            title="Average block time"
-            value={`${numeral(avgBpsSinceOpen || avgBlockTime).format("0.0")} bps`}
-          />
+          <Card title="Average block time" value={`${numeral(avgBlockTime).format("0.0")} BPS`} />
           <Card
             loading={isLoadingBlockReward}
             title="Block rewards"

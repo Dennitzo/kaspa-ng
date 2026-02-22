@@ -20,6 +20,7 @@ const MobileMenu = ({ showMenu, onCloseRequest }: Props) => {
       <div className="flex flex-col pt-4 sm:hidden">
         <MenuItem name="Blocks" linkTo="/blocks" />
         <MenuItem name="Transactions" linkTo="/transactions" />
+        <MenuItem name="Mempool" linkTo="/mempool" />
         <MenuItem name="Miners" linkTo="/miners" />
         <div className="h-[1px] my-4 bg-gray-100 mx-4"></div>
         <MenuItem name="Analytics" linkTo="/analytics" />

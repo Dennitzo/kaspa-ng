@@ -10,30 +10,31 @@ interface UseSocketRoomOptions<T> {
 }
 
 export const useSocketRoom = <T>({ room, onMessage, eventName }: UseSocketRoomOptions<T>) => {
-  const { connected } = useSocketConnected();
+  const { connected, generation } = useSocketConnected();
 
   useEffect(() => {
+    const activeSocket = socket;
     const handleConnect = () => {
-      socket.emit("join-room", room);
+      activeSocket.emit("join-room", room);
     };
 
     roomReferences[room] = (roomReferences[room] || 0) + 1;
-    socket.on("connect", handleConnect);
-    if (socket.connected || connected) {
+    activeSocket.on("connect", handleConnect);
+    if (activeSocket.connected || connected) {
       handleConnect();
     }
-    socket.on(eventName, onMessage);
+    activeSocket.on(eventName, onMessage);
 
     return () => {
-      socket.off(eventName, onMessage);
-      socket.off("connect", handleConnect);
+      activeSocket.off(eventName, onMessage);
+      activeSocket.off("connect", handleConnect);
 
       roomReferences[room]--;
       if (roomReferences[room] === 0) {
         // nothing to do now..
       }
     };
-  }, [room, onMessage, connected]);
+  }, [room, onMessage, connected, generation, eventName]);
 
   return {};
 };

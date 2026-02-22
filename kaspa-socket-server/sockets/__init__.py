@@ -5,8 +5,9 @@ from sockets.blockdag import emit_blockdag
 from sockets.bluescore import emit_bluescore
 from sockets.coinsupply import emit_coin_supply
 from sockets.mempool import emit_mempool
+from sockets.mempool_live import emit_mempool_live
 
-VALID_ROOMS = ["blocks", "coinsupply", "blockdag", "bluescore", "mempool"]
+VALID_ROOMS = ["blocks", "coinsupply", "blockdag", "bluescore", "mempool", "mempool-live"]
 
 
 def room_has_clients(room_name: str) -> bool:
@@ -36,5 +37,7 @@ async def join_room(sid, room_name):
 
             if room_name == "mempool":
                 await emit_mempool()
+            if room_name == "mempool-live":
+                await emit_mempool_live(force=True)
         except Exception as exc:
             print(f"join-room {room_name} initial emit skipped: {exc}")
