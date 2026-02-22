@@ -34,6 +34,14 @@ impl Settings {
 
     pub fn change_current_network(&mut self, network : Network) {
         self.settings.node.network = network;
+        if crate::settings::should_auto_sync_self_hosted_explorer_profiles(
+            &self.settings.explorer.self_hosted,
+        ) {
+            self.settings.explorer.self_hosted =
+                crate::settings::self_hosted_explorer_profiles_from_settings(
+                    &self.settings.self_hosted,
+                );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +67,7 @@ impl Settings {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn wait_for_self_hosted_ready(settings: &SelfHostedSettings) -> bool {
+    fn wait_for_self_hosted_ready(settings: &SelfHostedSettings, network: Network) -> bool {
         use std::thread::sleep;
         use std::time::{Duration, Instant};
 
@@ -67,10 +75,18 @@ impl Settings {
         let deadline = Instant::now() + Duration::from_secs(15);
 
         while Instant::now() < deadline {
-            let rest_ready = Self::port_accepts_connections(host, settings.explorer_rest_port);
-            let socket_ready = Self::port_accepts_connections(host, settings.explorer_socket_port);
-            let indexer_ready = Self::port_accepts_connections(host, settings.api_port);
-            let postgres_ready = Self::port_accepts_connections(&settings.db_host, settings.db_port);
+            let rest_ready =
+                Self::port_accepts_connections(host, settings.effective_explorer_rest_port(network));
+            let socket_ready = Self::port_accepts_connections(
+                host,
+                settings.effective_explorer_socket_port(network),
+            );
+            let indexer_ready =
+                Self::port_accepts_connections(host, settings.effective_api_port(network));
+            let postgres_ready = Self::port_accepts_connections(
+                &settings.db_host,
+                settings.effective_db_port(network),
+            );
 
             if rest_ready && socket_ready && indexer_ready && postgres_ready {
                 return true;
@@ -704,115 +720,6 @@ impl Settings {
 
         self.render_ui_settings(core,ui);
 
-        #[cfg(not(target_arch = "wasm32"))]
-        CollapsingHeader::new(i18n("Explorer API"))
-            .default_open(false)
-            .show(ui, |ui| {
-                let mut changed = false;
-                let active_network = self.settings.node.network;
-                let mut explorer = self.settings.explorer.clone();
-
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(i18n("Data Source:"));
-                    changed |= ui
-                        .radio_value(
-                            &mut explorer.source,
-                            ExplorerDataSource::Official,
-                            i18n("Official"),
-                        )
-                        .changed();
-                    changed |= ui
-                        .radio_value(
-                            &mut explorer.source,
-                            ExplorerDataSource::SelfHosted,
-                            i18n("Self-hosted"),
-                        )
-                        .changed();
-                });
-
-                ui.add_space(6.0);
-                ui.label(format!(
-                    "{} {}",
-                    i18n("Active network:"),
-                    active_network.name()
-                ));
-
-                let active_endpoint = explorer.endpoint(active_network);
-                ui.monospace(format!(
-                    "{} {}",
-                    i18n("Active API:"),
-                    active_endpoint.api_base
-                ));
-                ui.monospace(format!(
-                    "{} {}",
-                    i18n("Active Socket:"),
-                    active_endpoint.socket_url
-                ));
-
-                ui.add_space(6.0);
-                ui.separator();
-                ui.add_space(6.0);
-
-                CollapsingHeader::new(i18n("Official Endpoints"))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        changed |= Self::render_explorer_network_profiles(
-                            ui,
-                            &mut explorer.official,
-                            "explorer_official",
-                        );
-                    });
-
-                CollapsingHeader::new(i18n("Self-hosted Endpoints"))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        changed |= Self::render_explorer_network_profiles(
-                            ui,
-                            &mut explorer.self_hosted,
-                            "explorer_self_hosted",
-                        );
-                    });
-
-                if changed {
-                    self.settings.explorer = explorer.clone();
-                    core.settings.explorer = explorer;
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        self.runtime
-                            .self_hosted_db_service()
-                            .update_settings(self.settings.self_hosted.clone());
-                        self.runtime
-                            .self_hosted_db_service()
-                            .update_node_settings(core.settings.node.clone());
-                        self.runtime
-                            .self_hosted_explorer_service()
-                            .update_settings(self.settings.self_hosted.clone());
-                        self.runtime
-                            .self_hosted_explorer_service()
-                            .update_node_settings(core.settings.node.clone());
-                        self.runtime
-                            .self_hosted_postgres_service()
-                            .update_settings(self.settings.self_hosted.clone());
-                        self.runtime
-                            .self_hosted_postgres_service()
-                            .update_node_settings(core.settings.node.clone());
-                        self.runtime
-                            .self_hosted_indexer_service()
-                            .update_settings(self.settings.self_hosted.clone());
-                        self.runtime
-                            .self_hosted_indexer_service()
-                            .update_node_settings(core.settings.node.clone());
-                        self.runtime
-                            .self_hosted_k_indexer_service()
-                            .update_settings(self.settings.self_hosted.clone());
-                        self.runtime
-                            .self_hosted_k_indexer_service()
-                            .update_node_settings(core.settings.node.clone());
-                    }
-                    core.store_settings();
-                }
-            });
-
         CollapsingHeader::new(i18n("Services"))
             .default_open(true)
             .show(ui, |ui| {
@@ -865,13 +772,6 @@ impl Settings {
                             ui.colored_label(
                                 theme_color().warning_color,
                                 i18n("Enable self-hosted database services first to use K-Social."),
-                            );
-                        }
-
-                        if !matches!(self.settings.explorer.source, ExplorerDataSource::SelfHosted) {
-                            ui.colored_label(
-                                theme_color().warning_color,
-                                i18n("Explorer API source is currently set to Official."),
                             );
                         }
 
@@ -1020,6 +920,17 @@ impl Settings {
                             settings.postgres_enabled = true;
                             settings.indexer_enabled = true;
 
+                            if crate::settings::should_auto_sync_self_hosted_explorer_profiles(
+                                &self.settings.explorer.self_hosted,
+                            ) {
+                                let synced_profiles =
+                                    crate::settings::self_hosted_explorer_profiles_from_settings(
+                                        &settings,
+                                    );
+                                self.settings.explorer.self_hosted = synced_profiles.clone();
+                                core.settings.explorer.self_hosted = synced_profiles;
+                            }
+
                             let previous_enabled = core.settings.self_hosted.enabled;
                             self.settings.self_hosted = settings.clone();
                             core.settings.self_hosted = settings.clone();
@@ -1091,7 +1002,10 @@ impl Settings {
                                 let switched_to_disabled = previous_enabled && !settings.enabled;
 
                                 if switched_to_enabled {
-                                    if Self::wait_for_self_hosted_ready(&settings) {
+                                    if Self::wait_for_self_hosted_ready(
+                                        &settings,
+                                        core.settings.node.network,
+                                    ) {
                                         if !matches!(
                                             core.settings.explorer.source,
                                             ExplorerDataSource::SelfHosted
@@ -1830,76 +1744,6 @@ impl Settings {
             });
     }
 
-    fn render_explorer_endpoint_grid(
-        ui: &mut Ui,
-        endpoint: &mut ExplorerEndpoint,
-        grid_id: &str,
-    ) -> bool {
-        let mut changed = false;
-        Grid::new(grid_id)
-            .num_columns(2)
-            .spacing([16.0, 6.0])
-            .show(ui, |ui| {
-                ui.label(i18n("API Base"));
-                changed |= ui
-                    .add(TextEdit::singleline(&mut endpoint.api_base).desired_width(320.0))
-                    .changed();
-                ui.end_row();
-
-                ui.label(i18n("Socket URL"));
-                changed |= ui
-                    .add(TextEdit::singleline(&mut endpoint.socket_url).desired_width(320.0))
-                    .changed();
-                ui.end_row();
-
-                ui.label(i18n("Socket Path"));
-                changed |= ui
-                    .add(TextEdit::singleline(&mut endpoint.socket_path).desired_width(320.0))
-                    .changed();
-                ui.end_row();
-            });
-        changed
-    }
-
-    fn render_explorer_network_profiles(
-        ui: &mut Ui,
-        profiles: &mut ExplorerNetworkProfiles,
-        id_prefix: &str,
-    ) -> bool {
-        let mut changed = false;
-
-        CollapsingHeader::new(i18n("Mainnet"))
-            .default_open(false)
-            .show(ui, |ui| {
-                changed |= Self::render_explorer_endpoint_grid(
-                    ui,
-                    &mut profiles.mainnet,
-                    &format!("{id_prefix}_mainnet"),
-                );
-            });
-
-        CollapsingHeader::new(i18n("Testnet 10"))
-            .default_open(false)
-            .show(ui, |ui| {
-                changed |= Self::render_explorer_endpoint_grid(
-                    ui,
-                    &mut profiles.testnet10,
-                    &format!("{id_prefix}_testnet10"),
-                );
-            });
-
-        CollapsingHeader::new(i18n("Testnet 12"))
-            .default_open(false)
-            .show(ui, |ui| {
-                changed |= Self::render_explorer_endpoint_grid(
-                    ui,
-                    &mut profiles.testnet12,
-                    &format!("{id_prefix}_testnet12"),
-                );
-            });
-
-        changed
-    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

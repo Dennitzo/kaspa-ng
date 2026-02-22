@@ -78,9 +78,10 @@ impl SelfHostedIndexerService {
 
     fn build_database_url(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
         let db_name = Self::effective_db_name(settings, node);
+        let db_port = settings.effective_db_port(node.network);
         format!(
             "postgres://{}:{}@{}:{}/{}",
-            settings.db_user, settings.db_password, settings.db_host, settings.db_port, db_name
+            settings.db_user, settings.db_password, settings.db_host, db_port, db_name
         )
     }
 
@@ -151,11 +152,12 @@ impl SelfHostedIndexerService {
 
     async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
         let db_name = Self::effective_db_name(settings, node);
+        let db_port = settings.effective_db_port(node.network);
         let mut last_error: Option<String> = None;
         for attempt in 0..20 {
             let admin_conn_str = format!(
                 "host={} port={} user={} password={} dbname=postgres connect_timeout=3",
-                settings.db_host, settings.db_port, settings.db_user, settings.db_password
+                settings.db_host, db_port, settings.db_user, settings.db_password
             );
             match tokio_postgres::connect(&admin_conn_str, tokio_postgres::NoTls).await {
                 Ok((admin_client, admin_connection)) => {
@@ -174,7 +176,7 @@ impl SelfHostedIndexerService {
                         let conn_str = format!(
                             "host={} port={} user={} password={} dbname={} connect_timeout=3",
                             settings.db_host,
-                            settings.db_port,
+                            db_port,
                             settings.db_user,
                             settings.db_password,
                             db_name.as_str()
@@ -256,20 +258,21 @@ impl SelfHostedIndexerService {
 
         let settings = self.settings.lock().unwrap().clone();
         let node = self.node_settings.lock().unwrap().clone();
+        let indexer_listen = settings.effective_indexer_listen(node.network);
         if !settings.enabled || !settings.indexer_enabled {
             return Ok(());
         }
 
-        if !Self::listen_addr_available(&settings.indexer_listen) {
+        if !Self::listen_addr_available(&indexer_listen) {
             log_warn!(
                 "self-hosted-indexer: listen address already in use ({}); refusing to start indexer",
-                settings.indexer_listen
+                indexer_listen
             );
             self.logs.push(
                 "ERROR",
                 &format!(
                     "listen address already in use ({}); refusing to start indexer",
-                    settings.indexer_listen
+                    indexer_listen
                 ),
             );
             return Ok(());
@@ -304,7 +307,7 @@ impl SelfHostedIndexerService {
             .arg("-d")
             .arg(database_url)
             .arg("-l")
-            .arg(settings.indexer_listen);
+            .arg(indexer_listen);
 
         if settings.indexer_upgrade_db {
             cmd.arg("-u");

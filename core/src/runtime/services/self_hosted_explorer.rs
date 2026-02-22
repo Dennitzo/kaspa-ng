@@ -120,9 +120,10 @@ impl SelfHostedExplorerService {
             settings.db_name.as_str(),
             node.network,
         );
+        let db_port = settings.effective_db_port(node.network);
         format!(
             "postgresql+asyncpg://{}:{}@{}:{}/{}",
-            settings.db_user, settings.db_password, settings.db_host, settings.db_port, db_name
+            settings.db_user, settings.db_password, settings.db_host, db_port, db_name
         )
     }
 
@@ -322,10 +323,11 @@ impl SelfHostedExplorerService {
             return Ok(());
         }
 
-        if !Self::port_is_available(&settings.api_bind, settings.explorer_rest_port) {
+        let rest_port = settings.effective_explorer_rest_port(node_settings.network);
+        if !Self::port_is_available(&settings.api_bind, rest_port) {
             let msg = format!(
                 "REST port already in use on {}:{}; refusing to start REST server",
-                settings.api_bind, settings.explorer_rest_port
+                settings.api_bind, rest_port
             );
             log_warn!("self-hosted-explorer: {msg}");
             self.rest_logs.push("ERROR", &msg);
@@ -340,16 +342,15 @@ impl SelfHostedExplorerService {
             }
         };
 
-        let mut cmd =
-            match Self::build_command(&root, &settings.api_bind, settings.explorer_rest_port) {
-                Some(cmd) => cmd,
-                None => {
-                    log_warn!(
-                        "self-hosted-explorer: python runtime not found; REST server not started"
-                    );
-                    return Ok(());
-                }
-            };
+        let mut cmd = match Self::build_command(&root, &settings.api_bind, rest_port) {
+            Some(cmd) => cmd,
+            None => {
+                log_warn!(
+                    "self-hosted-explorer: python runtime not found; REST server not started"
+                );
+                return Ok(());
+            }
+        };
 
         cmd.current_dir(&root);
         Self::apply_common_env(&mut cmd, &settings, &node_settings);
@@ -378,10 +379,7 @@ impl SelfHostedExplorerService {
 
         self.rest_logs.push(
             "INFO",
-            &format!(
-                "REST API listening on {}:{}",
-                settings.api_bind, settings.explorer_rest_port
-            ),
+            &format!("REST API listening on {}:{}", settings.api_bind, rest_port),
         );
 
         let logs_info = self.rest_logs.clone();
@@ -437,10 +435,11 @@ impl SelfHostedExplorerService {
             return Ok(());
         }
 
-        if !Self::port_is_available(&settings.api_bind, settings.explorer_socket_port) {
+        let socket_port = settings.effective_explorer_socket_port(node_settings.network);
+        if !Self::port_is_available(&settings.api_bind, socket_port) {
             let msg = format!(
                 "Socket port already in use on {}:{}; refusing to start socket server",
-                settings.api_bind, settings.explorer_socket_port
+                settings.api_bind, socket_port
             );
             log_warn!("self-hosted-explorer: {msg}");
             self.socket_logs.push("ERROR", &msg);
@@ -455,16 +454,15 @@ impl SelfHostedExplorerService {
             }
         };
 
-        let mut cmd =
-            match Self::build_command(&root, &settings.api_bind, settings.explorer_socket_port) {
-                Some(cmd) => cmd,
-                None => {
-                    log_warn!(
-                        "self-hosted-explorer: python runtime not found; socket server not started"
-                    );
-                    return Ok(());
-                }
-            };
+        let mut cmd = match Self::build_command(&root, &settings.api_bind, socket_port) {
+            Some(cmd) => cmd,
+            None => {
+                log_warn!(
+                    "self-hosted-explorer: python runtime not found; socket server not started"
+                );
+                return Ok(());
+            }
+        };
 
         cmd.current_dir(&root);
         Self::apply_common_env(&mut cmd, &settings, &node_settings);
@@ -495,7 +493,7 @@ impl SelfHostedExplorerService {
             "INFO",
             &format!(
                 "Socket server listening on {}:{}",
-                settings.api_bind, settings.explorer_socket_port
+                settings.api_bind, socket_port
             ),
         );
 

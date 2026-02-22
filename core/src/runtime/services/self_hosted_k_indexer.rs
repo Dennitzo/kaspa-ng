@@ -127,12 +127,13 @@ impl SelfHostedKIndexerService {
 
     async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
         let db_name = Self::effective_db_name(settings, node);
+        let db_port = settings.effective_db_port(node.network);
         let mut last_error: Option<String> = None;
         for attempt in 0..20 {
             let conn_str = format!(
                 "host={} port={} user={} password={} dbname={} connect_timeout=3",
                 settings.db_host,
-                settings.db_port,
+                db_port,
                 settings.db_user,
                 settings.db_password,
                 db_name.as_str()
@@ -241,6 +242,7 @@ impl SelfHostedKIndexerService {
             return Ok(());
         }
         let db_name = Self::effective_db_name(&settings, &node);
+        let db_port = settings.effective_db_port(node.network);
 
         let Some(binary) = Self::find_binary("K-transaction-processor") else {
             self.log_blocked_once("K-transaction-processor binary not found");
@@ -251,7 +253,7 @@ impl SelfHostedKIndexerService {
         cmd.arg("-H")
             .arg(&settings.db_host)
             .arg("-P")
-            .arg(settings.db_port.to_string())
+            .arg(db_port.to_string())
             .arg("-d")
             .arg(&db_name)
             .arg("-U")
@@ -291,7 +293,7 @@ impl SelfHostedKIndexerService {
             "INFO",
             &format!(
                 "started K-transaction-processor (network={network}, db={}:{}:{})",
-                settings.db_host, settings.db_port, db_name
+                settings.db_host, db_port, db_name
             ),
         );
 
@@ -345,7 +347,8 @@ impl SelfHostedKIndexerService {
         }
 
         let bind_host = Self::resolve_bind_host(&settings.api_bind);
-        let listen = format!("{}:{}", bind_host, settings.k_web_port);
+        let k_web_port = settings.effective_k_web_port(node.network);
+        let listen = format!("{}:{}", bind_host, k_web_port);
         if !Self::listen_addr_available(&listen) {
             self.log_blocked_once(format!(
                 "K-webserver port already in use on {listen}; refusing to start"
@@ -358,6 +361,7 @@ impl SelfHostedKIndexerService {
             return Ok(());
         }
         let db_name = Self::effective_db_name(&settings, &node);
+        let db_port = settings.effective_db_port(node.network);
 
         let Some(binary) = Self::find_binary("K-webserver") else {
             self.log_blocked_once("K-webserver binary not found");
@@ -368,7 +372,7 @@ impl SelfHostedKIndexerService {
         cmd.arg("-H")
             .arg(&settings.db_host)
             .arg("-P")
-            .arg(settings.db_port.to_string())
+            .arg(db_port.to_string())
             .arg("-d")
             .arg(&db_name)
             .arg("-u")
@@ -448,6 +452,7 @@ impl SelfHostedKIndexerService {
     async fn start_all(self: &Arc<Self>) -> Result<()> {
         let settings = self.settings.lock().unwrap().clone();
         let node = self.node_settings.lock().unwrap().clone();
+        let k_web_port = settings.effective_k_web_port(node.network);
         let network_name = match node.network {
             Network::Mainnet => "mainnet",
             Network::Testnet10 => "testnet-10",
@@ -457,7 +462,7 @@ impl SelfHostedKIndexerService {
             "INFO",
             &format!(
                 "start requested (enabled={}, k_enabled={}, network={}, k_web_port={})",
-                settings.enabled, settings.k_enabled, network_name, settings.k_web_port
+                settings.enabled, settings.k_enabled, network_name, k_web_port
             ),
         );
         log_info!(
@@ -465,7 +470,7 @@ impl SelfHostedKIndexerService {
             settings.enabled,
             settings.k_enabled,
             network_name,
-            settings.k_web_port
+            k_web_port
         );
         let _ = self.start_processor().await;
         let _ = self.start_webserver().await;

@@ -34,6 +34,12 @@ impl SelfHostedPostgresService {
         {
             return "IGNORE";
         }
+        // Expected transient lines during a normal self-managed shutdown/restart.
+        if upper.contains("THE DATABASE SYSTEM IS SHUTTING DOWN")
+            || upper.contains("TERMINATING CONNECTION DUE TO UNEXPECTED POSTMASTER EXIT")
+        {
+            return "WARN";
+        }
         if upper.contains("FATAL:")
             || upper.contains("PANIC:")
             || upper.contains("ERROR:")
@@ -267,9 +273,13 @@ impl SelfHostedPostgresService {
         }
     }
 
-    async fn wait_for_ready(settings: &SelfHostedSettings, retries: usize) -> Result<()> {
+    async fn wait_for_ready(
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+        retries: usize,
+    ) -> Result<()> {
         let host = settings.db_host.clone();
-        let port = settings.db_port;
+        let port = settings.effective_db_port(node.network);
         let admin_users = Self::admin_user_candidates();
         let fallback_admin = admin_users.first().cloned();
 
@@ -334,6 +344,7 @@ impl SelfHostedPostgresService {
             settings.db_name.as_str(),
             node.network,
         );
+        let db_port = settings.effective_db_port(node.network);
         let db_name = db_name.trim();
 
         if db_user.is_empty() || db_name.is_empty() {
@@ -370,7 +381,7 @@ impl SelfHostedPostgresService {
                     .arg("postgres")
                     .arg("-tAc")
                     .arg(sql);
-                cmd.arg("-p").arg(settings.db_port.to_string());
+                cmd.arg("-p").arg(db_port.to_string());
                 match (use_tcp, host) {
                     (true, Some(host)) => {
                         cmd.arg("-h").arg(host);
@@ -506,7 +517,11 @@ impl SelfHostedPostgresService {
         }
     }
 
-    async fn reset_all_network_databases(settings: &SelfHostedSettings, logs: &LogStore) {
+    async fn reset_all_network_databases(
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+        logs: &LogStore,
+    ) {
         let psql_bin = match Self::postgres_bin_path("psql") {
             Ok(path) => path,
             Err(err) => {
@@ -518,6 +533,7 @@ impl SelfHostedPostgresService {
 
         let db_user = settings.db_user.trim();
         let db_password = settings.db_password.trim();
+        let db_port = settings.effective_db_port(node.network);
         if db_user.is_empty() {
             logs.push("WARN", "database user is empty; cannot reset databases");
             return;
@@ -553,7 +569,7 @@ impl SelfHostedPostgresService {
                     .arg("postgres")
                     .arg("-tAc")
                     .arg(sql);
-                cmd.arg("-p").arg(settings.db_port.to_string());
+                cmd.arg("-p").arg(db_port.to_string());
                 match (use_tcp, host) {
                     (true, Some(host)) => {
                         cmd.arg("-h").arg(host);
@@ -707,6 +723,8 @@ impl SelfHostedPostgresService {
 
     async fn start_postgres(self: &Arc<Self>) -> Result<()> {
         let settings = self.settings.lock().unwrap().clone();
+        let node_settings = self.node_settings.lock().unwrap().clone();
+        let db_port = settings.effective_db_port(node_settings.network);
         if !settings.enabled || !settings.postgres_enabled {
             return Ok(());
         }
@@ -714,7 +732,10 @@ impl SelfHostedPostgresService {
         let data_dir = Self::resolve_data_dir(&settings)?;
         let postmaster_pid = data_dir.join("postmaster.pid");
         if postmaster_pid.exists() {
-            if Self::wait_for_ready(&settings, 5).await.is_ok() {
+            if Self::wait_for_ready(&settings, &node_settings, 5)
+                .await
+                .is_ok()
+            {
                 let msg = "postmaster.pid exists; assuming postgres is already running";
                 log_info!("self-hosted-postgres: {msg}");
                 self.logs.push("INFO", msg);
@@ -722,7 +743,6 @@ impl SelfHostedPostgresService {
                     "INFO",
                     "external postgres detected; log streaming only available when started by Kaspa NG",
                 );
-                let node_settings = self.node_settings.lock().unwrap().clone();
                 Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
                 return Ok(());
             }
@@ -739,11 +759,11 @@ impl SelfHostedPostgresService {
         cmd.arg("-D")
             .arg(&data_dir)
             .arg("-p")
-            .arg(settings.db_port.to_string())
+            .arg(db_port.to_string())
             .arg("-h")
             .arg(settings.db_host.clone())
             .arg("-c")
-            .arg("max_wal_size=1GB")
+            .arg("max_wal_size=4GB")
             .arg("-c")
             .arg("checkpoint_timeout=5min")
             .arg("-c")
@@ -817,8 +837,10 @@ impl SelfHostedPostgresService {
         }
 
         *self.child.lock().unwrap() = Some(child);
-        if Self::wait_for_ready(&settings, 20).await.is_ok() {
-            let node_settings = self.node_settings.lock().unwrap().clone();
+        if Self::wait_for_ready(&settings, &node_settings, 20)
+            .await
+            .is_ok()
+        {
             Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
         }
         Ok(())
@@ -843,7 +865,7 @@ impl SelfHostedPostgresService {
                 }
             }
 
-            if tokio::time::timeout(Duration::from_secs(12), child.wait())
+            if tokio::time::timeout(Duration::from_secs(25), child.wait())
                 .await
                 .is_ok()
             {
@@ -851,10 +873,30 @@ impl SelfHostedPostgresService {
             }
 
             if !exited {
-                self.logs
-                    .push("WARN", "postgres did not exit in time; forcing termination");
-                let _ = child.start_kill();
-                let _ = child.wait().await;
+                self.logs.push(
+                    "WARN",
+                    "postgres did not exit after SIGTERM; retrying graceful shutdown",
+                );
+                #[cfg(unix)]
+                {
+                    if let Some(pid_u32) = child.id() {
+                        use nix::sys::signal::{Signal, kill};
+                        use nix::unistd::Pid;
+                        if let Ok(pid_i32) = i32::try_from(pid_u32) {
+                            let _ = kill(Pid::from_raw(pid_i32), Signal::SIGINT);
+                        }
+                    }
+                }
+
+                if tokio::time::timeout(Duration::from_secs(10), child.wait())
+                    .await
+                    .is_err()
+                {
+                    self.logs
+                        .push("WARN", "postgres did not exit in time; forcing termination");
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                }
             }
         }
         Ok(())
@@ -900,21 +942,38 @@ impl Service for SelfHostedPostgresService {
                             Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
                                 *this.node_settings.lock().unwrap() = settings;
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_postgres().await;
-                                    let _ = this.start_postgres().await;
+                                    // Network switches do not require a postgres restart.
+                                    // Ensure role/database for the new effective network DB only.
+                                    let service_settings = this.settings.lock().unwrap().clone();
+                                    let node_settings = this.node_settings.lock().unwrap().clone();
+                                    Self::ensure_role_and_database(
+                                        &service_settings,
+                                        &node_settings,
+                                        &this.logs,
+                                    )
+                                    .await;
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::ResetDatabases) => {
                                 let settings = this.settings.lock().unwrap().clone();
+                                let node_settings = this.node_settings.lock().unwrap().clone();
                                 if !settings.enabled || !settings.postgres_enabled {
                                     this.logs.push("WARN", "self-hosted postgres is disabled; reset skipped");
                                     continue;
                                 }
-                                if Self::wait_for_ready(&settings, 20).await.is_err() {
+                                if Self::wait_for_ready(&settings, &node_settings, 20)
+                                    .await
+                                    .is_err()
+                                {
                                     this.logs.push("WARN", "postgres is not ready; reset skipped");
                                     continue;
                                 }
-                                Self::reset_all_network_databases(&settings, &this.logs).await;
+                                Self::reset_all_network_databases(
+                                    &settings,
+                                    &node_settings,
+                                    &this.logs,
+                                )
+                                .await;
                             }
                             Ok(SelfHostedPostgresEvents::Exit) | Err(_) => {
                                 let _ = this.stop_postgres().await;

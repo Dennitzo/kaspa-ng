@@ -241,6 +241,7 @@ impl ModuleT for AccountCreate {
 
                 let submit = WalletCreate::import_selection::<State>(
                     &mut self.state,
+                    core.settings.node.network,
                     &mut self.context.word_count,
                     &mut self.context.import_legacy,
                     &mut self.context.import_with_bip39_passphrase,

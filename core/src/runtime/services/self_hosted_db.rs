@@ -325,7 +325,9 @@ impl SelfHostedDbService {
 
         let settings = self.settings.lock().unwrap().clone();
         let node_settings = self.node_settings.lock().unwrap().clone();
-        let addr = format!("{}:{}", settings.api_bind, settings.api_port)
+        let api_port = settings.effective_api_port(node_settings.network);
+        let db_port = settings.effective_db_port(node_settings.network);
+        let addr = format!("{}:{}", settings.api_bind, api_port)
             .parse::<std::net::SocketAddr>()
             .map_err(|err| Error::Custom(format!("invalid bind address: {err}")))?;
         let db_name = crate::settings::self_hosted_db_name_for_network(
@@ -336,7 +338,7 @@ impl SelfHostedDbService {
         let state = AppState {
             db: DbConfig {
                 host: settings.db_host,
-                port: settings.db_port,
+                port: db_port,
                 user: settings.db_user,
                 password: settings.db_password,
                 dbname: db_name,
@@ -356,7 +358,7 @@ impl SelfHostedDbService {
             Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
                 return Err(Error::Custom(format!(
                     "address already in use ({}:{}): another process is already bound",
-                    settings.api_bind, settings.api_port
+                    settings.api_bind, api_port
                 )));
             }
             Err(err) => return Err(err.into()),

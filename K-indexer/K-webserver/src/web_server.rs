@@ -416,7 +416,7 @@ async fn handle_get_posts(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -592,7 +592,7 @@ async fn handle_get_mentions(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -683,7 +683,7 @@ async fn handle_get_notifications(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -786,7 +786,7 @@ async fn handle_get_hashtag_content(
     let limit = params.limit.unwrap_or(20);
 
     // Validate limit parameter
-    if limit < 1 || limit > 100 {
+    if !(1..=100).contains(&limit) {
         let error = ApiError {
             error: "Limit parameter must be between 1 and 100".to_string(),
             code: "INVALID_LIMIT".to_string(),
@@ -870,7 +870,7 @@ async fn handle_get_users(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -980,7 +980,7 @@ async fn handle_get_most_active_users(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1066,7 +1066,7 @@ async fn handle_search_users(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1172,7 +1172,7 @@ async fn handle_get_posts_watching(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1259,7 +1259,7 @@ async fn handle_get_contents_following(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1346,7 +1346,7 @@ async fn handle_get_replies(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1575,7 +1575,7 @@ async fn handle_get_blocked_users(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1660,7 +1660,7 @@ async fn handle_get_followed_users(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1757,7 +1757,7 @@ async fn handle_get_users_following(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -1863,7 +1863,7 @@ async fn handle_get_users_followers(
     // Validate required limit parameter
     let limit = match params.limit {
         Some(limit) => {
-            if limit < 1 || limit > 100 {
+            if !(1..=100).contains(&limit) {
                 let error = ApiError {
                     error: "Limit parameter must be between 1 and 100".to_string(),
                     code: "INVALID_LIMIT".to_string(),
@@ -2024,9 +2024,7 @@ async fn handle_get_users_count(
             // Parse the error response
             match serde_json::from_str::<ApiError>(&error_json) {
                 Ok(api_error) => {
-                    let status_code = match api_error.code.as_str() {
-                        _ => StatusCode::INTERNAL_SERVER_ERROR,
-                    };
+                    let status_code = StatusCode::INTERNAL_SERVER_ERROR;
                     Err((status_code, Json(api_error)))
                 }
                 Err(_) => {
@@ -2069,7 +2067,7 @@ async fn handle_get_trending_hashtags(
     let limit = params.limit.unwrap_or(20);
 
     // Validate limit parameter
-    if limit < 1 || limit > 100 {
+    if !(1..=100).contains(&limit) {
         let error = ApiError {
             error: "Limit parameter must be between 1 and 100".to_string(),
             code: "INVALID_LIMIT".to_string(),

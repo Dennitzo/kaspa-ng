@@ -763,23 +763,8 @@ impl ExplorerSettings {
 
 impl Default for ExplorerSettings {
     fn default() -> Self {
-        let local_profile = ExplorerNetworkProfiles {
-            mainnet: ExplorerEndpoint::new(
-                "http://127.0.0.1:19112",
-                "http://127.0.0.1:19113",
-                "/ws/socket.io",
-            ),
-            testnet10: ExplorerEndpoint::new(
-                "http://127.0.0.1:19112",
-                "http://127.0.0.1:19113",
-                "/ws/socket.io",
-            ),
-            testnet12: ExplorerEndpoint::new(
-                "http://127.0.0.1:19112",
-                "http://127.0.0.1:19113",
-                "/ws/socket.io",
-            ),
-        };
+        let local_profile =
+            self_hosted_explorer_profiles_from_settings(&SelfHostedSettings::default());
 
         Self {
             source: ExplorerDataSource::Official,
@@ -830,6 +815,52 @@ fn default_k_web_port() -> u16 {
     3000
 }
 
+const SELF_HOSTED_PORT_OFFSET_TESTNET10: u16 = 100;
+const SELF_HOSTED_PORT_OFFSET_TESTNET12: u16 = 200;
+
+fn self_hosted_network_port_offset(network: Network) -> u16 {
+    match network {
+        Network::Mainnet => 0,
+        Network::Testnet10 => SELF_HOSTED_PORT_OFFSET_TESTNET10,
+        Network::Testnet12 => SELF_HOSTED_PORT_OFFSET_TESTNET12,
+    }
+}
+
+fn with_network_port_offset(port: u16, network: Network) -> u16 {
+    port.checked_add(self_hosted_network_port_offset(network))
+        .unwrap_or(port)
+}
+
+fn apply_port_offset_to_socket_addr(addr: &str, network: Network) -> String {
+    let trimmed = addr.trim();
+    if trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    let Some((host, port)) = trimmed.rsplit_once(':') else {
+        return trimmed.to_string();
+    };
+    let Ok(port) = port.parse::<u16>() else {
+        return trimmed.to_string();
+    };
+    let port = with_network_port_offset(port, network);
+
+    if host.starts_with('[') && host.ends_with(']') {
+        format!("{host}:{port}")
+    } else if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn self_hosted_connect_host(bind: &str) -> String {
+    match bind.trim() {
+        "" | "0.0.0.0" | "::" | "[::]" => "127.0.0.1".to_string(),
+        value => value.to_string(),
+    }
+}
+
 pub fn self_hosted_db_name_for_network(base: &str, network: Network) -> String {
     let normalized = {
         let trimmed = base.trim();
@@ -859,6 +890,53 @@ pub fn self_hosted_db_name_for_network(base: &str, network: Network) -> String {
     }
 }
 
+pub fn self_hosted_explorer_profiles_from_settings(
+    settings: &SelfHostedSettings,
+) -> ExplorerNetworkProfiles {
+    fn endpoint(settings: &SelfHostedSettings, network: Network) -> ExplorerEndpoint {
+        let host = self_hosted_connect_host(&settings.api_bind);
+        ExplorerEndpoint::new(
+            format!(
+                "http://{}:{}",
+                host,
+                settings.effective_explorer_rest_port(network)
+            ),
+            format!(
+                "http://{}:{}",
+                host,
+                settings.effective_explorer_socket_port(network)
+            ),
+            "/ws/socket.io",
+        )
+    }
+
+    ExplorerNetworkProfiles {
+        mainnet: endpoint(settings, Network::Mainnet),
+        testnet10: endpoint(settings, Network::Testnet10),
+        testnet12: endpoint(settings, Network::Testnet12),
+    }
+}
+
+pub fn should_auto_sync_self_hosted_explorer_profiles(profiles: &ExplorerNetworkProfiles) -> bool {
+    let urls = [
+        profiles.mainnet.api_base.as_str(),
+        profiles.mainnet.socket_url.as_str(),
+        profiles.testnet10.api_base.as_str(),
+        profiles.testnet10.socket_url.as_str(),
+        profiles.testnet12.api_base.as_str(),
+        profiles.testnet12.socket_url.as_str(),
+    ];
+
+    urls.iter().all(|url| {
+        let lower = url.to_ascii_lowercase();
+        lower.contains("127.0.0.1")
+            || lower.contains("localhost")
+            || lower.contains("[::1]")
+            || lower.contains("0.0.0.0")
+            || lower.contains("://::")
+    })
+}
+
 impl Default for SelfHostedSettings {
     fn default() -> Self {
         Self {
@@ -884,6 +962,32 @@ impl Default for SelfHostedSettings {
             postgres_enabled: true,
             postgres_data_dir: String::new(),
         }
+    }
+}
+
+impl SelfHostedSettings {
+    pub fn effective_api_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.api_port, network)
+    }
+
+    pub fn effective_explorer_rest_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.explorer_rest_port, network)
+    }
+
+    pub fn effective_explorer_socket_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.explorer_socket_port, network)
+    }
+
+    pub fn effective_db_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.db_port, network)
+    }
+
+    pub fn effective_k_web_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.k_web_port, network)
+    }
+
+    pub fn effective_indexer_listen(&self, network: Network) -> String {
+        apply_port_offset_to_socket_addr(&self.indexer_listen, network)
     }
 }
 
@@ -1187,7 +1291,17 @@ impl Settings {
                             settings.self_hosted.k_enabled = false;
                             migrated = true;
                         }
-                        if settings.explorer.self_hosted.mainnet.api_base == "http://127.0.0.1:8000"
+                        if should_auto_sync_self_hosted_explorer_profiles(
+                            &settings.explorer.self_hosted,
+                        ) {
+                            let synced =
+                                self_hosted_explorer_profiles_from_settings(&settings.self_hosted);
+                            if settings.explorer.self_hosted != synced {
+                                settings.explorer.self_hosted = synced;
+                                migrated = true;
+                            }
+                        } else if settings.explorer.self_hosted.mainnet.api_base
+                            == "http://127.0.0.1:8000"
                             && settings.explorer.self_hosted.mainnet.socket_url
                                 == "http://127.0.0.1:8001"
                             && settings.explorer.self_hosted.testnet10.api_base
@@ -1199,7 +1313,8 @@ impl Settings {
                             && settings.explorer.self_hosted.testnet12.socket_url
                                 == "http://127.0.0.1:8001"
                         {
-                            settings.explorer.self_hosted = ExplorerSettings::default().self_hosted;
+                            settings.explorer.self_hosted =
+                                self_hosted_explorer_profiles_from_settings(&settings.self_hosted);
                             migrated = true;
                         }
                         if settings

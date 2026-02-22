@@ -113,12 +113,21 @@ impl Database {
         }
     }
 
-    fn api_url(settings: &SelfHostedSettings) -> String {
+    fn api_url(settings: &SelfHostedSettings, network: Network) -> String {
         let host = Self::resolve_api_host(&settings.api_bind);
-        format!("http://{}:{}/api/status", host, settings.api_port)
+        format!(
+            "http://{}:{}/api/status",
+            host,
+            settings.effective_api_port(network)
+        )
     }
 
-    fn logs_url(settings: &SelfHostedSettings, service: LogService, limit: usize) -> String {
+    fn logs_url(
+        settings: &SelfHostedSettings,
+        network: Network,
+        service: LogService,
+        limit: usize,
+    ) -> String {
         let host = Self::resolve_api_host(&settings.api_bind);
         let service = match service {
             LogService::Postgres => "postgres",
@@ -129,11 +138,14 @@ impl Database {
         };
         format!(
             "http://{}:{}/api/logs/{}?limit={}",
-            host, settings.api_port, service, limit
+            host,
+            settings.effective_api_port(network),
+            service,
+            limit
         )
     }
 
-    fn schedule_fetch(&self, settings: &SelfHostedSettings) {
+    fn schedule_fetch(&self, settings: &SelfHostedSettings, network: Network) {
         let should_fetch = {
             let mut state = self.state.lock().unwrap();
             if state.in_flight {
@@ -156,7 +168,7 @@ impl Database {
             return;
         }
 
-        let url = Self::api_url(settings);
+        let url = Self::api_url(settings, network);
         let state = self.state.clone();
         spawn(async move {
             let result = http::get_json::<DatabaseStatus>(&url).await;
@@ -177,7 +189,7 @@ impl Database {
         });
     }
 
-    fn schedule_logs_fetch(&self, settings: &SelfHostedSettings, service: LogService) {
+    fn schedule_logs_fetch(&self, settings: &SelfHostedSettings, network: Network, service: LogService) {
         let should_fetch = {
             let mut state = self.state.lock().unwrap();
             if state.logs_in_flight {
@@ -200,7 +212,7 @@ impl Database {
             return;
         }
 
-        let url = Self::logs_url(settings, service, self.log_limit);
+        let url = Self::logs_url(settings, network, service, self.log_limit);
         let state = self.state.clone();
         spawn(async move {
             let result = http::get_json::<LogResponse>(&url).await;
@@ -299,8 +311,9 @@ impl ModuleT for Database {
             return;
         }
 
-        self.schedule_fetch(&core.settings.self_hosted);
-        self.schedule_logs_fetch(&core.settings.self_hosted, self.log_service);
+        let network = core.settings.node.network;
+        self.schedule_fetch(&core.settings.self_hosted, network);
+        self.schedule_logs_fetch(&core.settings.self_hosted, network, self.log_service);
 
         let (status, error) = {
             let state = self.state.lock().unwrap();
@@ -554,12 +567,18 @@ impl ModuleT for Database {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(i18n("API endpoint:"));
                         ui.label(
-                            RichText::new(Self::api_url(&core.settings.self_hosted))
+                            RichText::new(Self::api_url(
+                                &core.settings.self_hosted,
+                                core.settings.node.network,
+                            ))
                                 .monospace()
                                 .color(theme_color().hyperlink_color),
                         );
                         if ui.small_button(i18n("Copy")).clicked() {
-                            ui.ctx().copy_text(Self::api_url(&core.settings.self_hosted));
+                            ui.ctx().copy_text(Self::api_url(
+                                &core.settings.self_hosted,
+                                core.settings.node.network,
+                            ));
                             runtime().notify_clipboard(i18n("Copied to clipboard"));
                         }
                     });

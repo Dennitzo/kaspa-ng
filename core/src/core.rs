@@ -402,6 +402,14 @@ impl Core {
     pub fn change_current_network(&mut self, network: Network) {
         if self.settings.node.network != network {
             self.settings.node.network = network;
+            if crate::settings::should_auto_sync_self_hosted_explorer_profiles(
+                &self.settings.explorer.self_hosted,
+            ) {
+                self.settings.explorer.self_hosted =
+                    crate::settings::self_hosted_explorer_profiles_from_settings(
+                        &self.settings.self_hosted,
+                    );
+            }
             if !matches!(network, Network::Mainnet) && self.settings.node.stratum_bridge_enabled {
                 self.settings.node.stratum_bridge_enabled = false;
                 self.runtime
@@ -416,6 +424,21 @@ impl Core {
             self.runtime
                 .rothschild_service()
                 .update_settings(network, &self.settings.node.rothschild);
+            self.runtime
+                .self_hosted_db_service()
+                .update_node_settings(self.settings.node.clone());
+            self.runtime
+                .self_hosted_explorer_service()
+                .update_node_settings(self.settings.node.clone());
+            self.runtime
+                .self_hosted_indexer_service()
+                .update_node_settings(self.settings.node.clone());
+            self.runtime
+                .self_hosted_postgres_service()
+                .update_node_settings(self.settings.node.clone());
+            self.runtime
+                .self_hosted_k_indexer_service()
+                .update_node_settings(self.settings.node.clone());
             self.store_settings();
             self.runtime
                 .kaspa_service()

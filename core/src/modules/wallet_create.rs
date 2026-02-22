@@ -124,8 +124,17 @@ impl WalletCreate {
         }
     }
     
-    pub fn import_selection<M>(context:&mut M, word_count: &mut WordCount, import_legacy: &mut bool, bip39_passphrase: &mut bool, ui: &mut Ui, back_callback:Option<impl FnOnce(&mut M)>)->bool{
+    pub fn import_selection<M>(
+        context: &mut M,
+        network: Network,
+        word_count: &mut WordCount,
+        import_legacy: &mut bool,
+        bip39_passphrase: &mut bool,
+        ui: &mut Ui,
+        back_callback: Option<impl FnOnce(&mut M)>,
+    ) -> bool {
         let mut submit = false;
+        let is_testnet = matches!(network, Network::Testnet10 | Network::Testnet12);
         if *import_legacy {
             *bip39_passphrase = false;
         }
@@ -163,12 +172,29 @@ impl WalletCreate {
                 ui.medium_separator();
                 ui.label("");
 
-                ui.label(i18n("Select this option if your wallet was created"));
-                ui.label(i18n("using KDX or kaspanet.io web wallet"));
+                if is_testnet {
+                    ui.label(i18n("Select this option for Rothschild mnemonics"));
+                    ui.label(i18n("used on Testnet."));
+                } else {
+                    ui.label(i18n("Select this option if your wallet was created"));
+                    ui.label(i18n("using KDX or kaspanet.io web wallet"));
+                }
                 ui.label("");
                 // if ui.large_selected_button(*import_legacy, format!("    {}    ", i18n("Legacy 12 word mnemonic"))).clicked() {
-                if ui.large_button_enabled(!*bip39_passphrase,format!("    {}    ", i18n("Legacy 12 word mnemonic"))).clicked() {
-                    *word_count = WordCount::Words12;
+                let legacy_label = if is_testnet {
+                    i18n("Rothschild mnemonic (24 words)")
+                } else {
+                    i18n("Legacy 12 word mnemonic")
+                };
+                if ui
+                    .large_button_enabled(!*bip39_passphrase, format!("    {}    ", legacy_label))
+                    .clicked()
+                {
+                    *word_count = if is_testnet {
+                        WordCount::Words24
+                    } else {
+                        WordCount::Words12
+                    };
                     *import_legacy = true;
                     *bip39_passphrase = false;
                     submit = true;
@@ -278,6 +304,19 @@ impl WalletCreate {
     }
 }
 
+impl WalletCreate {
+    fn map_wallet_error_message(err: &Error) -> String {
+        let message = err.to_string();
+        if message
+            .to_ascii_lowercase()
+            .contains("transitional ibd state")
+        {
+            return i18n("Node is still syncing (IBD). Please retry after sync is complete.")
+                .to_string();
+        }
+        message
+    }
+}
 
 impl ModuleT for WalletCreate {
     fn modal(&self) -> bool { true }
@@ -388,6 +427,7 @@ impl ModuleT for WalletCreate {
             }
             State::ImportSelection => {
                 let submit = Self::import_selection::<State>(&mut self.state,
+                    core.settings.node.network,
                     &mut self.context.word_count,
                     &mut self.context.import_legacy,
                     &mut self.context.import_with_bip39_passphrase,
@@ -1310,13 +1350,14 @@ impl ModuleT for WalletCreate {
             }
             State::WalletError(err, back_state) => {
                 let msg = if self.context.import_private_key || self.context.import_private_key_file{i18n("Error importing a wallet")}else{i18n("Error creating a wallet")};
+                let display_error = Self::map_wallet_error_message(err.as_ref());
                 Panel::new(self)
                 .with_caption(i18n("Error"))
                 .with_header(move |this,ui| {
                     ui.label(" ");
                     ui.label(" ");
                     ui.label(RichText::new(msg).color(egui::Color32::from_rgb(255, 120, 120)));
-                    ui.label(RichText::new(err.to_string()).color(egui::Color32::from_rgb(255, 120, 120)));
+                    ui.label(RichText::new(display_error).color(egui::Color32::from_rgb(255, 120, 120)));
                     ui.label(" ");
                     ui.label(" ");
 
