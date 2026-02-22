@@ -16,9 +16,22 @@ APP_DIR="${ROOT}/target/${PROFILE}/${APP_NAME}.app"
 MACOS_DIR="${APP_DIR}/Contents/MacOS"
 RES_DIR="${APP_DIR}/Contents/Resources"
 
+copy_file_if_exists() {
+  local src="$1"
+  local dst="$2"
+  if [ -f "$src" ]; then
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    chmod +x "$dst" 2>/dev/null || true
+    return 0
+  fi
+  return 1
+}
+
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 cp "$BIN" "$MACOS_DIR/"
+chmod +x "$MACOS_DIR/kaspa-ng" 2>/dev/null || true
 
 if [ -f "${ROOT}/target/${PROFILE}/stratum-bridge" ]; then
   cp "${ROOT}/target/${PROFILE}/stratum-bridge" "$MACOS_DIR/"
@@ -32,6 +45,50 @@ elif [ -d "${ROOT}/kaspa-explorer-ng/build" ]; then
   mkdir -p "$MACOS_DIR/kaspa-explorer-ng"
   cp -r "${ROOT}/kaspa-explorer-ng/build" "$MACOS_DIR/kaspa-explorer-ng/"
 fi
+
+# Bundle K-Social frontend assets if present.
+if [ -d "${ROOT}/K/dist" ]; then
+  mkdir -p "$MACOS_DIR/K"
+  cp -r "${ROOT}/K/dist" "$MACOS_DIR/K/"
+elif [ -d "${ROOT}/target/${PROFILE}/K/dist" ]; then
+  mkdir -p "$MACOS_DIR/K"
+  cp -r "${ROOT}/target/${PROFILE}/K/dist" "$MACOS_DIR/K/"
+fi
+
+# Bundle self-hosted indexer binaries in paths expected by runtime lookup.
+copy_file_if_exists \
+  "${ROOT}/simply-kaspa-indexer/target/${PROFILE}/simply-kaspa-indexer" \
+  "${MACOS_DIR}/simply-kaspa-indexer/target/${PROFILE}/simply-kaspa-indexer" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/simply-kaspa-indexer" \
+  "${MACOS_DIR}/simply-kaspa-indexer/target/${PROFILE}/simply-kaspa-indexer" || true
+
+copy_file_if_exists \
+  "${ROOT}/K-indexer/target/${PROFILE}/K-transaction-processor" \
+  "${MACOS_DIR}/K-indexer/target/${PROFILE}/K-transaction-processor" || true
+copy_file_if_exists \
+  "${ROOT}/K-indexer/target/${PROFILE}/K-webserver" \
+  "${MACOS_DIR}/K-indexer/target/${PROFILE}/K-webserver" || true
+
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/K-transaction-processor" \
+  "${MACOS_DIR}/K-indexer/target/${PROFILE}/K-transaction-processor" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/K-webserver" \
+  "${MACOS_DIR}/K-indexer/target/${PROFILE}/K-webserver" || true
+
+copy_file_if_exists \
+  "${ROOT}/K-indexer/target/${PROFILE}/K-transaction-processor" \
+  "${MACOS_DIR}/K-transaction-processor" || true
+copy_file_if_exists \
+  "${ROOT}/K-indexer/target/${PROFILE}/K-webserver" \
+  "${MACOS_DIR}/K-webserver" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/K-transaction-processor" \
+  "${MACOS_DIR}/K-transaction-processor" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/K-webserver" \
+  "${MACOS_DIR}/K-webserver" || true
 
 ICON_SRC="${ROOT}/core/resources/icons/icon-1024.png"
 ICONSET="${RES_DIR}/${APP_NAME}.iconset"
@@ -67,6 +124,8 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key>
   <string>org.kaspa.kaspa-ng</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
   <key>CFBundleExecutable</key>
   <string>kaspa-ng</string>
   <key>CFBundleVersion</key>
@@ -77,6 +136,8 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <string>${APP_NAME}</string>
   <key>LSMinimumSystemVersion</key>
   <string>10.13</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
 </dict>
 </plist>
 EOF

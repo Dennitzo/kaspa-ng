@@ -192,6 +192,22 @@ impl<'core> Status<'core> {
             Separator::default().spacing(1.0).ui(ui);
         }
     }
+
+    fn render_explorer_api_note(&self, ui: &mut egui::Ui) {
+        let endpoint = self
+            .settings()
+            .explorer
+            .endpoint(self.settings().node.network);
+        let source_label = match self.settings().explorer.source {
+            ExplorerDataSource::Official => "official",
+            ExplorerDataSource::SelfHosted => "self-hosted",
+        };
+        ui.label(format!(
+            "Explorer API: {} ({source_label})",
+            endpoint.api_base
+        ));
+    }
+
     fn render_connected_state(&mut self, ui: &mut egui::Ui, state: ConnectionStatus) {
         let status_area_width = ui.available_width() - 24.;
         let status_icon_size = theme_style().status_icon_size;
@@ -326,6 +342,9 @@ impl<'core> Status<'core> {
                 }
 
                 if !self.device().single_pane() {
+                    self.render_separator(ui);
+                    self.render_explorer_api_note(ui);
+                    self.render_separator(ui);
                     module.status_bar(self.core, ui);
                 }
             }
@@ -408,6 +427,9 @@ impl<'core> Status<'core> {
                                 }
                             }
 
+                            ui.separator();
+                            self.render_explorer_api_note(ui);
+                            ui.separator();
                             module.status_bar(self.core, ui);
                         }
                     });

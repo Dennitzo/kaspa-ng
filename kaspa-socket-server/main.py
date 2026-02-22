@@ -1,6 +1,7 @@
 # encoding: utf-8
 import asyncio
 import os
+import time
 from asyncio import Task, CancelledError
 
 from fastapi_utils.tasks import repeat_every
@@ -20,6 +21,7 @@ print(
 
 BLOCKS_TASK = None  # type: Task
 SHUTTING_DOWN = False
+LAST_WATCHDOG_LOG_TS = 0.0
 
 
 def _start_blocks_task() -> Task:
@@ -60,7 +62,7 @@ async def shutdown():
 @app.on_event("startup")
 @repeat_every(seconds=5)
 async def watchdog():
-    global BLOCKS_TASK, SHUTTING_DOWN
+    global BLOCKS_TASK, SHUTTING_DOWN, LAST_WATCHDOG_LOG_TS
 
     if SHUTTING_DOWN or BLOCKS_TASK is None:
         return
@@ -76,8 +78,13 @@ async def watchdog():
     else:
         if SHUTTING_DOWN:
             return
-        print(f"Watch found an error! {exception}\n"
-              f"Reinitialize kaspads and start task again")
+        now = time.monotonic()
+        # Keep watchdog retries, but avoid noisy log spam while node is not ready.
+        if now - LAST_WATCHDOG_LOG_TS >= 30:
+            print(
+                f"Watch: backend not ready yet ({exception}). Reinitializing kaspad clients and retrying..."
+            )
+            LAST_WATCHDOG_LOG_TS = now
         await kaspad_client.initialize_all()
         BLOCKS_TASK = _start_blocks_task()
 

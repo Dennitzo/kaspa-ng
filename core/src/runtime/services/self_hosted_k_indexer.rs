@@ -121,7 +121,12 @@ impl SelfHostedKIndexerService {
             .unwrap();
     }
 
-    async fn wait_for_database(settings: &SelfHostedSettings) -> Result<()> {
+    fn effective_db_name(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
+        crate::settings::self_hosted_db_name_for_network(settings.db_name.as_str(), node.network)
+    }
+
+    async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
+        let db_name = Self::effective_db_name(settings, node);
         let mut last_error: Option<String> = None;
         for attempt in 0..20 {
             let conn_str = format!(
@@ -130,7 +135,7 @@ impl SelfHostedKIndexerService {
                 settings.db_port,
                 settings.db_user,
                 settings.db_password,
-                settings.db_name
+                db_name.as_str()
             );
             match tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await {
                 Ok((_client, connection)) => {
@@ -231,10 +236,11 @@ impl SelfHostedKIndexerService {
             return Ok(());
         };
 
-        if let Err(err) = Self::wait_for_database(&settings).await {
+        if let Err(err) = Self::wait_for_database(&settings, &node).await {
             self.log_blocked_once(format!("waiting for database: {err}"));
             return Ok(());
         }
+        let db_name = Self::effective_db_name(&settings, &node);
 
         let Some(binary) = Self::find_binary("K-transaction-processor") else {
             self.log_blocked_once("K-transaction-processor binary not found");
@@ -247,7 +253,7 @@ impl SelfHostedKIndexerService {
             .arg("-P")
             .arg(settings.db_port.to_string())
             .arg("-d")
-            .arg(&settings.db_name)
+            .arg(&db_name)
             .arg("-U")
             .arg(&settings.db_user)
             .arg("-p")
@@ -285,7 +291,7 @@ impl SelfHostedKIndexerService {
             "INFO",
             &format!(
                 "started K-transaction-processor (network={network}, db={}:{}:{})",
-                settings.db_host, settings.db_port, settings.db_name
+                settings.db_host, settings.db_port, db_name
             ),
         );
 
@@ -347,10 +353,11 @@ impl SelfHostedKIndexerService {
             return Ok(());
         }
 
-        if let Err(err) = Self::wait_for_database(&settings).await {
+        if let Err(err) = Self::wait_for_database(&settings, &node).await {
             self.log_blocked_once(format!("waiting for database: {err}"));
             return Ok(());
         }
+        let db_name = Self::effective_db_name(&settings, &node);
 
         let Some(binary) = Self::find_binary("K-webserver") else {
             self.log_blocked_once("K-webserver binary not found");
@@ -363,7 +370,7 @@ impl SelfHostedKIndexerService {
             .arg("-P")
             .arg(settings.db_port.to_string())
             .arg("-d")
-            .arg(&settings.db_name)
+            .arg(&db_name)
             .arg("-u")
             .arg(&settings.db_user)
             .arg("-p")

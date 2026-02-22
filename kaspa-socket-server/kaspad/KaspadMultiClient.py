@@ -14,6 +14,21 @@ class KaspadMultiClient(object):
         for k in self.kaspads:
             if k.is_utxo_indexed and k.is_synced:
                 return k
+        return None
+
+    async def __get_ready_kaspad(self):
+        kaspad = self.__get_kaspad()
+        if kaspad is not None:
+            return kaspad
+
+        await self.initialize_all()
+        kaspad = self.__get_kaspad()
+        if kaspad is not None:
+            return kaspad
+
+        raise KaspadCommunicationError(
+            "No available kaspad backend (requires synced node with utxoindex enabled)"
+        )
 
     async def initialize_all(self):
         tasks = [asyncio.create_task(k.ping()) for k in self.kaspads]
@@ -23,10 +38,13 @@ class KaspadMultiClient(object):
 
     async def request(self, command, params=None, timeout=5):
         try:
-            return await self.__get_kaspad().request(command, params, timeout=timeout)
+            kaspad = await self.__get_ready_kaspad()
+            return await kaspad.request(command, params, timeout=timeout)
         except KaspadCommunicationError:
             await self.initialize_all()
-            return await self.__get_kaspad().request(command, params, timeout=timeout)
+            kaspad = await self.__get_ready_kaspad()
+            return await kaspad.request(command, params, timeout=timeout)
 
     async def notify(self, command, params, callback):
-        return await self.__get_kaspad().notify(command, params, callback)
+        kaspad = await self.__get_ready_kaspad()
+        return await kaspad.notify(command, params, callback)

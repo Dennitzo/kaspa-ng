@@ -20,8 +20,12 @@ from helper.StrictRoute import StrictRoute
 from helper.LimitUploadSize import LimitUploadSize
 from kaspad.KaspadMultiClient import KaspadMultiClient
 from kaspad.KaspadRpcClient import kaspad_rpc_client
+from kaspad.KaspadThread import KaspadCommunicationError
 
 fastapi.logger.logger.setLevel(logging.WARNING)
+logging.getLogger("grpc").setLevel(logging.WARNING)
+logging.getLogger("grpc.aio").setLevel(logging.WARNING)
+logging.getLogger("grpc._cython.cygrpc").setLevel(logging.WARNING)
 
 _logger = logging.getLogger(__name__)
 
@@ -143,6 +147,15 @@ async def unicorn_exception_handler(request: Request, exc: Exception):
             "message": "Internal server error"
             # "traceback": f"{traceback.format_exception(exc)}"
         },
+    )
+
+
+@app.exception_handler(KaspadCommunicationError)
+async def kaspad_communication_exception_handler(request: Request, exc: KaspadCommunicationError):
+    await kaspad_client.initialize_all()
+    return JSONResponse(
+        status_code=503,
+        content={"message": str(exc)},
     )
 
 

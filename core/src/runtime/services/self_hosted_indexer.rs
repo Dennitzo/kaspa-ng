@@ -9,6 +9,7 @@ pub enum SelfHostedIndexerEvents {
     Enable,
     Disable,
     UpdateSettings(SelfHostedSettings),
+    UpdateNodeSettings(NodeSettings),
     Exit,
 }
 
@@ -17,6 +18,7 @@ pub struct SelfHostedIndexerService {
     pub service_events: Channel<SelfHostedIndexerEvents>,
     pub task_ctl: Channel<()>,
     pub settings: Mutex<SelfHostedSettings>,
+    pub node_settings: Mutex<NodeSettings>,
     pub is_enabled: AtomicBool,
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
@@ -37,6 +39,7 @@ impl SelfHostedIndexerService {
             service_events: Channel::unbounded(),
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
+            node_settings: Mutex::new(settings.node.clone()),
             is_enabled: AtomicBool::new(
                 settings.self_hosted.enabled && settings.self_hosted.indexer_enabled,
             ),
@@ -63,18 +66,91 @@ impl SelfHostedIndexerService {
             .unwrap();
     }
 
-    fn build_database_url(settings: &SelfHostedSettings) -> String {
+    pub fn update_node_settings(&self, settings: NodeSettings) {
+        self.service_events
+            .try_send(SelfHostedIndexerEvents::UpdateNodeSettings(settings))
+            .unwrap();
+    }
+
+    fn effective_db_name(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
+        crate::settings::self_hosted_db_name_for_network(settings.db_name.as_str(), node.network)
+    }
+
+    fn build_database_url(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
+        let db_name = Self::effective_db_name(settings, node);
         format!(
             "postgres://{}:{}@{}:{}/{}",
-            settings.db_user,
-            settings.db_password,
-            settings.db_host,
-            settings.db_port,
-            settings.db_name
+            settings.db_user, settings.db_password, settings.db_host, settings.db_port, db_name
         )
     }
 
-    async fn wait_for_database(settings: &SelfHostedSettings) -> Result<()> {
+    fn default_wrpc_port(network: Network) -> u16 {
+        match network {
+            Network::Mainnet => 17110,
+            Network::Testnet10 | Network::Testnet12 => 17210,
+        }
+    }
+
+    fn sanitize_wrpc_host(value: &str) -> String {
+        let mut host = value.trim().to_string();
+        if let Some(rest) = host.strip_prefix("ws://") {
+            host = rest.to_string();
+        } else if let Some(rest) = host.strip_prefix("wss://") {
+            host = rest.to_string();
+        }
+        if let Some((left, _)) = host.split_once('/') {
+            host = left.to_string();
+        }
+        if host.starts_with('[') {
+            if let Some(end) = host.find(']') {
+                return host[..=end].to_string();
+            }
+            return host;
+        }
+        if host.matches(':').count() == 1
+            && let Some((left, _)) = host.rsplit_once(':')
+        {
+            return left.to_string();
+        }
+        host
+    }
+
+    fn should_auto_adjust_indexer_rpc_url(url: &str) -> bool {
+        let normalized = url.trim().to_ascii_lowercase();
+        normalized.is_empty()
+            || normalized.starts_with("ws://127.0.0.1:17110")
+            || normalized.starts_with("ws://127.0.0.1:17210")
+            || normalized.starts_with("ws://localhost:17110")
+            || normalized.starts_with("ws://localhost:17210")
+            || normalized.starts_with("ws://[::1]:17110")
+            || normalized.starts_with("ws://[::1]:17210")
+    }
+
+    fn effective_indexer_rpc_url(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
+        if !Self::should_auto_adjust_indexer_rpc_url(&settings.indexer_rpc_url) {
+            return settings.indexer_rpc_url.clone();
+        }
+
+        let host = {
+            let sanitized = Self::sanitize_wrpc_host(&node.wrpc_url);
+            if sanitized.trim().is_empty() {
+                "127.0.0.1".to_string()
+            } else {
+                sanitized
+            }
+        };
+        format!("ws://{}:{}", host, Self::default_wrpc_port(node.network))
+    }
+
+    fn indexer_network_arg(node: &NodeSettings) -> &'static str {
+        match node.network {
+            Network::Mainnet => "mainnet",
+            Network::Testnet10 | Network::Testnet12 => "testnet-10",
+        }
+    }
+
+    async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
+        let db_name = Self::effective_db_name(settings, node);
         let mut last_error: Option<String> = None;
         for attempt in 0..20 {
             let admin_conn_str = format!(
@@ -89,10 +165,7 @@ impl SelfHostedIndexerService {
                     });
 
                     let exists = admin_client
-                        .query_opt(
-                            "SELECT 1 FROM pg_database WHERE datname = $1",
-                            &[&settings.db_name],
-                        )
+                        .query_opt("SELECT 1 FROM pg_database WHERE datname = $1", &[&db_name])
                         .await
                         .map(|row| row.is_some())
                         .unwrap_or(false);
@@ -104,7 +177,7 @@ impl SelfHostedIndexerService {
                             settings.db_port,
                             settings.db_user,
                             settings.db_password,
-                            settings.db_name
+                            db_name.as_str()
                         );
                         match tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await {
                             Ok((_client, connection)) => {
@@ -120,7 +193,7 @@ impl SelfHostedIndexerService {
                         }
                     } else {
                         last_error =
-                            Some(format!("database '{}' is not ready yet", settings.db_name));
+                            Some(format!("database '{}' is not ready yet", db_name.as_str()));
                     }
                 }
                 Err(err) => {
@@ -182,6 +255,7 @@ impl SelfHostedIndexerService {
         }
 
         let settings = self.settings.lock().unwrap().clone();
+        let node = self.node_settings.lock().unwrap().clone();
         if !settings.enabled || !settings.indexer_enabled {
             return Ok(());
         }
@@ -201,7 +275,7 @@ impl SelfHostedIndexerService {
             return Ok(());
         }
 
-        if let Err(err) = Self::wait_for_database(&settings).await {
+        if let Err(err) = Self::wait_for_database(&settings, &node).await {
             log_warn!("self-hosted-indexer: {err}");
             return Ok(());
         }
@@ -218,11 +292,15 @@ impl SelfHostedIndexerService {
             }
         };
 
-        let database_url = Self::build_database_url(&settings);
+        let database_url = Self::build_database_url(&settings, &node);
 
         let mut cmd = Command::new(binary);
+        let rpc_url = Self::effective_indexer_rpc_url(&settings, &node);
+        let network_arg = Self::indexer_network_arg(&node);
         cmd.arg("-s")
-            .arg(settings.indexer_rpc_url)
+            .arg(&rpc_url)
+            .arg("-n")
+            .arg(network_arg)
             .arg("-d")
             .arg(database_url)
             .arg("-l")
@@ -288,6 +366,20 @@ impl SelfHostedIndexerService {
         }
 
         *self.child.lock().unwrap() = Some(child);
+        self.logs
+            .push("INFO", &format!("using indexer rpc endpoint: {rpc_url}"));
+        let selected_network = node.network.to_string();
+        if selected_network == "testnet-12" && network_arg == "testnet-10" {
+            self.logs.push(
+                "INFO",
+                "using indexer network: testnet-10 (testnet-12 compatibility mode)",
+            );
+        } else {
+            self.logs
+                .push("INFO", &format!("using indexer network: {network_arg}"));
+        }
+        self.logs
+            .push("INFO", &format!("selected app network: {selected_network}"));
         Ok(())
     }
 
@@ -332,6 +424,13 @@ impl Service for SelfHostedIndexerService {
                             }
                             Ok(SelfHostedIndexerEvents::UpdateSettings(settings)) => {
                                 *this.settings.lock().unwrap() = settings;
+                                if this.is_enabled.load(Ordering::SeqCst) {
+                                    let _ = this.stop_indexer().await;
+                                    let _ = this.start_indexer().await;
+                                }
+                            }
+                            Ok(SelfHostedIndexerEvents::UpdateNodeSettings(settings)) => {
+                                *this.node_settings.lock().unwrap() = settings;
                                 if this.is_enabled.load(Ordering::SeqCst) {
                                     let _ = this.stop_indexer().await;
                                     let _ = this.start_indexer().await;

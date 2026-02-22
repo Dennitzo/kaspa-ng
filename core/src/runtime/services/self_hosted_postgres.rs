@@ -8,6 +8,8 @@ pub enum SelfHostedPostgresEvents {
     Enable,
     Disable,
     UpdateSettings(SelfHostedSettings),
+    UpdateNodeSettings(NodeSettings),
+    ResetDatabases,
     Exit,
 }
 
@@ -16,6 +18,7 @@ pub struct SelfHostedPostgresService {
     pub service_events: Channel<SelfHostedPostgresEvents>,
     pub task_ctl: Channel<()>,
     pub settings: Mutex<SelfHostedSettings>,
+    pub node_settings: Mutex<NodeSettings>,
     pub is_enabled: AtomicBool,
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
@@ -56,6 +59,7 @@ impl SelfHostedPostgresService {
             service_events: Channel::unbounded(),
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
+            node_settings: Mutex::new(settings.node.clone()),
             is_enabled: AtomicBool::new(
                 settings.self_hosted.enabled && settings.self_hosted.postgres_enabled,
             ),
@@ -80,6 +84,41 @@ impl SelfHostedPostgresService {
         self.service_events
             .try_send(SelfHostedPostgresEvents::UpdateSettings(settings))
             .unwrap();
+    }
+
+    pub fn update_node_settings(&self, settings: NodeSettings) {
+        self.service_events
+            .try_send(SelfHostedPostgresEvents::UpdateNodeSettings(settings))
+            .unwrap();
+    }
+
+    pub fn reset_databases(&self) {
+        let _ = self
+            .service_events
+            .try_send(SelfHostedPostgresEvents::ResetDatabases);
+    }
+
+    fn normalized_db_base_name(settings: &SelfHostedSettings) -> String {
+        let mut base = settings.db_name.trim().to_string();
+        if base.is_empty() {
+            base = "kaspa".to_string();
+        }
+        if let Some(stripped) = base.strip_suffix("_tn10") {
+            return stripped.to_string();
+        }
+        if let Some(stripped) = base.strip_suffix("_tn12") {
+            return stripped.to_string();
+        }
+        base
+    }
+
+    fn all_network_db_names(settings: &SelfHostedSettings) -> Vec<String> {
+        let base = Self::normalized_db_base_name(settings);
+        vec![
+            crate::settings::self_hosted_db_name_for_network(&base, Network::Mainnet),
+            crate::settings::self_hosted_db_name_for_network(&base, Network::Testnet10),
+            crate::settings::self_hosted_db_name_for_network(&base, Network::Testnet12),
+        ]
     }
 
     fn resolve_data_dir(settings: &SelfHostedSettings) -> Result<PathBuf> {
@@ -275,7 +314,11 @@ impl SelfHostedPostgresService {
         value.replace('\'', "''")
     }
 
-    async fn ensure_role_and_database(settings: &SelfHostedSettings, logs: &LogStore) {
+    async fn ensure_role_and_database(
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+        logs: &LogStore,
+    ) {
         let psql_bin = match Self::postgres_bin_path("psql") {
             Ok(path) => path,
             Err(err) => {
@@ -287,7 +330,11 @@ impl SelfHostedPostgresService {
 
         let db_user = settings.db_user.trim();
         let db_password = settings.db_password.trim();
-        let db_name = settings.db_name.trim();
+        let db_name = crate::settings::self_hosted_db_name_for_network(
+            settings.db_name.as_str(),
+            node.network,
+        );
+        let db_name = db_name.trim();
 
         if db_user.is_empty() || db_name.is_empty() {
             return;
@@ -459,6 +506,205 @@ impl SelfHostedPostgresService {
         }
     }
 
+    async fn reset_all_network_databases(settings: &SelfHostedSettings, logs: &LogStore) {
+        let psql_bin = match Self::postgres_bin_path("psql") {
+            Ok(path) => path,
+            Err(err) => {
+                log_warn!("self-hosted-postgres: {err}");
+                logs.push("WARN", &format!("{err}"));
+                return;
+            }
+        };
+
+        let db_user = settings.db_user.trim();
+        let db_password = settings.db_password.trim();
+        if db_user.is_empty() {
+            logs.push("WARN", "database user is empty; cannot reset databases");
+            return;
+        }
+
+        let db_names = Self::all_network_db_names(settings);
+        logs.push(
+            "INFO",
+            &format!(
+                "reset requested for self-hosted databases: {}",
+                db_names.join(", ")
+            ),
+        );
+
+        let role_exists_sql = format!(
+            "SELECT 1 FROM pg_roles WHERE rolname = '{}';",
+            Self::escape_literal(db_user),
+        );
+        let create_role_sql = format!(
+            "CREATE ROLE \"{}\" LOGIN PASSWORD '{}';",
+            db_user.replace('\"', "\"\""),
+            Self::escape_literal(db_password),
+        );
+
+        let run_psql =
+            |admin: Option<&str>, host: Option<&str>, use_tcp: bool, sql: &str| -> Result<String> {
+                let mut cmd = std::process::Command::new(&psql_bin);
+                cmd.arg("-X")
+                    .arg("-v")
+                    .arg("ON_ERROR_STOP=1")
+                    .arg("-w")
+                    .arg("-d")
+                    .arg("postgres")
+                    .arg("-tAc")
+                    .arg(sql);
+                cmd.arg("-p").arg(settings.db_port.to_string());
+                match (use_tcp, host) {
+                    (true, Some(host)) => {
+                        cmd.arg("-h").arg(host);
+                    }
+                    (true, None) => {
+                        cmd.arg("-h").arg(settings.db_host.clone());
+                    }
+                    (false, Some(host)) => {
+                        cmd.arg("-h").arg(host);
+                    }
+                    (false, None) => {}
+                }
+                if let Some(admin) = admin {
+                    cmd.arg("-U").arg(admin);
+                }
+                cmd.env("PGPASSWORD", db_password);
+                cmd.env("LC_MESSAGES", "C");
+                let output = cmd.output().map_err(|err| Error::Custom(err.to_string()))?;
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    return Ok(stdout.trim().to_string());
+                }
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(Error::Custom(stderr.trim().to_string()))
+            };
+
+        let mut last_error: Option<String> = None;
+        let try_psql = |admin: Option<&str>,
+                        host: Option<&str>,
+                        use_tcp: bool,
+                        last_error: &mut Option<String>|
+         -> bool {
+            let role_exists = match run_psql(admin, host, use_tcp, &role_exists_sql) {
+                Ok(out) => !out.is_empty(),
+                Err(err) => {
+                    *last_error = Some(format!(
+                        "role check failed (admin={:?}, host={:?}, tcp={}): {}",
+                        admin, host, use_tcp, err
+                    ));
+                    return false;
+                }
+            };
+
+            if !role_exists && let Err(err) = run_psql(admin, host, use_tcp, &create_role_sql) {
+                *last_error = Some(format!(
+                    "role creation failed (admin={:?}, host={:?}, tcp={}): {}",
+                    admin, host, use_tcp, err
+                ));
+                return false;
+            }
+
+            for db_name in &db_names {
+                let drop_db_sql = format!(
+                    "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE);",
+                    db_name.replace('\"', "\"\""),
+                );
+                if let Err(err) = run_psql(admin, host, use_tcp, &drop_db_sql) {
+                    *last_error = Some(format!(
+                        "db drop failed for '{}' (admin={:?}, host={:?}, tcp={}): {}",
+                        db_name, admin, host, use_tcp, err
+                    ));
+                    return false;
+                }
+
+                let create_db_sql = format!(
+                    "CREATE DATABASE \"{}\" OWNER \"{}\";",
+                    db_name.replace('\"', "\"\""),
+                    db_user.replace('\"', "\"\""),
+                );
+                if let Err(err) = run_psql(admin, host, use_tcp, &create_db_sql) {
+                    *last_error = Some(format!(
+                        "db create failed for '{}' (admin={:?}, host={:?}, tcp={}): {}",
+                        db_name, admin, host, use_tcp, err
+                    ));
+                    return false;
+                }
+            }
+
+            true
+        };
+
+        let host_candidates = [Some(settings.db_host.as_str()), Some("127.0.0.1"), None];
+        let socket_hosts = ["/tmp", "/var/run/postgresql"];
+
+        for _ in 0..10 {
+            for host in &host_candidates {
+                if try_psql(Some(db_user), *host, true, &mut last_error)
+                    || try_psql(None, *host, true, &mut last_error)
+                {
+                    logs.push(
+                        "INFO",
+                        &format!("self-hosted databases reset: {}", db_names.join(", ")),
+                    );
+                    return;
+                }
+            }
+
+            for socket in &socket_hosts {
+                if try_psql(Some(db_user), Some(socket), false, &mut last_error)
+                    || try_psql(None, Some(socket), false, &mut last_error)
+                {
+                    logs.push(
+                        "INFO",
+                        &format!("self-hosted databases reset: {}", db_names.join(", ")),
+                    );
+                    return;
+                }
+            }
+
+            let admin_users = Self::admin_user_candidates();
+            for admin in admin_users {
+                if try_psql(Some(&admin), None, false, &mut last_error) {
+                    logs.push(
+                        "INFO",
+                        &format!("self-hosted databases reset: {}", db_names.join(", ")),
+                    );
+                    return;
+                }
+                for socket in &socket_hosts {
+                    if try_psql(Some(&admin), Some(socket), false, &mut last_error) {
+                        logs.push(
+                            "INFO",
+                            &format!("self-hosted databases reset: {}", db_names.join(", ")),
+                        );
+                        return;
+                    }
+                }
+                if try_psql(Some(&admin), None, true, &mut last_error) {
+                    logs.push(
+                        "INFO",
+                        &format!("self-hosted databases reset: {}", db_names.join(", ")),
+                    );
+                    return;
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        log_warn!(
+            "self-hosted-postgres: unable to reset self-hosted databases; ensure a superuser is available"
+        );
+        logs.push(
+            "WARN",
+            "unable to reset self-hosted databases; ensure a superuser is available",
+        );
+        if let Some(err) = last_error {
+            logs.push("WARN", &format!("last error: {err}"));
+        }
+    }
+
     async fn start_postgres(self: &Arc<Self>) -> Result<()> {
         let settings = self.settings.lock().unwrap().clone();
         if !settings.enabled || !settings.postgres_enabled {
@@ -476,7 +722,8 @@ impl SelfHostedPostgresService {
                     "INFO",
                     "external postgres detected; log streaming only available when started by Kaspa NG",
                 );
-                Self::ensure_role_and_database(&settings, &self.logs).await;
+                let node_settings = self.node_settings.lock().unwrap().clone();
+                Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
                 return Ok(());
             }
 
@@ -571,7 +818,8 @@ impl SelfHostedPostgresService {
 
         *self.child.lock().unwrap() = Some(child);
         if Self::wait_for_ready(&settings, 20).await.is_ok() {
-            Self::ensure_role_and_database(&settings, &self.logs).await;
+            let node_settings = self.node_settings.lock().unwrap().clone();
+            Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
         }
         Ok(())
     }
@@ -648,6 +896,25 @@ impl Service for SelfHostedPostgresService {
                                     let _ = this.stop_postgres().await;
                                     let _ = this.start_postgres().await;
                                 }
+                            }
+                            Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
+                                *this.node_settings.lock().unwrap() = settings;
+                                if this.is_enabled.load(Ordering::SeqCst) {
+                                    let _ = this.stop_postgres().await;
+                                    let _ = this.start_postgres().await;
+                                }
+                            }
+                            Ok(SelfHostedPostgresEvents::ResetDatabases) => {
+                                let settings = this.settings.lock().unwrap().clone();
+                                if !settings.enabled || !settings.postgres_enabled {
+                                    this.logs.push("WARN", "self-hosted postgres is disabled; reset skipped");
+                                    continue;
+                                }
+                                if Self::wait_for_ready(&settings, 20).await.is_err() {
+                                    this.logs.push("WARN", "postgres is not ready; reset skipped");
+                                    continue;
+                                }
+                                Self::reset_all_network_databases(&settings, &this.logs).await;
                             }
                             Ok(SelfHostedPostgresEvents::Exit) | Err(_) => {
                                 let _ = this.stop_postgres().await;

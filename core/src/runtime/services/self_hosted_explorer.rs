@@ -115,14 +115,14 @@ impl SelfHostedExplorerService {
         }
     }
 
-    fn build_sql_uri(settings: &SelfHostedSettings) -> String {
+    fn build_sql_uri(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
+        let db_name = crate::settings::self_hosted_db_name_for_network(
+            settings.db_name.as_str(),
+            node.network,
+        );
         format!(
             "postgresql+asyncpg://{}:{}@{}:{}/{}",
-            settings.db_user,
-            settings.db_password,
-            settings.db_host,
-            settings.db_port,
-            settings.db_name
+            settings.db_user, settings.db_password, settings.db_host, settings.db_port, db_name
         )
     }
 
@@ -291,7 +291,7 @@ impl SelfHostedExplorerService {
     }
 
     fn apply_common_env(cmd: &mut Command, settings: &SelfHostedSettings, node: &NodeSettings) {
-        cmd.env("SQL_URI", Self::build_sql_uri(settings));
+        cmd.env("SQL_URI", Self::build_sql_uri(settings, node));
         if let Some(grpc) = Self::grpc_address_from_settings(node) {
             cmd.env("KASPAD_HOST_1", grpc);
         }

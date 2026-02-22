@@ -70,6 +70,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
   }, [address, savedAddressKey]);
 
   const pageSize = 25;
+  const txTotal = txCount?.total ?? 0;
 
   // fetch transactions with resolve_previous_outpoints set to "light"
   const { data: txData } = useTransactions(
@@ -97,7 +98,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
       setCurrentPage((currentPage) => currentPage - 1);
     } else if (page === 3) {
       setBeforeAfter([0, 1]);
-      setCurrentPage(Math.ceil(txCount!.total / pageSize));
+      setCurrentPage(Math.max(1, Math.ceil(txTotal / pageSize)));
     }
   };
 
@@ -196,7 +197,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
             </>
           )}
           <FieldName name="Transactions" infoText="Total number of transactions involving this address." />
-          <FieldValue value={!isLoadingTxCount ? numeral(txCount!.total).format("0,") : <LoadingSpinner />} />
+          <FieldValue value={!isLoadingTxCount ? numeral(txTotal).format("0,") : <LoadingSpinner />} />
           <FieldName name="UTXOs" infoText="Unspent, available outputs available at this address." />
           <FieldValue value={!isLoadingUtxoData ? numeral(utxoData!.length).format("0,") : <LoadingSpinner />} />
         </div>
@@ -352,7 +353,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                   {!isLoadingTxCount && (
                     <PageSelector
                       currentPage={currentPage}
-                      totalPages={Math.ceil(txCount!.total / pageSize)}
+                      totalPages={Math.max(1, Math.ceil(txTotal / pageSize))}
                       onPageChange={pageChange}
                     />
                   )}

@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from kaspad.KaspadMultiClient import KaspadMultiClient
+from kaspad.KaspadThread import KaspadCommunicationError
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[])
 socket_app = socketio.ASGIApp(sio)
@@ -90,6 +91,15 @@ async def unicorn_exception_handler(request: Request, exc: Exception):
         content={"message": "Internal server error"
                  # "traceback": f"{traceback.format_exception(exc)}"
                  },
+    )
+
+
+@app.exception_handler(KaspadCommunicationError)
+async def kaspad_communication_exception_handler(request: Request, exc: KaspadCommunicationError):
+    await kaspad_client.initialize_all()
+    return JSONResponse(
+        status_code=503,
+        content={"message": str(exc)},
     )
 
 

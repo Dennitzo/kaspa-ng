@@ -8,6 +8,7 @@ pub struct Settings {
     wrpc_json_network_interface : NetworkInterfaceEditor,
     grpc_network_interface : NetworkInterfaceEditor,
     reset_settings : bool,
+    reset_database : bool,
 }
 
 impl Settings {
@@ -19,6 +20,7 @@ impl Settings {
             wrpc_json_network_interface : NetworkInterfaceEditor::default(),
             grpc_network_interface : NetworkInterfaceEditor::default(),
             reset_settings : false,
+            reset_database : false,
         }
     }
 
@@ -496,7 +498,23 @@ impl Settings {
                                 );
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
+                                    .self_hosted_db_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_postgres_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
                                     .self_hosted_explorer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
@@ -764,6 +782,9 @@ impl Settings {
                             .self_hosted_db_service()
                             .update_settings(self.settings.self_hosted.clone());
                         self.runtime
+                            .self_hosted_db_service()
+                            .update_node_settings(core.settings.node.clone());
+                        self.runtime
                             .self_hosted_explorer_service()
                             .update_settings(self.settings.self_hosted.clone());
                         self.runtime
@@ -773,8 +794,14 @@ impl Settings {
                             .self_hosted_postgres_service()
                             .update_settings(self.settings.self_hosted.clone());
                         self.runtime
+                            .self_hosted_postgres_service()
+                            .update_node_settings(core.settings.node.clone());
+                        self.runtime
                             .self_hosted_indexer_service()
                             .update_settings(self.settings.self_hosted.clone());
+                        self.runtime
+                            .self_hosted_indexer_service()
+                            .update_node_settings(core.settings.node.clone());
                         self.runtime
                             .self_hosted_k_indexer_service()
                             .update_settings(self.settings.self_hosted.clone());
@@ -929,7 +956,20 @@ impl Settings {
                                 });
                                 ui.end_row();
 
+                                let mut effective_db_name =
+                                    crate::settings::self_hosted_db_name_for_network(
+                                        &settings.db_name,
+                                        core.settings.node.network,
+                                    );
                                 ui.label(i18n("Database Name"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut effective_db_name)
+                                        .desired_width(200.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Database Base Name"));
                                 changed |= ui
                                     .add(TextEdit::singleline(&mut settings.db_name).desired_width(200.0))
                                     .changed();
@@ -988,6 +1028,9 @@ impl Settings {
                                 .self_hosted_db_service()
                                 .update_settings(core.settings.self_hosted.clone());
                             self.runtime
+                                .self_hosted_db_service()
+                                .update_node_settings(core.settings.node.clone());
+                            self.runtime
                                 .self_hosted_explorer_service()
                                 .update_settings(core.settings.self_hosted.clone());
                             self.runtime
@@ -997,8 +1040,14 @@ impl Settings {
                                 .self_hosted_postgres_service()
                                 .update_settings(core.settings.self_hosted.clone());
                             self.runtime
+                                .self_hosted_postgres_service()
+                                .update_node_settings(core.settings.node.clone());
+                            self.runtime
                                 .self_hosted_indexer_service()
                                 .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_indexer_service()
+                                .update_node_settings(core.settings.node.clone());
                             self.runtime
                                 .self_hosted_k_indexer_service()
                                 .update_settings(core.settings.self_hosted.clone());
@@ -1714,6 +1763,18 @@ impl Settings {
                             ui.set_max_width(340.);
                             ui.separator();
                         }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if !self.reset_database {
+                            if ui
+                                .medium_button(i18n("Reset Database"))
+                                .on_hover_text(i18n(
+                                    "Drops and recreates self-hosted databases for mainnet, testnet-10 and testnet-12.",
+                                ))
+                                .clicked()
+                            {
+                                self.reset_database = true;
+                            }
+                        }
                         if ui.medium_button(i18n("Reset Settings")).clicked() {
                             self.reset_settings = true;
                         }
@@ -1736,6 +1797,30 @@ impl Settings {
                             },
                             Confirm::Nack => {
                                 self.reset_settings = false;
+                            }
+                        }
+                    }
+                    ui.separator();
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if self.reset_database {
+                    ui.add_space(16.);
+                    ui.label(
+                        RichText::new(i18n(
+                            "Are you sure you want to reset all self-hosted databases (mainnet, testnet-10, testnet-12)?",
+                        ))
+                        .color(theme_color().warning_color),
+                    );
+                    ui.add_space(16.);
+                    if let Some(response) = ui.confirm_medium_apply_cancel(Align::Min) {
+                        match response {
+                            Confirm::Ack => {
+                                self.runtime.self_hosted_postgres_service().reset_databases();
+                                self.reset_database = false;
+                            }
+                            Confirm::Nack => {
+                                self.reset_database = false;
                             }
                         }
                     }

@@ -727,7 +727,7 @@ impl Default for ExplorerNetworkProfiles {
         Self {
             mainnet: ExplorerEndpoint::new(
                 "https://api.kaspa.org",
-                "wss://t2-3.kaspa.ws",
+                "wss://api.kaspa.org",
                 "/ws/socket.io",
             ),
             testnet10: ExplorerEndpoint::new(
@@ -828,6 +828,35 @@ fn default_explorer_socket_port() -> u16 {
 
 fn default_k_web_port() -> u16 {
     3000
+}
+
+pub fn self_hosted_db_name_for_network(base: &str, network: Network) -> String {
+    let normalized = {
+        let trimmed = base.trim();
+        if trimmed.is_empty() {
+            "kaspa".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    match network {
+        Network::Mainnet => normalized,
+        Network::Testnet10 => {
+            if normalized.ends_with("_tn10") {
+                normalized
+            } else {
+                format!("{normalized}_tn10")
+            }
+        }
+        Network::Testnet12 => {
+            if normalized.ends_with("_tn12") {
+                normalized
+            } else {
+                format!("{normalized}_tn12")
+            }
+        }
+    }
 }
 
 impl Default for SelfHostedSettings {
@@ -1182,6 +1211,14 @@ impl Settings {
                             .is_empty()
                         {
                             settings.explorer = ExplorerSettings::default();
+                            migrated = true;
+                        }
+                        if settings.explorer.official.mainnet.api_base == "https://api.kaspa.org"
+                            && settings.explorer.official.mainnet.socket_url
+                                == "wss://t2-3.kaspa.ws"
+                        {
+                            settings.explorer.official.mainnet.socket_url =
+                                "wss://api.kaspa.org".to_string();
                             migrated = true;
                         }
                         if migrated {

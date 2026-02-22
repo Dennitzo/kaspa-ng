@@ -256,6 +256,7 @@ pub enum SelfHostedDbEvents {
     Enable,
     Disable,
     UpdateSettings(SelfHostedSettings),
+    UpdateNodeSettings(NodeSettings),
     Exit,
 }
 
@@ -269,6 +270,7 @@ pub struct SelfHostedDbService {
     pub service_events: Channel<SelfHostedDbEvents>,
     pub task_ctl: Channel<()>,
     pub settings: Mutex<SelfHostedSettings>,
+    pub node_settings: Mutex<NodeSettings>,
     pub is_enabled: AtomicBool,
     logs: LogStores,
     server: Mutex<Option<ServerHandle>>,
@@ -285,6 +287,7 @@ impl SelfHostedDbService {
             service_events: Channel::unbounded(),
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
+            node_settings: Mutex::new(settings.node.clone()),
             is_enabled: AtomicBool::new(settings.self_hosted.enabled),
             logs,
             server: Mutex::new(None),
@@ -309,15 +312,26 @@ impl SelfHostedDbService {
             .unwrap();
     }
 
+    pub fn update_node_settings(&self, settings: NodeSettings) {
+        self.service_events
+            .try_send(SelfHostedDbEvents::UpdateNodeSettings(settings))
+            .unwrap();
+    }
+
     async fn start_server(&self) -> Result<()> {
         if self.server.lock().unwrap().is_some() {
             return Ok(());
         }
 
         let settings = self.settings.lock().unwrap().clone();
+        let node_settings = self.node_settings.lock().unwrap().clone();
         let addr = format!("{}:{}", settings.api_bind, settings.api_port)
             .parse::<std::net::SocketAddr>()
             .map_err(|err| Error::Custom(format!("invalid bind address: {err}")))?;
+        let db_name = crate::settings::self_hosted_db_name_for_network(
+            &settings.db_name,
+            node_settings.network,
+        );
 
         let state = AppState {
             db: DbConfig {
@@ -325,7 +339,7 @@ impl SelfHostedDbService {
                 port: settings.db_port,
                 user: settings.db_user,
                 password: settings.db_password,
-                dbname: settings.db_name,
+                dbname: db_name,
             },
             logs: self.logs.clone(),
         };
@@ -410,6 +424,15 @@ impl Service for SelfHostedDbService {
                             }
                             SelfHostedDbEvents::UpdateSettings(settings) => {
                                 *self.settings.lock().unwrap() = settings;
+                                if self.is_enabled.load(Ordering::Relaxed) {
+                                    self.stop_server().await;
+                                    if let Err(err) = self.start_server().await {
+                                        log_warn!("self-hosted-db: failed to restart server: {err}");
+                                    }
+                                }
+                            }
+                            SelfHostedDbEvents::UpdateNodeSettings(settings) => {
+                                *self.node_settings.lock().unwrap() = settings;
                                 if self.is_enabled.load(Ordering::Relaxed) {
                                     self.stop_server().await;
                                     if let Err(err) = self.start_server().await {

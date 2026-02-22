@@ -27,13 +27,11 @@ pub async fn accept_transactions(
     }
     accepted_transactions.sort_by(|a, b| a.transaction_id.cmp(&b.transaction_id));
     let batches: Vec<_> = accepted_transactions.chunks(batch_size).map(|c| c.to_vec()).collect();
-    let rows_added = stream::iter(batches.into_iter().map(|batch| {
+    stream::iter(batches.into_iter().map(|batch| {
         let db = database.clone();
         async move { db.insert_transaction_acceptances(&batch).await.unwrap_or_else(|e| panic!("Insert acceptances FAILED: {e}")) }
     }))
     .buffer_unordered(concurrency)
     .fold(0, |acc, rows| async move { acc + rows })
-    .await;
-
-    rows_added
+    .await
 }
