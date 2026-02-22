@@ -546,9 +546,10 @@ where
         let mut editor_text = user_text.clone();
         let response = editor_create_fn(ui, &mut editor_text);
 
-        if focus_manager.matches(focus_value) && !response.has_focus() {
-            focus_manager.clear();
+        if focus_manager.matches(focus_value) {
+            // Request focus once, then clear to avoid stealing focus later.
             response.request_focus();
+            focus_manager.clear();
         }
 
         if *user_text != editor_text {
