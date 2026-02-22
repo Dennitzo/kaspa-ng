@@ -4,14 +4,13 @@ import Transaction from "../assets/transaction.svg";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useIncomingBlocks } from "../hooks/useIncomingBlocks";
 import { useMempoolSize } from "../hooks/useMempoolSize";
-import { useTransactionCount } from "../hooks/useTransactionCount";
-import { useTransactionsCount } from "../hooks/useTransactionsCount";
 import Card from "../layout/Card";
 import CardContainer from "../layout/CardContainer";
 import FooterHelper from "../layout/FooterHelper";
 import HelperBox from "../layout/HelperBox";
 import MainBox from "../layout/MainBox";
 import numeral from "numeral";
+import { useEffect, useRef, useState } from "react";
 
 export function meta() {
   return [
@@ -26,22 +25,43 @@ export function meta() {
 }
 
 export default function Transactions() {
-  const { transactions } = useIncomingBlocks();
-  const { data: transactionCount, isLoading: isLoadingTxCount } = useTransactionCount();
+  const { blocks, transactions, avgTxRate } = useIncomingBlocks();
   const { data: feeEstimate, isLoading: isLoadingFee } = useFeeEstimate();
-  const { data: transactionsCountTotal, isLoading: isLoadingTxCountTotal } = useTransactionsCount();
   const { mempoolSize: mempoolSize } = useMempoolSize();
-  const totalTransactionsRaw =
-    (transactionsCountTotal?.regular || 0) + (transactionsCountTotal?.coinbase || 0);
+  const [avgTpsSinceOpen, setAvgTpsSinceOpen] = useState(0);
+  const [totalTxSinceOpen, setTotalTxSinceOpen] = useState(0);
+  const statsStartedAtRef = useRef<number | null>(null);
+  const seenBlockHashesRef = useRef<Set<string>>(new Set());
+  const txCountSinceOpenRef = useRef(0);
 
-  const totalTxCount = isLoadingTxCountTotal
-    ? ""
-    : Math.floor(totalTransactionsRaw / 1_000_000).toString();
+  useEffect(() => {
+    if (!blocks.length) return;
 
-  const txCount =
-    transactionCount && transactionCount.length > 0
-      ? (transactionCount[0].regular + transactionCount[0].coinbase) / 3600
-      : "-";
+    const now = Date.now();
+    if (statsStartedAtRef.current === null) {
+      statsStartedAtRef.current = now;
+      seenBlockHashesRef.current = new Set(blocks.map((block) => block.block_hash));
+      txCountSinceOpenRef.current = 0;
+      setTotalTxSinceOpen(0);
+      setAvgTpsSinceOpen(0);
+      return;
+    }
+
+    let newTxs = 0;
+    for (const block of blocks) {
+      if (!seenBlockHashesRef.current.has(block.block_hash)) {
+        seenBlockHashesRef.current.add(block.block_hash);
+        newTxs += block.txCount || 0;
+      }
+    }
+
+    if (newTxs > 0) {
+      txCountSinceOpenRef.current += newTxs;
+      setTotalTxSinceOpen(txCountSinceOpenRef.current);
+      const elapsedSeconds = Math.max((now - statsStartedAtRef.current) / 1000, 1);
+      setAvgTpsSinceOpen(txCountSinceOpenRef.current / elapsedSeconds);
+    }
+  }, [blocks]);
 
   const regularFee =
     feeEstimate && feeEstimate.normalBuckets && feeEstimate.normalBuckets.length > 0
@@ -52,8 +72,8 @@ export default function Transactions() {
     <>
       <MainBox>
         <CardContainer title="Transactions">
-          <Card title="Total transactions" value={`${numeral(totalTxCount).format("0")} M`} />
-          <Card title="Average TPS (1 hr)" value={`${numeral(txCount).format("0.0")}`} loading={isLoadingTxCount} />
+          <Card title="Total transactions" value={numeral(totalTxSinceOpen).format("0,0")} />
+          <Card title="Average TPS" value={`${numeral(avgTpsSinceOpen || avgTxRate).format("0.0")}`} />
           <Card
             title="Regular fee"
             value={`${numeral(regularFee).format("0.00000000")} KAS`}

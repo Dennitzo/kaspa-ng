@@ -28,7 +28,11 @@ async def periodical_mempool():
 async def emit_mempool():
     global mempool
     resp = await get_info()
+    mempool_size = resp.get("mempoolSize")
+    if mempool_size is None:
+        # Some responses can be partial while backend is still warming up.
+        return
 
-    if resp["mempoolSize"] != mempool:
-        mempool = resp["mempoolSize"]
+    if mempool_size != mempool:
+        mempool = mempool_size
         await sio.emit("mempool", mempool, room="mempool")

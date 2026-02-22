@@ -16,7 +16,7 @@ import localeData from "dayjs/plugin/localeData";
 import localizedFormat from "dayjs/plugin/localizedFormat";
 import relativeTime from "dayjs/plugin/relativeTime";
 import numeral from "numeral";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 dayjs().locale("en");
 dayjs.extend(relativeTime);
@@ -36,14 +36,52 @@ export function meta() {
 }
 
 export default function Blocks() {
-  const { data: blockDagInfo, isLoading: isLoadingBlockDagInfo } = useBlockdagInfo();
+  const { data: blockDagInfo } = useBlockdagInfo();
   const { data: blockReward, isLoading: isLoadingBlockReward } = useBlockReward();
-  const { data: transactionsCount, isLoading: isLoadingTxCount } = useTransactionsCount();
-  const totalTransactionsRaw = (transactionsCount?.regular || 0) + (transactionsCount?.coinbase || 0);
+  const { isLoading: isLoadingTxCount } = useTransactionsCount();
 
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [avgBpsSinceOpen, setAvgBpsSinceOpen] = useState(0);
+  const [totalBlocksSinceOpen, setTotalBlocksSinceOpen] = useState(0);
+  const [totalTxSinceOpen, setTotalTxSinceOpen] = useState(0);
+  const statsStartedAtRef = useRef<number | null>(null);
+  const seenBlockHashesRef = useRef<Set<string>>(new Set());
 
   const { blocks: incomingBlocks, avgBlockTime } = useIncomingBlocks();
+
+  useEffect(() => {
+    if (!incomingBlocks.length) return;
+
+    const now = Date.now();
+    if (statsStartedAtRef.current === null) {
+      statsStartedAtRef.current = now;
+      seenBlockHashesRef.current = new Set(incomingBlocks.map((block) => block.block_hash));
+      setAvgBpsSinceOpen(0);
+      setTotalBlocksSinceOpen(0);
+      setTotalTxSinceOpen(0);
+      return;
+    }
+
+    let newBlocks = 0;
+    let newTxCount = 0;
+    for (const block of incomingBlocks) {
+      if (!seenBlockHashesRef.current.has(block.block_hash)) {
+        seenBlockHashesRef.current.add(block.block_hash);
+        newBlocks += 1;
+        newTxCount += block.txCount || 0;
+      }
+    }
+
+    if (newBlocks > 0) {
+      const elapsedSeconds = Math.max((now - statsStartedAtRef.current) / 1000, 1);
+      setTotalBlocksSinceOpen((prev) => {
+        const next = prev + newBlocks;
+        setAvgBpsSinceOpen(next / elapsedSeconds);
+        return next;
+      });
+      setTotalTxSinceOpen((prev) => prev + newTxCount);
+    }
+  }, [incomingBlocks]);
 
   useEffect(() => {
     if (!incomingBlocks.length) return;
@@ -61,22 +99,18 @@ export default function Blocks() {
     },
   });
 
-  const totalTxCount = isLoadingTxCount
-    ? ""
-    : Math.floor(totalTransactionsRaw / 1_000_000).toString();
   const displayedBlocks = blocks.slice(0, 10);
 
   return (
     <>
       <MainBox>
         <CardContainer title="Blocks">
+          <Card title="Total blocks" value={`${numeral(totalBlocksSinceOpen).format("0,0")}`} />
+          <Card loading={isLoadingTxCount} title="Total transactions" value={numeral(totalTxSinceOpen).format("0,0")} />
           <Card
-            loading={isLoadingBlockDagInfo}
-            title="Total blocks"
-            value={`${numeral(blockDagInfo?.virtualDaaScore).format("0,0")}`}
+            title="Average block time"
+            value={`${numeral(avgBpsSinceOpen || avgBlockTime).format("0.0")} bps`}
           />
-          <Card loading={isLoadingTxCount} title="Total transactions" value={`> ${totalTxCount} M `} />
-          <Card title="Average block time" value={`${numeral(avgBlockTime).format("0.0")} bps`} />
           <Card
             loading={isLoadingBlockReward}
             title="Block rewards"

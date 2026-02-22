@@ -28,6 +28,18 @@ copy_file_if_exists() {
   return 1
 }
 
+copy_dir_if_exists() {
+  local src="$1"
+  local dst="$2"
+  if [ -d "$src" ]; then
+    mkdir -p "$(dirname "$dst")"
+    rm -rf "$dst"
+    cp -R "$src" "$dst"
+    return 0
+  fi
+  return 1
+}
+
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 cp "$BIN" "$MACOS_DIR/"
@@ -45,6 +57,14 @@ elif [ -d "${ROOT}/kaspa-explorer-ng/build" ]; then
   mkdir -p "$MACOS_DIR/kaspa-explorer-ng"
   cp -r "${ROOT}/kaspa-explorer-ng/build" "$MACOS_DIR/kaspa-explorer-ng/"
 fi
+
+# Bundle explorer backend servers used by self-hosted REST/socket services.
+copy_dir_if_exists \
+  "${ROOT}/kaspa-rest-server" \
+  "${MACOS_DIR}/kaspa-rest-server" || true
+copy_dir_if_exists \
+  "${ROOT}/kaspa-socket-server" \
+  "${MACOS_DIR}/kaspa-socket-server" || true
 
 # Bundle K-Social frontend assets if present.
 if [ -d "${ROOT}/K/dist" ]; then

@@ -195,6 +195,45 @@ impl SelfHostedExplorerService {
         Self::find_in_path("python3").or_else(|| Self::find_in_path("python"))
     }
 
+    fn find_poetry_compatible_python() -> Option<PathBuf> {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            candidates.extend(
+                [
+                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
+                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
+                    "/usr/local/opt/python@3.12/bin/python3.12",
+                    "/usr/local/opt/python@3.11/bin/python3.11",
+                    "/usr/local/opt/python@3.10/bin/python3.10",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            candidates.extend(
+                ["/usr/bin/python3.12", "/usr/bin/python3.11", "/usr/bin/python3.10"]
+                    .into_iter()
+                    .map(PathBuf::from),
+            );
+        }
+
+        for candidate in candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        Self::find_in_path("python3.12")
+            .or_else(|| Self::find_in_path("python3.11"))
+            .or_else(|| Self::find_in_path("python3.10"))
+    }
+
     fn find_venv_python(root: &Path) -> Option<PathBuf> {
         let candidates = [
             root.join(".venv/bin/python3"),
@@ -249,17 +288,39 @@ impl SelfHostedExplorerService {
         }
         if root.join("pyproject.toml").exists() {
             if let Some(poetry) = Self::find_in_path("poetry") {
-                let mut cmd = Command::new(poetry);
-                cmd.arg("run")
-                    .arg("gunicorn")
-                    .arg("-w")
-                    .arg("1")
-                    .arg("-k")
-                    .arg("uvicorn.workers.UvicornWorker")
-                    .arg("main:app")
-                    .arg("-b")
-                    .arg(&bind_arg);
-                return Some(cmd);
+                if let Some(py) = Self::find_poetry_compatible_python() {
+                    let _ = std::process::Command::new(&poetry)
+                        .current_dir(root)
+                        .arg("env")
+                        .arg("use")
+                        .arg(py)
+                        .status();
+                }
+
+                // Ensure runtime deps exist in the selected poetry env.
+                if !Self::python_module_available(root, &poetry, &["run", "python"], "uvicorn") {
+                    let _ = std::process::Command::new(&poetry)
+                        .current_dir(root)
+                        .arg("install")
+                        .arg("--only")
+                        .arg("main")
+                        .arg("--no-root")
+                        .arg("--no-interaction")
+                        .status();
+                }
+                if Self::python_module_available(root, &poetry, &["run", "python"], "uvicorn") {
+                    let mut cmd = Command::new(poetry);
+                    cmd.arg("run")
+                        .arg("python")
+                        .arg("-m")
+                        .arg("uvicorn")
+                        .arg("main:app")
+                        .arg("--host")
+                        .arg(bind)
+                        .arg("--port")
+                        .arg(port.to_string());
+                    return Some(cmd);
+                }
             }
         }
 
@@ -267,14 +328,14 @@ impl SelfHostedExplorerService {
             if let Some(pipenv) = Self::find_in_path("pipenv") {
                 let mut cmd = Command::new(pipenv);
                 cmd.arg("run")
-                    .arg("gunicorn")
-                    .arg("-w")
-                    .arg("1")
-                    .arg("-k")
-                    .arg("uvicorn.workers.UvicornWorker")
+                    .arg("python")
+                    .arg("-m")
+                    .arg("uvicorn")
                     .arg("main:app")
-                    .arg("-b")
-                    .arg(&bind_arg);
+                    .arg("--host")
+                    .arg(bind)
+                    .arg("--port")
+                    .arg(port.to_string());
                 return Some(cmd);
             }
         }
@@ -289,6 +350,22 @@ impl SelfHostedExplorerService {
             .arg("--port")
             .arg(port.to_string());
         Some(cmd)
+    }
+
+    fn python_module_available(
+        root: &Path,
+        runner: &Path,
+        runner_args: &[&str],
+        module: &str,
+    ) -> bool {
+        let mut cmd = std::process::Command::new(runner);
+        cmd.current_dir(root);
+        for arg in runner_args {
+            cmd.arg(arg);
+        }
+        cmd.arg("-c").arg(format!("import {module}"));
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        matches!(cmd.status(), Ok(status) if status.success())
     }
 
     fn apply_common_env(cmd: &mut Command, settings: &SelfHostedSettings, node: &NodeSettings) {
