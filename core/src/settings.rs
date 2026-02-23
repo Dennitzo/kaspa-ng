@@ -1569,12 +1569,8 @@ impl Settings {
                             }
                         }
 
-                        let mut password_migrated = false;
-                        if sync_db_password_from_cluster_marker(&mut settings) {
-                            password_migrated = true;
-                        } else if maybe_use_legacy_primary_db_password(&mut settings) {
-                            password_migrated = true;
-                        }
+                        let password_migrated = sync_db_password_from_cluster_marker(&mut settings)
+                            || maybe_use_legacy_primary_db_password(&mut settings);
                         if password_migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() db password sync store error: {}", err);
