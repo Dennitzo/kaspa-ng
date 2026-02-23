@@ -219,7 +219,7 @@ impl SelfHostedExplorerService {
         {
             extra_dirs.extend([PathBuf::from("/usr/local/bin"), PathBuf::from("/usr/bin")]);
 
-            if let Some(home) = dirs::home_dir() {
+            if let Some(home) = workflow_core::dirs::home_dir() {
                 extra_dirs.push(home.join(".local/bin"));
             }
         }
