@@ -118,31 +118,39 @@ cfg_if! {
                 if cfg!(windows) { "rothschild.exe" } else { "rothschild" }
             }
 
-            fn running_from_macos_bundle() -> bool {
-                #[cfg(target_os = "macos")]
-                {
-                    if let Ok(exe) = std::env::current_exe() {
-                        return exe
-                            .to_string_lossy()
-                            .contains(".app/Contents/MacOS/");
-                    }
-                }
-                false
-            }
-
             fn find_rothschild_binary() -> Option<PathBuf> {
                 let bin_name = Self::rothschild_binary_name();
 
                 if let Ok(exe) = std::env::current_exe() {
                     if let Some(dir) = exe.parent() {
-                        let candidate = dir.join(bin_name);
-                        if candidate.exists() {
-                            return Some(candidate);
+                        let mut search_dirs = vec![dir.to_path_buf()];
+
+                        // macOS bundle layout:
+                        // <release>/Kaspa-NG.app/Contents/MacOS/kaspa-ng
+                        // Rothschild may be copied into <release>/rothschild.
+                        if let Some(release_dir) = dir
+                            .parent()
+                            .and_then(|p| p.parent())
+                            .and_then(|p| p.parent())
+                        {
+                            search_dirs.push(release_dir.to_path_buf());
+                        }
+
+                        if let Some(contents_dir) = dir.parent() {
+                            search_dirs.push(contents_dir.join("Resources"));
+                            search_dirs.push(contents_dir.join("Resources").join("bin"));
+                        }
+
+                        for search_dir in search_dirs {
+                            let candidate = search_dir.join(bin_name);
+                            if candidate.exists() {
+                                return Some(candidate);
+                            }
                         }
                     }
                 }
 
-                if !Self::running_from_macos_bundle() && let Ok(cwd) = std::env::current_dir() {
+                if let Ok(cwd) = std::env::current_dir() {
                     for profile in ["debug", "release"] {
                         let candidate = cwd.join("target").join(profile).join(bin_name);
                         if candidate.exists() {
