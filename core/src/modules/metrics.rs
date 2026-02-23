@@ -51,17 +51,7 @@ impl ModuleT for Metrics {
             graph_range_from = METRICS_SAMPLES_START;
         }
         
-        if graph_range_to > 0 {
-            graph_range_to = 0;
-        }
-
-        if graph_range_to < METRICS_SAMPLES_START {
-            graph_range_to = METRICS_SAMPLES_START;
-        }
-
-        if graph_range_to > 0 {
-            graph_range_to = 0;
-        }
+        graph_range_to = graph_range_to.clamp(METRICS_SAMPLES_START, 0);
 
         ui.horizontal(|ui|{
             ui.heading(i18n("Metrics"));
@@ -422,4 +412,3 @@ fn format_duration_unit(value: u64, unit: &str) -> String {
         format!("{} {}", value, unit)
     }
 }
-

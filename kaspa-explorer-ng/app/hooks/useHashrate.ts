@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { API_BASE } from "../api/config";
+import { getApiBase, getNetworkId } from "../api/config";
 
 interface HashrateInfo {
   hashrate: number;
@@ -8,9 +8,9 @@ interface HashrateInfo {
 
 export const useHashrate = () =>
   useQuery({
-    queryKey: ["hashrate"],
+    queryKey: ["hashrate", getNetworkId(), getApiBase()],
     queryFn: async () => {
-      const { data } = await axios.get(`${API_BASE}/info/hashrate`);
+      const { data } = await axios.get(`${getApiBase()}/info/hashrate`);
       return data as HashrateInfo;
     },
     refetchInterval: 20000,

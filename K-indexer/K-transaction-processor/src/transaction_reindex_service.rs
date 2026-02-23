@@ -4,6 +4,8 @@ use sqlx::PgPool;
 use std::time::Duration;
 use tracing::{error, info};
 
+const REINDEX_ADVISORY_LOCK_KEY: i64 = 7_311_201_001;
+
 /// Reindex service that runs REINDEX CONCURRENTLY on transactions table indexes
 /// every XX hours to prevent index bloat
 pub struct TransactionReindexService {
@@ -46,17 +48,42 @@ impl TransactionReindexService {
     async fn run_reindex_cycle(&self) {
         use std::time::Instant;
 
+        let mut conn = match self.pool.acquire().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("Failed to acquire DB connection for reindex cycle: {}", e);
+                return;
+            }
+        };
+
+        let lock_acquired = match sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
+            .bind(REINDEX_ADVISORY_LOCK_KEY)
+            .fetch_one(&mut *conn)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Failed to acquire reindex advisory lock: {}", e);
+                return;
+            }
+        };
+
+        if !lock_acquired {
+            info!("Skipping reindex cycle: another worker is already reindexing.");
+            return;
+        }
+
         info!("Starting reindex operation for transactions table indexes");
         let cycle_start = Instant::now();
 
         // Reindex transactions_pkey
-        match self.reindex_transactions_pkey().await {
+        match self.reindex_transactions_pkey(&mut conn).await {
             Ok(_) => info!("Successfully reindexed transactions_pkey"),
             Err(e) => error!("Failed to reindex transactions_pkey: {}", e),
         }
 
         // Reindex transactions_block_time_idx
-        match self.reindex_transactions_block_time_idx().await {
+        match self.reindex_transactions_block_time_idx(&mut conn).await {
             Ok(_) => info!("Successfully reindexed transactions_block_time_idx"),
             Err(e) => error!("Failed to reindex transactions_block_time_idx: {}", e),
         }
@@ -67,11 +94,22 @@ impl TransactionReindexService {
             cycle_duration.as_secs_f64(),
             cycle_duration.as_secs_f64() / 60.0
         );
+
+        if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(REINDEX_ADVISORY_LOCK_KEY)
+            .execute(&mut *conn)
+            .await
+        {
+            error!("Failed to release reindex advisory lock: {}", e);
+        }
     }
 
     /// Reindex the primary key index on transactions table
     /// Uses REINDEX CONCURRENTLY to avoid blocking reads/writes
-    async fn reindex_transactions_pkey(&self) -> Result<()> {
+    async fn reindex_transactions_pkey(
+        &self,
+        conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    ) -> Result<()> {
         use std::time::Instant;
 
         info!("Starting REINDEX on transactions_pkey...");
@@ -79,7 +117,7 @@ impl TransactionReindexService {
 
         // REINDEX CONCURRENTLY allows reads and writes to continue during reindex
         sqlx::query("REINDEX INDEX CONCURRENTLY transactions_pkey")
-            .execute(&self.pool)
+            .execute(&mut **conn)
             .await?;
 
         let duration = start.elapsed();
@@ -94,7 +132,10 @@ impl TransactionReindexService {
 
     /// Reindex the block_time index on transactions table
     /// Uses REINDEX CONCURRENTLY to avoid blocking reads/writes
-    async fn reindex_transactions_block_time_idx(&self) -> Result<()> {
+    async fn reindex_transactions_block_time_idx(
+        &self,
+        conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    ) -> Result<()> {
         use std::time::Instant;
 
         info!("Starting REINDEX on transactions_block_time_idx...");
@@ -102,7 +143,7 @@ impl TransactionReindexService {
 
         // REINDEX CONCURRENTLY allows reads and writes to continue during reindex
         sqlx::query("REINDEX INDEX CONCURRENTLY transactions_block_time_idx")
-            .execute(&self.pool)
+            .execute(&mut **conn)
             .await?;
 
         let duration = start.elapsed();

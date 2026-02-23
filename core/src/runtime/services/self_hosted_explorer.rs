@@ -7,8 +7,6 @@ use tokio::process::{Child, Command};
 #[cfg(unix)]
 use tokio::time::{Duration, sleep, timeout};
 
-const DEFAULT_GRPC_PORT: u16 = 16110;
-
 pub enum SelfHostedExplorerEvents {
     Enable,
     Disable,
@@ -31,11 +29,30 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
+    fn default_grpc_port_for_network(network: Network) -> u16 {
+        match network {
+            Network::Mainnet => 16110,
+            Network::Testnet10 | Network::Testnet12 => 16210,
+        }
+    }
+
+    fn running_from_macos_bundle() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(exe) = std::env::current_exe() {
+                return exe.to_string_lossy().contains(".app/Contents/MacOS/");
+            }
+        }
+        false
+    }
+
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
-        if upper.contains("CRITICAL") || upper.contains("[CRITICAL]") {
-            "ERROR"
-        } else if upper.contains("ERROR") || upper.contains("[ERROR]") {
+        if upper.contains("CRITICAL")
+            || upper.contains("[CRITICAL]")
+            || upper.contains("ERROR")
+            || upper.contains("[ERROR]")
+        {
             "ERROR"
         } else if upper.contains("WARN") || upper.contains("[WARN]") {
             "WARN"
@@ -103,7 +120,10 @@ impl SelfHostedExplorerService {
         if addr.contains(':') {
             Some(addr)
         } else {
-            Some(format!("{addr}:{DEFAULT_GRPC_PORT}"))
+            Some(format!(
+                "{addr}:{}",
+                Self::default_grpc_port_for_network(settings.network)
+            ))
         }
     }
 
@@ -132,6 +152,86 @@ impl SelfHostedExplorerService {
         std::env::split_paths(&path_var)
             .map(|dir| dir.join(bin_name))
             .find(|candidate| candidate.exists())
+    }
+
+    fn find_executable(bin_name: &str, extra_dirs: &[PathBuf]) -> Option<PathBuf> {
+        for dir in extra_dirs {
+            let candidate = dir.join(bin_name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+        Self::find_in_path(bin_name)
+    }
+
+    fn find_poetry() -> Option<PathBuf> {
+        let mut extra_dirs: Vec<PathBuf> = Vec::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            extra_dirs.extend([
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+            ]);
+
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                extra_dirs.push(home.join(".local/bin"));
+                extra_dirs.push(home.join("Library/Application Support/pypoetry/venv/bin"));
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            extra_dirs.extend([PathBuf::from("/usr/local/bin"), PathBuf::from("/usr/bin")]);
+
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                extra_dirs.push(home.join(".local/bin"));
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                extra_dirs.push(home.join("AppData/Roaming/Python/Scripts"));
+                extra_dirs.push(home.join("AppData/Local/pypoetry/Cache/virtualenvs"));
+            }
+        }
+
+        Self::find_executable("poetry", &extra_dirs)
+    }
+
+    fn find_pipenv() -> Option<PathBuf> {
+        let mut extra_dirs: Vec<PathBuf> = Vec::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            extra_dirs.extend([
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+            ]);
+
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                extra_dirs.push(home.join(".local/bin"));
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            extra_dirs.extend([PathBuf::from("/usr/local/bin"), PathBuf::from("/usr/bin")]);
+
+            if let Some(home) = dirs::home_dir() {
+                extra_dirs.push(home.join(".local/bin"));
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                extra_dirs.push(home.join("AppData/Roaming/Python/Scripts"));
+            }
+        }
+
+        Self::find_executable("pipenv", &extra_dirs)
     }
 
     fn find_python() -> Option<PathBuf> {
@@ -247,14 +347,49 @@ impl SelfHostedExplorerService {
         candidates.into_iter().find(|path| path.exists())
     }
 
+    fn find_poetry_cached_venv_python(root: &Path) -> Option<PathBuf> {
+        let project_name = root.file_name()?.to_string_lossy().to_string();
+        let home = workflow_core::dirs::home_dir()?;
+
+        let cache_dirs = [
+            home.join("Library/Caches/pypoetry/virtualenvs"),
+            home.join(".cache/pypoetry/virtualenvs"),
+        ];
+
+        for cache_dir in cache_dirs {
+            let Ok(entries) = std::fs::read_dir(cache_dir) else {
+                continue;
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+
+                if !name.starts_with(&project_name) {
+                    continue;
+                }
+
+                let candidates = [path.join("bin/python"), path.join("bin/python3")];
+                if let Some(python) = candidates.into_iter().find(|p| p.exists()) {
+                    return Some(python);
+                }
+            }
+        }
+
+        None
+    }
+
     fn find_server_root(name: &str) -> Option<PathBuf> {
         let mut candidates = Vec::new();
+        let is_macos_bundle = Self::running_from_macos_bundle();
 
         if let Ok(root) = std::env::var("KASPA_NG_EXPLORER_SERVERS_ROOT") {
             candidates.push(PathBuf::from(root).join(name));
         }
 
-        if let Ok(cwd) = std::env::current_dir() {
+        if !is_macos_bundle && let Ok(cwd) = std::env::current_dir() {
             candidates.push(cwd.join(name));
             for ancestor in cwd.ancestors().skip(1).take(4) {
                 candidates.push(ancestor.join(name));
@@ -291,7 +426,21 @@ impl SelfHostedExplorerService {
             return Some(cmd);
         }
         if root.join("pyproject.toml").exists() {
-            if let Some(poetry) = Self::find_in_path("poetry") {
+            if let Some(python) = Self::find_poetry_cached_venv_python(root) {
+                if Self::python_module_available_for_python(&python, "uvicorn") {
+                    let mut cmd = Command::new(python);
+                    cmd.arg("-m")
+                        .arg("uvicorn")
+                        .arg("main:app")
+                        .arg("--host")
+                        .arg(bind)
+                        .arg("--port")
+                        .arg(port.to_string());
+                    return Some(cmd);
+                }
+            }
+
+            if let Some(poetry) = Self::find_poetry() {
                 if let Some(py) = Self::find_poetry_compatible_python() {
                     let _ = std::process::Command::new(&poetry)
                         .current_dir(root)
@@ -329,7 +478,7 @@ impl SelfHostedExplorerService {
         }
 
         if root.join("Pipfile").exists() {
-            if let Some(pipenv) = Self::find_in_path("pipenv") {
+            if let Some(pipenv) = Self::find_pipenv() {
                 let mut cmd = Command::new(pipenv);
                 cmd.arg("run")
                     .arg("python")
@@ -367,6 +516,13 @@ impl SelfHostedExplorerService {
         for arg in runner_args {
             cmd.arg(arg);
         }
+        cmd.arg("-c").arg(format!("import {module}"));
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn python_module_available_for_python(python: &Path, module: &str) -> bool {
+        let mut cmd = std::process::Command::new(python);
         cmd.arg("-c").arg(format!("import {module}"));
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())

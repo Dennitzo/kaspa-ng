@@ -2,7 +2,21 @@
 use crate::imports::*;
 
 #[cfg(not(target_arch = "wasm32"))]
+fn running_from_macos_bundle() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            return exe.to_string_lossy().contains(".app/Contents/MacOS/");
+        }
+    }
+    false
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn try_cwd_repo_root() -> Result<Option<PathBuf>> {
+    if running_from_macos_bundle() {
+        return Ok(None);
+    }
     let cwd = std::env::current_dir()?;
     let cargo_toml = cwd.join("Cargo.toml");
     let resources = cwd.join("core").join("resources").join("i18n");
@@ -35,6 +49,14 @@ pub fn i18n_storage_folder() -> Result<PathBuf> {
         if path.exists() {
             path.pop();
             Ok(path)
+        } else if running_from_macos_bundle() {
+            let default_storage_folder =
+                kaspa_wallet_core::storage::local::default_storage_folder();
+            let storage_folder = workflow_store::fs::resolve_path(default_storage_folder)?;
+            if !storage_folder.exists() {
+                std::fs::create_dir_all(&storage_folder)?;
+            }
+            Ok(storage_folder.to_path_buf())
         } else {
             // check for i18n.json in the current working directory
             let mut local = std::env::current_dir()?.join("i18n.json");
@@ -76,6 +98,14 @@ pub fn i18n_storage_file() -> Result<PathBuf> {
         let in_same_folder = path.join("i18n.json");
         if in_same_folder.exists() {
             Ok(in_same_folder)
+        } else if running_from_macos_bundle() {
+            let default_storage_folder =
+                kaspa_wallet_core::storage::local::default_storage_folder();
+            let storage_folder = workflow_store::fs::resolve_path(default_storage_folder)?;
+            if !storage_folder.exists() {
+                std::fs::create_dir_all(&storage_folder)?;
+            }
+            Ok(storage_folder.join("kaspa-ng.i18n.json"))
         } else {
             // check for i18n.json in the current working directory
             let local = std::env::current_dir()?.join("i18n.json");

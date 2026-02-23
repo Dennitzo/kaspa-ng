@@ -3,22 +3,24 @@ use crate::imports::*;
 pub struct Welcome {
     #[allow(dead_code)]
     runtime: Runtime,
-    settings : Settings,
+    settings: Settings,
+    initialized_from_core: bool,
 }
 
 impl Welcome {
     pub fn new(runtime: Runtime) -> Self {
-
         #[allow(unused_mut)]
         let mut settings = Settings::default();
 
-        #[cfg(target_arch = "wasm32")] {
+        #[cfg(target_arch = "wasm32")]
+        {
             settings.node.node_kind = KaspadNodeKind::Remote;
         }
 
-        Self { 
-            runtime, 
+        Self {
+            runtime,
             settings,
+            initialized_from_core: false,
         }
     }
 
@@ -27,6 +29,10 @@ impl Welcome {
         core: &mut Core,
         ui: &mut egui::Ui,
     ) {
+        if !self.initialized_from_core {
+            self.settings = core.settings.clone();
+            self.initialized_from_core = true;
+        }
 
         let mut error = None;
 
@@ -162,14 +168,27 @@ impl Welcome {
                             settings.store_sync().expect(message);
                             self.runtime.kaspa_service().update_services(&self.settings.node, None);
                             core.settings = settings.clone();
-                            core.get_mut::<modules::Settings>().load(settings);
-                            cfg_if!{
-                                if #[cfg(not(target_arch = "wasm32"))] {
-                                    core.select::<modules::Changelog>();
-                                } else {
-                                    core.select::<modules::Overview>();
-                                }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                self.runtime
+                                    .self_hosted_db_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                self.runtime
+                                    .self_hosted_explorer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                self.runtime
+                                    .self_hosted_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                self.runtime
+                                    .self_hosted_postgres_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                self.runtime
+                                    .self_hosted_k_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
                             }
+                            core.complete_startup_network_selection();
+                            core.get_mut::<modules::Settings>().load(settings);
+                            core.select::<modules::Overview>();
                         }
                     });
                 }
@@ -195,6 +214,11 @@ impl Welcome {
         core: &mut Core,
         ui: &mut egui::Ui,
     ) {
+        if !self.initialized_from_core {
+            self.settings = core.settings.clone();
+            self.initialized_from_core = true;
+        }
+
         let mut proceed = false;
 
         Panel::new(self)
@@ -234,7 +258,26 @@ impl Welcome {
             let message = i18n("Unable to store settings");
             settings.store_sync().expect(message);
             core.settings = settings.clone();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.runtime
+                    .self_hosted_db_service()
+                    .update_node_settings(core.settings.node.clone());
+                self.runtime
+                    .self_hosted_explorer_service()
+                    .update_node_settings(core.settings.node.clone());
+                self.runtime
+                    .self_hosted_indexer_service()
+                    .update_node_settings(core.settings.node.clone());
+                self.runtime
+                    .self_hosted_postgres_service()
+                    .update_node_settings(core.settings.node.clone());
+                self.runtime
+                    .self_hosted_k_indexer_service()
+                    .update_node_settings(core.settings.node.clone());
+            }
             self.runtime.kaspa_service().update_services(&settings.node, None);
+            core.complete_startup_network_selection();
 
             core.get_mut::<modules::Settings>().load(settings);
             core.select::<modules::Overview>();

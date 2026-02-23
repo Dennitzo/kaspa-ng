@@ -1,4 +1,5 @@
 use crate::imports::*;
+use crate::settings::self_hosted_explorer_profiles_from_settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Write};
@@ -192,7 +193,7 @@ impl ModuleT for Explorer {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if self.server.is_none() && self.status.is_none() {
-                let port = core.settings.user_interface.explorer_port;
+                let port = core.settings.user_interface.effective_explorer_port();
                 match ExplorerServer::start(port) {
                     Ok(server) => {
                         self.server = Some(server);
@@ -283,7 +284,19 @@ impl ModuleT for Explorer {
                     .into(),
                 };
 
-                let endpoint = core.settings.explorer.endpoint(core.settings.node.network);
+                let endpoint = match core.settings.explorer.source {
+                    ExplorerDataSource::Official => core
+                        .settings
+                        .explorer
+                        .official
+                        .for_network(core.settings.node.network)
+                        .clone(),
+                    ExplorerDataSource::SelfHosted => self_hosted_explorer_profiles_from_settings(
+                        &core.settings.self_hosted,
+                    )
+                    .for_network(core.settings.node.network)
+                    .clone(),
+                };
                 let endpoint_signature = Some((
                     core.settings.explorer.source,
                     core.settings.node.network,
@@ -305,9 +318,14 @@ impl ModuleT for Explorer {
                     }
                     self.last_webview_attempt = Some(std::time::Instant::now());
 
-                    let start_url = explorer_start_url(server, &core.settings.user_interface.explorer_last_path);
+                    let start_url = explorer_start_url(
+                        server,
+                        &core.settings.user_interface.explorer_last_path,
+                        &endpoint,
+                        core.settings.node.network,
+                    );
                     let config_script =
-                        explorer_runtime_config_script(endpoint, core.settings.node.network);
+                        explorer_runtime_config_script(&endpoint, core.settings.node.network);
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
                         .with_bounds(bounds)
@@ -458,13 +476,26 @@ impl ExplorerServer {
 #[cfg(not(target_arch = "wasm32"))]
 fn find_explorer_root() -> Option<PathBuf> {
     let mut candidates = Vec::new();
+    let is_macos_bundle = {
+        #[cfg(target_os = "macos")]
+        {
+            std::env::current_exe()
+                .ok()
+                .map(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"))
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    };
     if let Ok(root) = std::env::var("KASPA_NG_EXPLORER_ROOT") {
         let root = PathBuf::from(root);
         candidates.push(root.join("build").join("client"));
         candidates.push(root.join("build"));
         candidates.push(root.join("dist"));
     }
-    if let Ok(cwd) = std::env::current_dir() {
+    if !is_macos_bundle && let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.join("kaspa-explorer-ng").join("build").join("client"));
         candidates.push(cwd.join("kaspa-explorer-ng").join("build"));
         candidates.push(cwd.join("kaspa-explorer-ng").join("dist"));
@@ -618,13 +649,51 @@ fn content_type_for_path(path: &Path) -> &'static str {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn explorer_start_url(server: &ExplorerServer, stored_path: &str) -> String {
+fn explorer_start_url(
+    server: &ExplorerServer,
+    stored_path: &str,
+    endpoint: &ExplorerEndpoint,
+    network: Network,
+) -> String {
     let trimmed = stored_path.trim();
-    if trimmed.is_empty() || trimmed == "/" {
-        return server.url.clone();
-    }
-    let path = trimmed.strip_prefix('/').unwrap_or(trimmed);
-    format!("{}{}", server.url, path)
+    let trimmed = trimmed
+        .split('#')
+        .next()
+        .unwrap_or(trimmed)
+        .split('?')
+        .next()
+        .unwrap_or(trimmed);
+    let base = if trimmed.is_empty() || trimmed == "/" {
+        server.url.clone()
+    } else {
+        let path = trimmed.strip_prefix('/').unwrap_or(trimmed);
+        format!("{}{}", server.url, path)
+    };
+
+    let separator = if base.contains('?') { '&' } else { '?' };
+    format!(
+        "{base}{separator}apiBase={}&socketUrl={}&socketPath={}&networkId={}",
+        query_escape(endpoint.api_base.as_str()),
+        query_escape(endpoint.socket_url.as_str()),
+        query_escape(endpoint.socket_path.as_str()),
+        query_escape(network.to_string().as_str())
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn query_escape(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![b as char]
+            }
+            _ => {
+                let hex = format!("%{b:02X}");
+                hex.chars().collect()
+            }
+        })
+        .collect()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -636,6 +705,13 @@ fn extract_explorer_path(current_url: &str, base_url: &str) -> Option<String> {
     if remainder.is_empty() {
         return Some("/".to_string());
     }
+    let remainder = remainder
+        .split('#')
+        .next()
+        .unwrap_or(remainder)
+        .split('?')
+        .next()
+        .unwrap_or(remainder);
     if remainder.starts_with('/') {
         Some(remainder.to_string())
     } else {

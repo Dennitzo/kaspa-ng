@@ -578,7 +578,7 @@ pub fn halt() {
             .enable_all()
             .build()
         {
-            let _ = rt.block_on(async move { runtime.shutdown().await });
+            rt.block_on(async move { runtime.shutdown().await });
         } else {
             log_error!("runtime::halt(): unable to create tokio runtime for shutdown");
         }

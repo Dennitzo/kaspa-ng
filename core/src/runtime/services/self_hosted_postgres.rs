@@ -25,6 +25,21 @@ pub struct SelfHostedPostgresService {
 }
 
 impl SelfHostedPostgresService {
+    fn password_marker_path(data_dir: &Path) -> PathBuf {
+        data_dir.join(".kaspa-ng-db-password")
+    }
+
+    fn write_password_marker(data_dir: &Path, password: &str) {
+        let marker = Self::password_marker_path(data_dir);
+        if let Err(err) = std::fs::write(&marker, password.as_bytes()) {
+            log_warn!(
+                "self-hosted-postgres: unable to write password marker '{}': {}",
+                marker.display(),
+                err
+            );
+        }
+    }
+
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
         // During crash recovery Postgres emits transient connection errors while still booting.
@@ -128,13 +143,22 @@ impl SelfHostedPostgresService {
     }
 
     fn resolve_data_dir(settings: &SelfHostedSettings) -> Result<PathBuf> {
+        let instance_slot = crate::settings::current_instance_slot();
         if !settings.postgres_data_dir.trim().is_empty() {
-            return Ok(PathBuf::from(settings.postgres_data_dir.trim()));
+            let mut path = PathBuf::from(settings.postgres_data_dir.trim());
+            if instance_slot > 0 {
+                path.push(format!("instance-{instance_slot}"));
+            }
+            return Ok(path);
         }
 
         let default_storage_folder = kaspa_wallet_core::storage::local::default_storage_folder();
         let storage_folder = workflow_store::fs::resolve_path(default_storage_folder)?;
-        Ok(storage_folder.join("self-hosted").join("postgres"))
+        let mut path = storage_folder.join("self-hosted").join("postgres");
+        if instance_slot > 0 {
+            path.push(format!("instance-{instance_slot}"));
+        }
+        Ok(path)
     }
 
     fn postgres_bin_path(binary: &str) -> Result<PathBuf> {
@@ -236,7 +260,10 @@ impl SelfHostedPostgresService {
         let _ = std::fs::remove_file(&pwfile);
 
         match status {
-            Ok(status) if status.success() => Ok(()),
+            Ok(status) if status.success() => {
+                Self::write_password_marker(data_dir, settings.db_password.as_str());
+                Ok(())
+            }
             Ok(status) => Err(Error::Custom(format!("initdb failed with status {status}"))),
             Err(err) => Err(Error::Custom(format!("initdb failed: {err}"))),
         }
@@ -344,7 +371,14 @@ impl SelfHostedPostgresService {
             settings.db_name.as_str(),
             node.network,
         );
-        let db_port = settings.effective_db_port(node.network);
+        let primary_db_port = settings.effective_db_port(node.network);
+        let mut db_ports = vec![primary_db_port];
+        for network in [Network::Mainnet, Network::Testnet10, Network::Testnet12] {
+            let port = settings.effective_db_port(network);
+            if !db_ports.contains(&port) {
+                db_ports.push(port);
+            }
+        }
         let db_name = db_name.trim();
 
         if db_user.is_empty() || db_name.is_empty() {
@@ -370,77 +404,82 @@ impl SelfHostedPostgresService {
             db_user.replace('\"', "\"\""),
         );
 
-        let run_psql =
-            |admin: Option<&str>, host: Option<&str>, use_tcp: bool, sql: &str| -> Result<String> {
-                let mut cmd = std::process::Command::new(&psql_bin);
-                cmd.arg("-X")
-                    .arg("-v")
-                    .arg("ON_ERROR_STOP=1")
-                    .arg("-w")
-                    .arg("-d")
-                    .arg("postgres")
-                    .arg("-tAc")
-                    .arg(sql);
-                cmd.arg("-p").arg(db_port.to_string());
-                match (use_tcp, host) {
-                    (true, Some(host)) => {
-                        cmd.arg("-h").arg(host);
-                    }
-                    (true, None) => {
-                        cmd.arg("-h").arg(settings.db_host.clone());
-                    }
-                    (false, Some(host)) => {
-                        cmd.arg("-h").arg(host);
-                    }
-                    (false, None) => {}
+        let run_psql = |db_port: u16,
+                        admin: Option<&str>,
+                        host: Option<&str>,
+                        use_tcp: bool,
+                        sql: &str|
+         -> Result<String> {
+            let mut cmd = std::process::Command::new(&psql_bin);
+            cmd.arg("-X")
+                .arg("-v")
+                .arg("ON_ERROR_STOP=1")
+                .arg("-w")
+                .arg("-d")
+                .arg("postgres")
+                .arg("-tAc")
+                .arg(sql);
+            cmd.arg("-p").arg(db_port.to_string());
+            match (use_tcp, host) {
+                (true, Some(host)) => {
+                    cmd.arg("-h").arg(host);
                 }
-                if let Some(admin) = admin {
-                    cmd.arg("-U").arg(admin);
+                (true, None) => {
+                    cmd.arg("-h").arg(settings.db_host.clone());
                 }
-                cmd.env("PGPASSWORD", db_password);
-                cmd.env("LC_MESSAGES", "C");
-                let output = cmd.output().map_err(|err| Error::Custom(err.to_string()))?;
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    return Ok(stdout.trim().to_string());
+                (false, Some(host)) => {
+                    cmd.arg("-h").arg(host);
                 }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(Error::Custom(stderr.trim().to_string()))
-            };
+                (false, None) => {}
+            }
+            if let Some(admin) = admin {
+                cmd.arg("-U").arg(admin);
+            }
+            cmd.env("PGPASSWORD", db_password);
+            cmd.env("LC_MESSAGES", "C");
+            let output = cmd.output().map_err(|err| Error::Custom(err.to_string()))?;
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return Ok(stdout.trim().to_string());
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::Custom(stderr.trim().to_string()))
+        };
 
         let mut last_error: Option<String> = None;
 
-        let try_psql = |admin: Option<&str>,
+        let try_psql = |db_port: u16,
+                        admin: Option<&str>,
                         host: Option<&str>,
                         use_tcp: bool,
                         last_error: &mut Option<String>| {
-            let role_exists = match run_psql(admin, host, use_tcp, &role_exists_sql) {
+            let role_exists = match run_psql(db_port, admin, host, use_tcp, &role_exists_sql) {
                 Ok(out) => !out.is_empty(),
                 Err(err) => {
                     *last_error = Some(format!(
-                        "role check failed (admin={:?}, host={:?}, tcp={}): {}",
-                        admin, host, use_tcp, err
+                        "role check failed (port={}, admin={:?}, host={:?}, tcp={}): {}",
+                        db_port, admin, host, use_tcp, err
                     ));
                     return false;
                 }
             };
 
             if !role_exists {
-                if let Err(err) = run_psql(admin, host, use_tcp, &create_role_sql) {
+                if let Err(err) = run_psql(db_port, admin, host, use_tcp, &create_role_sql) {
                     *last_error = Some(format!(
-                        "role creation failed (admin={:?}, host={:?}, tcp={}): {}",
-                        admin, host, use_tcp, err
+                        "role creation failed (port={}, admin={:?}, host={:?}, tcp={}): {}",
+                        db_port, admin, host, use_tcp, err
                     ));
                     return false;
                 }
             }
 
-            let db_exists = match run_psql(admin, host, use_tcp, &db_exists_sql) {
+            let db_exists = match run_psql(db_port, admin, host, use_tcp, &db_exists_sql) {
                 Ok(out) => !out.is_empty(),
                 Err(err) => {
                     *last_error = Some(format!(
-                        "db check failed (admin={:?}, host={:?}, tcp={}): {}",
-                        admin, host, use_tcp, err
+                        "db check failed (port={}, admin={:?}, host={:?}, tcp={}): {}",
+                        db_port, admin, host, use_tcp, err
                     ));
                     return false;
                 }
@@ -450,10 +489,10 @@ impl SelfHostedPostgresService {
                 return true;
             }
 
-            if let Err(err) = run_psql(admin, host, use_tcp, &create_db_sql) {
+            if let Err(err) = run_psql(db_port, admin, host, use_tcp, &create_db_sql) {
                 *last_error = Some(format!(
-                    "db creation failed (admin={:?}, host={:?}, tcp={}): {}",
-                    admin, host, use_tcp, err
+                    "db creation failed (port={}, admin={:?}, host={:?}, tcp={}): {}",
+                    db_port, admin, host, use_tcp, err
                 ));
                 return false;
             }
@@ -472,32 +511,40 @@ impl SelfHostedPostgresService {
         let socket_hosts: Vec<&str> = Vec::new();
 
         for _ in 0..5 {
-            if !db_user.is_empty() {
-                if try_psql(Some(db_user), None, false, &mut last_error) {
-                    return;
-                }
-                for socket in &socket_hosts {
-                    if try_psql(Some(db_user), Some(socket), false, &mut last_error) {
+            for db_port in &db_ports {
+                if !db_user.is_empty() {
+                    if try_psql(*db_port, Some(db_user), None, false, &mut last_error) {
+                        return;
+                    }
+                    for socket in &socket_hosts {
+                        if try_psql(
+                            *db_port,
+                            Some(db_user),
+                            Some(socket),
+                            false,
+                            &mut last_error,
+                        ) {
+                            return;
+                        }
+                    }
+                    if try_psql(*db_port, Some(db_user), None, true, &mut last_error) {
                         return;
                     }
                 }
-                if try_psql(Some(db_user), None, true, &mut last_error) {
-                    return;
-                }
-            }
 
-            let admin_users = Self::admin_user_candidates();
-            for admin in admin_users {
-                if try_psql(Some(&admin), None, false, &mut last_error) {
-                    return;
-                }
-                for socket in &socket_hosts {
-                    if try_psql(Some(&admin), Some(socket), false, &mut last_error) {
+                let admin_users = Self::admin_user_candidates();
+                for admin in admin_users {
+                    if try_psql(*db_port, Some(&admin), None, false, &mut last_error) {
                         return;
                     }
-                }
-                if try_psql(Some(&admin), None, true, &mut last_error) {
-                    return;
+                    for socket in &socket_hosts {
+                        if try_psql(*db_port, Some(&admin), Some(socket), false, &mut last_error) {
+                            return;
+                        }
+                    }
+                    if try_psql(*db_port, Some(&admin), None, true, &mut last_error) {
+                        return;
+                    }
                 }
             }
 
@@ -753,6 +800,12 @@ impl SelfHostedPostgresService {
             let _ = std::fs::remove_file(&postmaster_pid);
         }
         self.initdb_if_needed(&settings, &data_dir)?;
+        if data_dir.join("PG_VERSION").exists()
+            && !Self::password_marker_path(&data_dir).exists()
+            && !settings.db_password.trim().is_empty()
+        {
+            Self::write_password_marker(&data_dir, settings.db_password.as_str());
+        }
 
         let postgres_bin = Self::postgres_bin_path("postgres")?;
         let mut cmd = Command::new(postgres_bin);
@@ -940,18 +993,44 @@ impl Service for SelfHostedPostgresService {
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
+                                let service_settings = this.settings.lock().unwrap().clone();
+                                let previous_node_settings = this.node_settings.lock().unwrap().clone();
                                 *this.node_settings.lock().unwrap() = settings;
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    // Network switches do not require a postgres restart.
-                                    // Ensure role/database for the new effective network DB only.
-                                    let service_settings = this.settings.lock().unwrap().clone();
                                     let node_settings = this.node_settings.lock().unwrap().clone();
-                                    Self::ensure_role_and_database(
-                                        &service_settings,
-                                        &node_settings,
-                                        &this.logs,
-                                    )
-                                    .await;
+                                    let previous_port =
+                                        service_settings.effective_db_port(previous_node_settings.network);
+                                    let next_port =
+                                        service_settings.effective_db_port(node_settings.network);
+
+                                    // Postgres listens on a per-network effective port, so we must
+                                    // restart when network switch changes the effective port.
+                                    if previous_port != next_port {
+                                        this.logs.push(
+                                            "INFO",
+                                            &format!(
+                                                "network switch requires postgres restart (port {} -> {})",
+                                                previous_port, next_port
+                                            ),
+                                        );
+                                        let _ = this.stop_postgres().await;
+                                        let _ = this.start_postgres().await;
+                                    } else if Self::wait_for_ready(&service_settings, &node_settings, 20)
+                                        .await
+                                        .is_ok()
+                                    {
+                                        Self::ensure_role_and_database(
+                                            &service_settings,
+                                            &node_settings,
+                                            &this.logs,
+                                        )
+                                        .await;
+                                    } else {
+                                        this.logs.push(
+                                            "INFO",
+                                            "postgres is restarting; role/database check deferred",
+                                        );
+                                    }
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::ResetDatabases) => {

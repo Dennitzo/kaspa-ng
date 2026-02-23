@@ -4,6 +4,11 @@ use kaspa_utils::networking::ContextualNetAddress;
 use kaspa_wallet_core::storage::local::storage::Storage;
 use kaspa_wrpc_client::WrpcEncoding;
 use rand::distributions::Alphanumeric;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 use workflow_core::{runtime, task::spawn};
 
 const SETTINGS_REVISION: &str = "0.0.0";
@@ -649,6 +654,8 @@ pub struct UserInterfaceSettings {
     pub explorer_last_path: String,
     #[serde(default)]
     pub explorer_port: u16,
+    #[serde(default = "default_true")]
+    pub startup_network_selection_on_launch: bool,
 }
 
 impl Default for UserInterfaceSettings {
@@ -670,7 +677,16 @@ impl Default for UserInterfaceSettings {
             disable_frame: true,
             explorer_last_path: "/".to_string(),
             explorer_port: 51963,
+            startup_network_selection_on_launch: true,
         }
+    }
+}
+
+impl UserInterfaceSettings {
+    pub fn effective_explorer_port(&self) -> u16 {
+        self.explorer_port
+            .checked_add(self_hosted_instance_port_offset())
+            .unwrap_or(self.explorer_port)
     }
 }
 
@@ -807,6 +823,10 @@ fn default_explorer_rest_port() -> u16 {
     19112
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_explorer_socket_port() -> u16 {
     19113
 }
@@ -817,6 +837,11 @@ fn default_k_web_port() -> u16 {
 
 const SELF_HOSTED_PORT_OFFSET_TESTNET10: u16 = 100;
 const SELF_HOSTED_PORT_OFFSET_TESTNET12: u16 = 200;
+const SELF_HOSTED_INSTANCE_PORT_STEP: u16 = 1000;
+const SELF_HOSTED_INSTANCE_SLOT_MAX: u16 = 32;
+
+static SELF_HOSTED_INSTANCE_PORT_OFFSET: OnceLock<u16> = OnceLock::new();
+static SELF_HOSTED_INSTANCE_SLOT_LOCK: OnceLock<Option<File>> = OnceLock::new();
 
 fn self_hosted_network_port_offset(network: Network) -> u16 {
     match network {
@@ -826,8 +851,95 @@ fn self_hosted_network_port_offset(network: Network) -> u16 {
     }
 }
 
+fn self_hosted_base_ports() -> [u16; 6] {
+    [19111, 19112, 19113, 5432, 3000, 8500]
+}
+
+fn port_available(port: u16) -> bool {
+    TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+fn slot_works_for_all_networks(slot_offset: u16) -> bool {
+    let network_offsets = [
+        self_hosted_network_port_offset(Network::Mainnet),
+        self_hosted_network_port_offset(Network::Testnet10),
+        self_hosted_network_port_offset(Network::Testnet12),
+    ];
+
+    self_hosted_base_ports().iter().all(|base_port| {
+        network_offsets.iter().all(|network_offset| {
+            base_port
+                .checked_add(*network_offset)
+                .and_then(|v| v.checked_add(slot_offset))
+                .map(port_available)
+                .unwrap_or(false)
+        })
+    })
+}
+
+fn slot_lock_path(slot: u16) -> PathBuf {
+    std::env::temp_dir().join(format!("kaspa-ng-self-hosted-slot-{slot}.lock"))
+}
+
+fn try_reserve_slot(slot: u16) -> Option<File> {
+    let path = slot_lock_path(slot);
+    let create = || OpenOptions::new().write(true).create_new(true).open(&path);
+
+    match create() {
+        Ok(mut file) => {
+            let _ = file.write_all(std::process::id().to_string().as_bytes());
+            Some(file)
+        }
+        Err(_) => {
+            // Auto-heal stale lock files if this slot ports are currently all free.
+            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
+            if slot_works_for_all_networks(slot_offset) {
+                let _ = std::fs::remove_file(&path);
+                if let Ok(mut file) = create() {
+                    let _ = file.write_all(std::process::id().to_string().as_bytes());
+                    return Some(file);
+                }
+            }
+            None
+        }
+    }
+}
+
+fn self_hosted_instance_port_offset() -> u16 {
+    *SELF_HOSTED_INSTANCE_PORT_OFFSET.get_or_init(|| {
+        if let Ok(value) = std::env::var("KASPA_NG_INSTANCE_PORT_OFFSET") {
+            if let Ok(offset) = value.trim().parse::<u16>() {
+                return offset;
+            }
+        }
+
+        for slot in 0..=SELF_HOSTED_INSTANCE_SLOT_MAX {
+            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
+            if let Some(file) = try_reserve_slot(slot) {
+                let _ = SELF_HOSTED_INSTANCE_SLOT_LOCK.set(Some(file));
+                return slot_offset;
+            }
+        }
+
+        // Fallback when lock files are not writable.
+        for slot in 0..=SELF_HOSTED_INSTANCE_SLOT_MAX {
+            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
+            if slot_works_for_all_networks(slot_offset) {
+                return slot_offset;
+            }
+        }
+
+        0
+    })
+}
+
+pub fn current_instance_slot() -> u16 {
+    self_hosted_instance_port_offset() / SELF_HOSTED_INSTANCE_PORT_STEP
+}
+
 fn with_network_port_offset(port: u16, network: Network) -> u16 {
     port.checked_add(self_hosted_network_port_offset(network))
+        .and_then(|v| v.checked_add(self_hosted_instance_port_offset()))
         .unwrap_or(port)
 }
 
@@ -1121,7 +1233,94 @@ pub(crate) fn generate_db_password() -> String {
 }
 
 fn storage() -> Result<Storage> {
-    Ok(Storage::try_new("kaspa-ng.settings")?)
+    let slot = current_instance_slot();
+    if slot == 0 {
+        // Keep legacy filename for primary instance to preserve existing user settings.
+        Ok(Storage::try_new("kaspa-ng.settings")?)
+    } else {
+        let filename = format!("kaspa-ng.instance-{slot}.settings");
+        Ok(Storage::try_new(filename.as_str())?)
+    }
+}
+
+fn resolve_self_hosted_postgres_data_dir(
+    settings: &SelfHostedSettings,
+    slot: u16,
+) -> Option<PathBuf> {
+    if !settings.postgres_data_dir.trim().is_empty() {
+        let mut path = PathBuf::from(settings.postgres_data_dir.trim());
+        if slot > 0 {
+            path.push(format!("instance-{slot}"));
+        }
+        return Some(path);
+    }
+
+    let default_storage_folder = kaspa_wallet_core::storage::local::default_storage_folder();
+    let storage_folder = workflow_store::fs::resolve_path(default_storage_folder).ok()?;
+    let mut path = storage_folder.join("self-hosted").join("postgres");
+    if slot > 0 {
+        path.push(format!("instance-{slot}"));
+    }
+    Some(path)
+}
+
+fn maybe_use_legacy_primary_db_password(settings: &mut Settings) -> bool {
+    let slot = current_instance_slot();
+    if slot == 0 {
+        return false;
+    }
+
+    let Some(data_dir) = resolve_self_hosted_postgres_data_dir(&settings.self_hosted, slot) else {
+        return false;
+    };
+
+    // Existing instance data dirs created before per-instance settings split
+    // won't have this marker file yet.
+    let has_existing_cluster = data_dir.join("PG_VERSION").exists();
+    let has_password_marker = data_dir.join(".kaspa-ng-db-password").exists();
+    if !has_existing_cluster || has_password_marker {
+        return false;
+    }
+
+    let Ok(primary_storage) = Storage::try_new("kaspa-ng.settings") else {
+        return false;
+    };
+    if !primary_storage.exists_sync().unwrap_or(false) {
+        return false;
+    }
+
+    let Ok(primary_settings) =
+        workflow_store::fs::read_json_sync::<Settings>(primary_storage.filename())
+    else {
+        return false;
+    };
+
+    let primary_password = primary_settings.self_hosted.db_password.trim();
+    if primary_password.is_empty() || primary_password == settings.self_hosted.db_password.trim() {
+        return false;
+    }
+
+    settings.self_hosted.db_password = primary_password.to_string();
+    true
+}
+
+fn sync_db_password_from_cluster_marker(settings: &mut Settings) -> bool {
+    let slot = current_instance_slot();
+    let Some(data_dir) = resolve_self_hosted_postgres_data_dir(&settings.self_hosted, slot) else {
+        return false;
+    };
+
+    let marker = data_dir.join(".kaspa-ng-db-password");
+    let Ok(marker_password) = std::fs::read_to_string(marker) else {
+        return false;
+    };
+    let marker_password = marker_password.trim();
+    if marker_password.is_empty() || marker_password == settings.self_hosted.db_password.trim() {
+        return false;
+    }
+
+    settings.self_hosted.db_password = marker_password.to_string();
+    true
 }
 
 impl Settings {
@@ -1285,12 +1484,6 @@ impl Settings {
                             settings.self_hosted.k_web_port = default_k_web_port();
                             migrated = true;
                         }
-                        if !matches!(settings.node.network, Network::Mainnet)
-                            && settings.self_hosted.k_enabled
-                        {
-                            settings.self_hosted.k_enabled = false;
-                            migrated = true;
-                        }
                         if should_auto_sync_self_hosted_explorer_profiles(
                             &settings.explorer.self_hosted,
                         ) {
@@ -1339,6 +1532,18 @@ impl Settings {
                         if migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() migration store error: {}", err);
+                            }
+                        }
+
+                        let mut password_migrated = false;
+                        if sync_db_password_from_cluster_marker(&mut settings) {
+                            password_migrated = true;
+                        } else if maybe_use_legacy_primary_db_password(&mut settings) {
+                            password_migrated = true;
+                        }
+                        if password_migrated {
+                            if let Err(err) = settings.store().await {
+                                log_warn!("Settings::load() db password sync store error: {}", err);
                             }
                         }
 

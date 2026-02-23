@@ -119,8 +119,11 @@ impl KaspaService {
             log_warn!("KaspaService::new(): Settings are not initialized");
         }
 
+        let should_connect_on_startup =
+            settings.initialized && !settings.user_interface.startup_network_selection_on_launch;
+
         Self {
-            connect_on_startup: settings.initialized.then(|| settings.node.clone()),
+            connect_on_startup: should_connect_on_startup.then(|| settings.node.clone()),
             application_events,
             service_events,
             task_ctl: Channel::oneshot(),

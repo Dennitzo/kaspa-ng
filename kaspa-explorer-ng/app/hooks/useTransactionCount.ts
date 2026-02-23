@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { API_BASE } from "../api/config";
+import { getApiBase } from "../api/config";
 
 export const useTransactionCount = () =>
   useQuery({
     queryKey: ["transactionCount", {}],
     queryFn: async () => {
       const fetchForDate = async (date: string): Promise<TransactionCount[]> => {
-        const { data } = await axios.get<TransactionCount[]>(`${API_BASE}/transactions/count/${date}`);
+        const { data } = await axios.get<TransactionCount[]>(`${getApiBase()}/transactions/count/${date}`);
 
         if (data && data.length > 0) {
           return data;

@@ -1,7 +1,7 @@
 import { useSocketRoom } from "./useSocketRoom";
 import { useBlockdagInfo } from "./useBlockDagInfo";
 import { useSocketConnected } from "../api/socket";
-import { API_BASE } from "../api/config";
+import { getApiBase } from "../api/config";
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -53,7 +53,7 @@ export const useIncomingBlocks = () => {
     let cancelled = false;
     const fetchBlocks = async () => {
       try {
-        const { data } = await axios.get(`${API_BASE}/blocks`, {
+        const { data } = await axios.get(`${getApiBase()}/blocks`, {
           params: {
             lowHash: tipHash,
             includeBlocks: true,

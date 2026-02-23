@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { API_BASE } from "../api/config";
+import { getApiBase, getNetworkId } from "../api/config";
 
 interface CoinSupplyInfo {
   circulatingSupply: number;
@@ -9,9 +9,9 @@ interface CoinSupplyInfo {
 
 export const useCoinSupply = () =>
   useQuery({
-    queryKey: ["coinSupply"],
+    queryKey: ["coinSupply", getNetworkId(), getApiBase()],
     queryFn: async () => {
-      const { data } = await axios.get(`${API_BASE}/info/coinsupply`);
+      const { data } = await axios.get(`${getApiBase()}/info/coinsupply`);
       return data as CoinSupplyInfo;
     },
     refetchInterval: 60000,

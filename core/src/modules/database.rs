@@ -181,7 +181,13 @@ impl Database {
                     guard.last_error = None;
                 }
                 Err(err) => {
-                    guard.last_error = Some(err.to_string());
+                    let raw = err.to_string();
+                    if Self::is_waiting_for_node_sync_error(&raw) {
+                        guard.last_error =
+                            Some(Self::waiting_for_node_sync_message(false).to_string());
+                    } else {
+                        guard.last_error = Some(raw);
+                    }
                 }
             }
             runtime().request_repaint();
@@ -231,7 +237,13 @@ impl Database {
                     guard.logs_last_error = None;
                 }
                 Err(err) => {
-                    guard.logs_last_error = Some(err.to_string());
+                    let raw = err.to_string();
+                    if Self::is_waiting_for_node_sync_error(&raw) {
+                        guard.logs_last_error =
+                            Some(Self::waiting_for_node_sync_message(true).to_string());
+                    } else {
+                        guard.logs_last_error = Some(raw);
+                    }
                 }
             }
             runtime().request_repaint();
@@ -260,6 +272,27 @@ impl Database {
         let lower = error.to_ascii_lowercase();
         lower.contains("503")
             && lower.contains("unable to collect indexer metrics")
+    }
+
+    fn is_waiting_for_node_sync_error(error: &str) -> bool {
+        let lower = error.to_ascii_lowercase();
+        (lower.contains("error sending request for url")
+            && (lower.contains("/api/status") || lower.contains("/api/logs/")))
+            || lower.contains("connection refused")
+            || lower.contains("timed out")
+            || lower.contains("unable to collect indexer metrics")
+    }
+
+    fn waiting_for_node_sync_message(for_logs: bool) -> &'static str {
+        if for_logs {
+            i18n(
+                "Waiting for node sync and local services startup. Logs will appear automatically.",
+            )
+        } else {
+            i18n(
+                "Waiting for node sync and local services startup. Database status will update automatically.",
+            )
+        }
     }
 
     fn render_disabled(&self, _core: &mut Core, ui: &mut Ui) {
@@ -328,11 +361,11 @@ impl ModuleT for Database {
                     ui.separator();
 
                     if let Some(error) = &error {
-                        if Self::is_indexer_initializing_error(error) {
+                        if Self::is_indexer_initializing_error(error)
+                            || Self::is_waiting_for_node_sync_error(error)
+                        {
                             ui.label(
-                                RichText::new(i18n(
-                                    "Indexer metrics are still initializing. Database startup is in progress.",
-                                ))
+                                RichText::new(Self::waiting_for_node_sync_message(false))
                                 .color(theme_color().node_data_color)
                                 .size(12.0),
                             );
@@ -508,11 +541,11 @@ impl ModuleT for Database {
                     };
 
                     if let Some(log_error) = log_error {
-                        if Self::is_indexer_initializing_error(&log_error) {
+                        if Self::is_indexer_initializing_error(&log_error)
+                            || Self::is_waiting_for_node_sync_error(&log_error)
+                        {
                             ui.label(
-                                RichText::new(i18n(
-                                    "Logs are initializing while the database services are starting.",
-                                ))
+                                RichText::new(Self::waiting_for_node_sync_message(true))
                                 .color(theme_color().node_data_color)
                                 .size(12.0),
                             );

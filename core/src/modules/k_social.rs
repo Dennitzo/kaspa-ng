@@ -334,7 +334,7 @@ impl ModuleT for KSocial {
                     let kaspa_node_url = runtime()
                         .kaspa_service()
                         .rpc_url()
-                        .map(|url| normalize_k_node_url(url))
+                        .map(normalize_k_node_url)
                         .unwrap_or_else(|| "ws://127.0.0.1:17110".to_string());
                     let config_script = k_runtime_config_script(
                         &host,
@@ -484,8 +484,21 @@ impl Drop for KSocialServer {
 #[cfg(not(target_arch = "wasm32"))]
 fn find_k_build_root() -> Option<PathBuf> {
     let mut candidates = Vec::new();
+    let is_macos_bundle = {
+        #[cfg(target_os = "macos")]
+        {
+            std::env::current_exe()
+                .ok()
+                .map(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"))
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    };
 
-    if let Ok(cwd) = std::env::current_dir() {
+    if !is_macos_bundle && let Ok(cwd) = std::env::current_dir() {
         candidates.push(cwd.join("K").join("dist"));
         for ancestor in cwd.ancestors().skip(1).take(4) {
             candidates.push(ancestor.join("K").join("dist"));

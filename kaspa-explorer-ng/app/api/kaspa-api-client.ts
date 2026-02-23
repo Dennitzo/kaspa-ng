@@ -1,4 +1,4 @@
-import { API_BASE } from "./config";
+import { getApiBase } from "./config";
 
 const DEFAULT_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -6,7 +6,7 @@ const DEFAULT_HEADERS = {
 };
 
 export async function getMarketData() {
-  const response = await fetch(`${API_BASE}/info/market-data`, {
+  const response = await fetch(`${getApiBase()}/info/market-data`, {
     headers: DEFAULT_HEADERS,
   });
   if (!response.ok) {
@@ -15,7 +15,7 @@ export async function getMarketData() {
   return response.json();
 }
 
-//   const res = await fetch(`${API_BASE}blocks/${hash}?includeColor=true`, {
+//   const res = await fetch(`${getApiBase()}blocks/${hash}?includeColor=true`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -27,7 +27,7 @@ export async function getMarketData() {
 //
 // export async function getTransaction(hash, blockHash) {
 //   const queryParams = blockHash ? `?blockHash=${blockHash}` : "";
-//   const res = await fetch(`${API_BASE}transactions/${hash}${queryParams}`, {
+//   const res = await fetch(`${getApiBase()}transactions/${hash}${queryParams}`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -38,7 +38,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getBlockdagInfo() {
-//   const res = await fetch(`${API_BASE}info/blockdag`, {
+//   const res = await fetch(`${getApiBase()}info/blockdag`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -49,7 +49,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getKaspadInfo() {
-//   const res = await fetch(`${API_BASE}info/kaspad`, {
+//   const res = await fetch(`${getApiBase()}info/kaspad`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -60,7 +60,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getHashrate() {
-//   const res = await fetch(`${API_BASE}info/hashrate`, {
+//   const res = await fetch(`${getApiBase()}info/hashrate`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -71,7 +71,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getHashrateMax() {
-//   const res = await fetch(`${API_BASE}info/hashrate/max`, {
+//   const res = await fetch(`${getApiBase()}info/hashrate/max`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -82,7 +82,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getFeeEstimate() {
-//   const res = await fetch(`${API_BASE}info/fee-estimate`, {
+//   const res = await fetch(`${getApiBase()}info/fee-estimate`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -93,7 +93,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getCoinSupply() {
-//   const res = await fetch(`${API_BASE}info/coinsupply`, {
+//   const res = await fetch(`${getApiBase()}info/coinsupply`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -104,7 +104,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getAddressBalance(addr) {
-//   const res = await fetch(`${API_BASE}addresses/${addr}/balance`, {
+//   const res = await fetch(`${getApiBase()}addresses/${addr}/balance`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -115,7 +115,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getAddressTxCount(addr) {
-//   const res = await fetch(`${API_BASE}addresses/${addr}/transactions-count`, {
+//   const res = await fetch(`${getApiBase()}addresses/${addr}/transactions-count`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -126,7 +126,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getAddressUtxos(addr) {
-//   const res = await fetch(`${API_BASE}addresses/${addr}/utxos`, {
+//   const res = await fetch(`${getApiBase()}addresses/${addr}/utxos`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -137,7 +137,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getAddressName(addr) {
-//   const res = await fetch(`${API_BASE}addresses/${addr}/name`, {
+//   const res = await fetch(`${getApiBase()}addresses/${addr}/name`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -148,7 +148,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getHalving() {
-//   const res = await fetch(`${API_BASE}info/halving`, {
+//   const res = await fetch(`${getApiBase()}info/halving`, {
 //     headers: { "Access-Control-Allow-Origin": "*" },
 //   })
 //     .then((response) => response.json())
@@ -160,7 +160,7 @@ export async function getMarketData() {
 //
 // export async function getTransactionsFromAddress(addr, limit = 20, offset = 0) {
 //   const res = await fetch(
-//     `${API_BASE}addresses/${addr}/full-transactions?limit=${limit}&offset=${offset}`,
+//     `${getApiBase()}addresses/${addr}/full-transactions?limit=${limit}&offset=${offset}`,
 //     {
 //       headers: {
 //         "Access-Control-Allow-Origin": "*",
@@ -177,7 +177,7 @@ export async function getMarketData() {
 // }
 //
 // export async function getTransactions(tx_list, inputs, outputs) {
-//   const res = await fetch(`${API_BASE}transactions/search`, {
+//   const res = await fetch(`${getApiBase()}transactions/search`, {
 //     headers: {
 //       "Access-Control-Allow-Origin": "*",
 //       "content-type": "application/json",

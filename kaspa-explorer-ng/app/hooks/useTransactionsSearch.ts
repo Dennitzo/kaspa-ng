@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { API_BASE } from "../api/config";
+import { getApiBase } from "../api/config";
 
 export const useTransactionsSearch = (
   transactionIds: string[],
@@ -13,7 +13,7 @@ export const useTransactionsSearch = (
     queryKey: ["transactions", { fields, transactionIds }],
     queryFn: async () => {
       const { data } = await axios.post(
-        `${API_BASE}/transactions/search`,
+        `${getApiBase()}/transactions/search`,
         {
           transactionIds,
         },

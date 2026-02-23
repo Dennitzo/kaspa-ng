@@ -484,8 +484,6 @@ impl Settings {
                                 if !matches!(core.settings.node.network, Network::Mainnet) {
                                     core.settings.node.stratum_bridge_enabled = false;
                                     self.settings.node.stratum_bridge_enabled = false;
-                                    core.settings.self_hosted.k_enabled = false;
-                                    self.settings.self_hosted.k_enabled = false;
                                 }
                                 core.settings.store_sync().unwrap();
 
@@ -734,15 +732,6 @@ impl Settings {
                         let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
                         let self_hosted_enabled = settings.enabled;
 
-                        if !is_mainnet && settings.k_enabled {
-                            settings.k_enabled = false;
-                            changed = true;
-                        }
-                        if !self_hosted_enabled && settings.k_enabled {
-                            settings.k_enabled = false;
-                            changed = true;
-                        }
-
                         if ui
                             .checkbox(
                                 &mut settings.enabled,
@@ -910,9 +899,6 @@ impl Settings {
                             });
 
                         if changed {
-                            if !is_mainnet || !settings.enabled {
-                                settings.k_enabled = false;
-                            }
                             if settings.db_password.trim().is_empty() || settings.db_password == "kaspa" {
                                 settings.db_password = crate::settings::generate_db_password();
                             }

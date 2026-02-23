@@ -63,7 +63,7 @@ fn strip_ansi_codes(input: &str) -> String {
             match chars.next() {
                 Some('[') => {
                     // CSI: ESC [ ... final-byte(0x40..0x7E)
-                    while let Some(inner) = chars.next() {
+                    for inner in chars.by_ref() {
                         let b = inner as u32;
                         if (0x40..=0x7e).contains(&b) {
                             break;
@@ -72,7 +72,10 @@ fn strip_ansi_codes(input: &str) -> String {
                 }
                 Some(']') => {
                     // OSC: ESC ] ... BEL or ESC \
-                    while let Some(inner) = chars.next() {
+                    loop {
+                        let Some(inner) = chars.next() else {
+                            break;
+                        };
                         if inner == '\u{7}' {
                             break;
                         }
@@ -84,7 +87,10 @@ fn strip_ansi_codes(input: &str) -> String {
                 }
                 Some('P') | Some('X') | Some('^') | Some('_') => {
                     // DCS/SOS/PM/APC: ESC <type> ... ESC \
-                    while let Some(inner) = chars.next() {
+                    loop {
+                        let Some(inner) = chars.next() else {
+                            break;
+                        };
                         if inner == '\u{1b}' && matches!(chars.peek().copied(), Some('\\')) {
                             let _ = chars.next();
                             break;

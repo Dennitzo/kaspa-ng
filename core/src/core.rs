@@ -35,6 +35,7 @@ pub struct Core {
     modules: HashMap<TypeId, Module>,
     pub stack: VecDeque<Module>,
     pub settings: Settings,
+    startup_network_selection_pending: bool,
     pub toasts: Toasts,
     pub mobile_style: egui::Style,
     pub default_style: egui::Style,
@@ -163,12 +164,6 @@ impl Core {
         if settings.version != env!("CARGO_PKG_VERSION") {
             settings.version = env!("CARGO_PKG_VERSION").to_string();
             settings.store_sync().unwrap();
-
-            module_typeid = TypeId::of::<modules::Changelog>();
-            // module = modules
-            //     .get(&TypeId::of::<modules::Changelog>())
-            //     .unwrap()
-            //     .clone();
         }
 
         let module = modules.get(&module_typeid).unwrap().clone();
@@ -199,6 +194,9 @@ impl Core {
             modules: modules.clone(),
             stack: VecDeque::new(),
             settings: settings.clone(),
+            startup_network_selection_pending: settings
+                .user_interface
+                .startup_network_selection_on_launch,
             toasts: Toasts::default(),
             default_style,
             mobile_style,
@@ -536,6 +534,10 @@ impl eframe::App for Core {
 }
 
 impl Core {
+    pub fn complete_startup_network_selection(&mut self) {
+        self.startup_network_selection_pending = false;
+    }
+
     fn render_frame(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "linux")]
         {
@@ -547,7 +549,7 @@ impl Core {
         }
 
         window_frame(self.window_frame, ctx, "Kaspa NG", |ui| {
-            if !self.settings.initialized {
+            if !self.settings.initialized || self.startup_network_selection_pending {
                 egui::CentralPanel::default().show_inside(ui, |ui| {
                     self.modules
                         .get(&TypeId::of::<modules::Welcome>())

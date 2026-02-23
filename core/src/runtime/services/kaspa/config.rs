@@ -1,6 +1,7 @@
 use crate::app::{GIT_DESCRIBE, VERSION};
 use crate::imports::*;
 use crate::settings::NodeMemoryScale;
+use crate::settings::current_instance_slot;
 use crate::utils::Arglist;
 use kaspa_core::kaspad_env;
 #[cfg(not(target_arch = "wasm32"))]
@@ -138,8 +139,29 @@ cfg_if! {
 
                 args.push(format!("--uacomment={}", user_agent_comment()));
 
-                if config.kaspad_daemon_storage_folder_enable && !config.kaspad_daemon_storage_folder.is_empty() && !(config.kaspad_daemon_args_enable && config.kaspad_daemon_args.contains("--appdir")) {
-                    args.push(format!("--appdir={}", config.kaspad_daemon_storage_folder));
+                if !(config.kaspad_daemon_args_enable
+                    && config.kaspad_daemon_args.contains("--appdir"))
+                {
+                    let instance_slot = current_instance_slot();
+                    let appdir = if config.kaspad_daemon_storage_folder_enable
+                        && !config.kaspad_daemon_storage_folder.is_empty()
+                    {
+                        let mut path = PathBuf::from(&config.kaspad_daemon_storage_folder);
+                        if instance_slot > 0 {
+                            path.push(format!("instance-{instance_slot}"));
+                        }
+                        Some(path)
+                    } else if instance_slot > 0 {
+                        let mut path = kaspad_lib::daemon::get_app_dir();
+                        path.push(format!("instance-{instance_slot}"));
+                        Some(path)
+                    } else {
+                        None
+                    };
+
+                    if let Some(path) = appdir {
+                        args.push(format!("--appdir={}", path.to_string_lossy()));
+                    }
                 }
 
                 if config.kaspad_daemon_args_enable {

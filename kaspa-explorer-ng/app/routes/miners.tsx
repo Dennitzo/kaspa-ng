@@ -7,7 +7,7 @@ import FooterHelper from "../layout/FooterHelper";
 import Box from "../assets/box.svg";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useSocketRoom } from "../hooks/useSocketRoom";
-import { API_BASE } from "../api/config";
+import { getApiBase } from "../api/config";
 import type { Route } from "./+types/miners";
 import axios from "axios";
 import dayjs from "dayjs";
@@ -108,7 +108,7 @@ export default function Miners() {
   const handleIncomingBlock = useCallback(async (block: { block_hash: string; timestamp?: string }) => {
     try {
       const { data } = await axios.get(
-        `${API_BASE}/blocks/${block.block_hash}?includeTransactions=true&includeColor=true`,
+        `${getApiBase()}/blocks/${block.block_hash}?includeTransactions=true&includeColor=true`,
       );
       const minerInfo = data?.extra?.minerInfo ?? null;
       const minerAddress = data?.extra?.minerAddress ?? null;
@@ -151,7 +151,7 @@ export default function Miners() {
         setIsLoading(true);
         setIsError(false);
 
-        const { data } = await axios.get(`${API_BASE}/blocks`, {
+        const { data } = await axios.get(`${getApiBase()}/blocks`, {
           params: {
             lowHash: tipHash,
             includeBlocks: true,
@@ -173,7 +173,7 @@ export default function Miners() {
         const blockDetails = await Promise.all(
           sample.map(async (hash) => {
             try {
-              const response = await axios.get(`${API_BASE}/blocks/${hash}`, {
+              const response = await axios.get(`${getApiBase()}/blocks/${hash}`, {
                 params: { includeTransactions: true, includeColor: true },
               });
               return { hash, data: response.data };

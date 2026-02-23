@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import { API_BASE } from "../api/config";
+import { getApiBase } from "../api/config";
 
 export const useTransactionById = (transactionId: string) =>
   useQuery({
@@ -8,13 +8,13 @@ export const useTransactionById = (transactionId: string) =>
     queryFn: async () => {
       try {
         const { data } = await axios.get(
-          `${API_BASE}/transactions/${transactionId}?resolve_previous_outpoints=light`,
+          `${getApiBase()}/transactions/${transactionId}?resolve_previous_outpoints=light`,
         );
         return data as TransactionData;
       } catch (err) {
         if (axios.isAxiosError(err) && err.response?.status === 404) {
           const { data } = await axios.post(
-            `${API_BASE}/transactions/search`,
+            `${getApiBase()}/transactions/search`,
             { transactionIds: [transactionId] },
             {
               params: {
