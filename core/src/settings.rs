@@ -881,6 +881,37 @@ fn slot_lock_path(slot: u16) -> PathBuf {
     std::env::temp_dir().join(format!("kaspa-ng-self-hosted-slot-{slot}.lock"))
 }
 
+#[cfg(unix)]
+fn process_is_running(pid: u32) -> bool {
+    use nix::errno::Errno;
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+
+    let Ok(raw) = i32::try_from(pid) else {
+        return false;
+    };
+    match kill(Pid::from_raw(raw), None) {
+        Ok(_) => true,
+        Err(Errno::EPERM) => true,
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn process_is_running(_pid: u32) -> bool {
+    false
+}
+
+fn lock_holder_is_alive(path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(pid) = raw.trim().parse::<u32>() else {
+        return false;
+    };
+    process_is_running(pid)
+}
+
 fn try_reserve_slot(slot: u16) -> Option<File> {
     let path = slot_lock_path(slot);
     let create = || OpenOptions::new().write(true).create_new(true).open(&path);
@@ -891,6 +922,9 @@ fn try_reserve_slot(slot: u16) -> Option<File> {
             Some(file)
         }
         Err(_) => {
+            if lock_holder_is_alive(&path) {
+                return None;
+            }
             // Auto-heal stale lock files if this slot ports are currently all free.
             let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
             if slot_works_for_all_networks(slot_offset) {
