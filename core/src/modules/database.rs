@@ -39,6 +39,7 @@ struct DatabaseState {
     last_error: Option<String>,
     last_updated: Option<Instant>,
     in_flight: bool,
+    db_restart_last_attempt: Option<Instant>,
     logs_postgres: Vec<LogLine>,
     logs_indexer: Vec<LogLine>,
     logs_k_indexer: Vec<LogLine>,
@@ -70,6 +71,9 @@ pub struct Database {
 }
 
 impl Database {
+    const DB_RESTART_COOLDOWN: Duration = Duration::from_secs(8);
+    const DB_RESTART_RETRY_DELAY: Duration = Duration::from_millis(750);
+
     const INDEXER_TABLES: [&'static str; 19] = [
         "vars",
         "blocks",
@@ -170,25 +174,42 @@ impl Database {
 
         let url = Self::api_url(settings, network);
         let state = self.state.clone();
+        let runtime_handle = self.runtime.clone();
+        let keep_enabled = settings.enabled;
         spawn(async move {
             let result = http::get_json::<DatabaseStatus>(&url).await;
-            let mut guard = state.lock().unwrap();
-            guard.in_flight = false;
-            guard.last_updated = Some(Instant::now());
-            match result {
-                Ok(status) => {
-                    guard.status = Some(status);
-                    guard.last_error = None;
-                }
-                Err(err) => {
-                    let raw = err.to_string();
-                    if Self::is_waiting_for_node_sync_error(&raw) {
-                        guard.last_error =
-                            Some(Self::waiting_for_node_sync_message(false).to_string());
-                    } else {
+            let restart_db_service = {
+                let mut restart = false;
+                let mut guard = state.lock().unwrap();
+                guard.in_flight = false;
+                guard.last_updated = Some(Instant::now());
+                match result {
+                    Ok(status) => {
+                        guard.status = Some(status);
+                        guard.last_error = None;
+                    }
+                    Err(err) => {
+                        let raw = err.to_string();
+                        if Self::is_db_restartable_error(&raw)
+                            && guard
+                                .db_restart_last_attempt
+                                .map(|time| time.elapsed() >= Self::DB_RESTART_COOLDOWN)
+                                .unwrap_or(true)
+                        {
+                            guard.db_restart_last_attempt = Some(Instant::now());
+                            restart = true;
+                        }
                         guard.last_error = Some(raw);
                     }
                 }
+                restart
+            };
+            if restart_db_service {
+                runtime_handle.self_hosted_db_service().enable(false);
+                sleep(Self::DB_RESTART_RETRY_DELAY).await;
+                runtime_handle.self_hosted_db_service().enable(keep_enabled);
+                sleep(Self::DB_RESTART_RETRY_DELAY).await;
+                runtime_handle.self_hosted_db_service().enable(keep_enabled);
             }
             runtime().request_repaint();
             Ok(())
@@ -237,13 +258,7 @@ impl Database {
                     guard.logs_last_error = None;
                 }
                 Err(err) => {
-                    let raw = err.to_string();
-                    if Self::is_waiting_for_node_sync_error(&raw) {
-                        guard.logs_last_error =
-                            Some(Self::waiting_for_node_sync_message(true).to_string());
-                    } else {
-                        guard.logs_last_error = Some(raw);
-                    }
+                    guard.logs_last_error = Some(err.to_string());
                 }
             }
             runtime().request_repaint();
@@ -268,31 +283,14 @@ impl Database {
         }
     }
 
-    fn is_indexer_initializing_error(error: &str) -> bool {
-        let lower = error.to_ascii_lowercase();
-        lower.contains("503")
-            && lower.contains("unable to collect indexer metrics")
-    }
-
-    fn is_waiting_for_node_sync_error(error: &str) -> bool {
+    fn is_db_restartable_error(error: &str) -> bool {
         let lower = error.to_ascii_lowercase();
         (lower.contains("error sending request for url")
-            && (lower.contains("/api/status") || lower.contains("/api/logs/")))
+            && lower.contains("/api/status"))
             || lower.contains("connection refused")
             || lower.contains("timed out")
             || lower.contains("unable to collect indexer metrics")
-    }
-
-    fn waiting_for_node_sync_message(for_logs: bool) -> &'static str {
-        if for_logs {
-            i18n(
-                "Waiting for node sync and local services startup. Logs will appear automatically.",
-            )
-        } else {
-            i18n(
-                "Waiting for node sync and local services startup. Database status will update automatically.",
-            )
-        }
+            || lower.contains("database not ready")
     }
 
     fn render_disabled(&self, _core: &mut Core, ui: &mut Ui) {
@@ -361,21 +359,11 @@ impl ModuleT for Database {
                     ui.separator();
 
                     if let Some(error) = &error {
-                        if Self::is_indexer_initializing_error(error)
-                            || Self::is_waiting_for_node_sync_error(error)
-                        {
-                            ui.label(
-                                RichText::new(Self::waiting_for_node_sync_message(false))
-                                .color(theme_color().node_data_color)
+                        ui.label(
+                            RichText::new(error)
+                                .color(theme_color().warning_color)
                                 .size(12.0),
-                            );
-                        } else {
-                            ui.label(
-                                RichText::new(error)
-                                    .color(theme_color().warning_color)
-                                    .size(12.0),
-                            );
-                        }
+                        );
                     }
 
                     ui.add_space(8.0);
@@ -541,21 +529,11 @@ impl ModuleT for Database {
                     };
 
                     if let Some(log_error) = log_error {
-                        if Self::is_indexer_initializing_error(&log_error)
-                            || Self::is_waiting_for_node_sync_error(&log_error)
-                        {
-                            ui.label(
-                                RichText::new(Self::waiting_for_node_sync_message(true))
-                                .color(theme_color().node_data_color)
+                        ui.label(
+                            RichText::new(log_error)
+                                .color(theme_color().warning_color)
                                 .size(12.0),
-                            );
-                        } else {
-                            ui.label(
-                                RichText::new(log_error)
-                                    .color(theme_color().warning_color)
-                                    .size(12.0),
-                            );
-                        }
+                        );
                     }
 
                     let row_height = ui.fonts(|fonts| {

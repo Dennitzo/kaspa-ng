@@ -6,7 +6,13 @@ use std::io::{Read, Write};
 #[cfg(not(target_arch = "wasm32"))]
 use std::net::{TcpListener, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 
@@ -160,6 +166,8 @@ pub struct Explorer {
     status: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     last_webview_attempt: Option<std::time::Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_server_start_attempt: Option<std::time::Instant>,
 }
 
 impl Explorer {
@@ -180,6 +188,58 @@ impl Explorer {
             status: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_webview_attempt: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_server_start_attempt: None,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reset_embedded_state(&mut self) {
+        self.webview.take();
+        self.server.take();
+        self.last_bounds = None;
+        self.last_path = None;
+        self.last_endpoint_signature = None;
+        self.last_webview_attempt = None;
+        self.last_server_start_attempt = None;
+        self.status = None;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ensure_server_for_active_network(&mut self, core: &Core) {
+        let expected_port = core
+            .settings
+            .user_interface
+            .effective_explorer_port(core.settings.node.network);
+
+        let server_port_mismatch = self
+            .server
+            .as_ref()
+            .map(|server| server.port != expected_port)
+            .unwrap_or(false);
+
+        if server_port_mismatch {
+            self.reset_embedded_state();
+        }
+
+        if self.server.is_none() {
+            if let Some(last_attempt) = self.last_server_start_attempt
+                && last_attempt.elapsed() < std::time::Duration::from_secs(1)
+            {
+                return;
+            }
+            self.last_server_start_attempt = Some(std::time::Instant::now());
+            match ExplorerServer::start(expected_port) {
+                Ok(server) => {
+                    self.server = Some(server);
+                    self.status = None;
+                    self.last_server_start_attempt = None;
+                }
+                Err(err) => {
+                    log_warn!("Explorer server start failed: {err}");
+                    self.status = Some(err);
+                }
+            }
         }
     }
 }
@@ -192,18 +252,7 @@ impl ModuleT for Explorer {
     fn activate(&mut self, core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if self.server.is_none() && self.status.is_none() {
-                let port = core.settings.user_interface.effective_explorer_port();
-                match ExplorerServer::start(port) {
-                    Ok(server) => {
-                        self.server = Some(server);
-                    }
-                    Err(err) => {
-                        log_warn!("Explorer server start failed: {err}");
-                        self.status = Some(err);
-                    }
-                }
-            }
+            self.ensure_server_for_active_network(core);
 
             if let Some(webview) = &self.webview {
                 let _ = webview.set_visible(true);
@@ -234,6 +283,11 @@ impl ModuleT for Explorer {
         }
     }
 
+    fn network_change(&mut self, _core: &mut Core, _network: Network) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.reset_embedded_state();
+    }
+
     fn render(
         &mut self,
         core: &mut Core,
@@ -243,6 +297,8 @@ impl ModuleT for Explorer {
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         {
+            self.ensure_server_for_active_network(core);
+
             #[cfg(target_os = "linux")]
             {
                 if let Err(err) = ensure_gtk_initialized() {
@@ -429,7 +485,9 @@ impl ModuleT for Explorer {
 #[cfg(not(target_arch = "wasm32"))]
 struct ExplorerServer {
     url: String,
-    _thread: JoinHandle<()>,
+    port: u16,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -441,35 +499,59 @@ impl ExplorerServer {
         })?;
 
         let port = if port == 0 { DEFAULT_EXPLORER_PORT } else { port };
-        let listener = TcpListener::bind((EXPLORER_HOST, port))
-            .map_err(|err| {
-                format!(
-                    "Explorer server bind failed on {}:{} ({err}). Close other instances or free the port.",
-                    EXPLORER_HOST, port
-                )
-            })?;
+        let listener = TcpListener::bind((EXPLORER_HOST, port)).map_err(|err| {
+            format!(
+                "Explorer server bind failed on {}:{} ({err}). Close other instances or free the port.",
+                EXPLORER_HOST, port
+            )
+        })?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|err| format!("Explorer server nonblocking setup failed: {err}"))?;
         let port = listener
             .local_addr()
             .map_err(|err| format!("Explorer server address error: {err}"))?
             .port();
         let url = format!("http://{EXPLORER_HOST}:{port}/");
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_signal = Arc::clone(&stop);
 
         let thread = std::thread::Builder::new()
             .name("kaspa-explorer-server".to_string())
             .spawn(move || {
-                for stream in listener.incoming().flatten() {
-                    let root = root.clone();
-                    std::thread::spawn(move || {
-                        let _ = handle_connection(stream, &root);
-                    });
+                while !stop_signal.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            let root = root.clone();
+                            std::thread::spawn(move || {
+                                let _ = handle_connection(stream, &root);
+                            });
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        Err(_) => break,
+                    }
                 }
             })
             .map_err(|err| format!("Explorer server spawn failed: {err}"))?;
 
         Ok(Self {
             url,
-            _thread: thread,
+            port,
+            stop,
+            thread: Some(thread),
         })
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for ExplorerServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

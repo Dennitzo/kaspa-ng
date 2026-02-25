@@ -1,5 +1,12 @@
 use crate::imports::*;
 
+fn is_grpc_info_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("GRPC,")
+        || trimmed.contains(" GRPC,")
+        || trimmed.contains("\tGRPC,")
+}
+
 pub struct Logs {
     #[allow(dead_code)]
     runtime: Runtime,
@@ -28,6 +35,7 @@ impl ModuleT for Logs {
         use egui_phosphor::light::CLIPBOARD_TEXT;
 
         let available_width = ui.available_width();
+        let remove_grpc_info = core.settings.node.remove_grpc_info_in_rusty_kaspa_log;
 
         #[cfg(not(target_arch = "wasm32"))]
         egui::ScrollArea::vertical()
@@ -37,6 +45,9 @@ impl ModuleT for Logs {
             .show(ui, |ui| {
 
                 for log in self.runtime.kaspa_service().logs().iter() {
+                    if remove_grpc_info && is_grpc_info_line(&log.to_string()) {
+                        continue;
+                    }
                     ui.label(RichText::from(log));
                 }
             });
@@ -51,7 +62,21 @@ impl ModuleT for Logs {
         if ui.put(button_rect, copy_to_clipboard)
             .on_hover_text_at_pointer(i18n("Copy logs to clipboard"))
             .clicked() {
-                let logs = self.runtime.kaspa_service().logs().iter().map(|log| log.to_string()).collect::<Vec<String>>().join("\n");
+                let logs = self
+                    .runtime
+                    .kaspa_service()
+                    .logs()
+                    .iter()
+                    .filter_map(|log| {
+                        let line = log.to_string();
+                        if remove_grpc_info && is_grpc_info_line(&line) {
+                            None
+                        } else {
+                            Some(line)
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
                 //ui.output_mut(|o| o.copied_text = logs);
                 ui.ctx().copy_text(logs);
                 runtime().notify_clipboard(i18n("Copied to clipboard"));

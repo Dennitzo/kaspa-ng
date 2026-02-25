@@ -408,20 +408,20 @@ impl Core {
                         &self.settings.self_hosted,
                     );
             }
-            if !matches!(network, Network::Mainnet) && self.settings.node.stratum_bridge_enabled {
-                self.settings.node.stratum_bridge_enabled = false;
-                self.runtime
-                    .stratum_bridge_service()
-                    .enable(false, &self.settings.node);
-            }
+            let bridge_enabled = self.settings.node.stratum_bridge_enabled
+                && self.settings.node.node_kind.is_local()
+                && matches!(network, Network::Mainnet);
+            self.runtime
+                .stratum_bridge_service()
+                .enable(bridge_enabled, &self.settings.node);
             self.get_mut::<modules::Settings>()
                 .change_current_network(network);
             self.runtime
                 .cpu_miner_service()
-                .update_settings(network, &self.settings.node.cpu_miner);
+                .update_settings(&self.settings.node, &self.settings.node.cpu_miner);
             self.runtime
                 .rothschild_service()
-                .update_settings(network, &self.settings.node.rothschild);
+                .update_settings(&self.settings.node, &self.settings.node.rothschild);
             #[cfg(not(target_arch = "wasm32"))]
             {
                 self.runtime
@@ -760,10 +760,10 @@ impl Core {
             Events::NetworkChange(network) => {
                 self.runtime
                     .cpu_miner_service()
-                    .update_settings(network, &self.settings.node.cpu_miner);
+                    .update_settings(&self.settings.node, &self.settings.node.cpu_miner);
                 self.runtime
                     .rothschild_service()
-                    .update_settings(network, &self.settings.node.rothschild);
+                    .update_settings(&self.settings.node, &self.settings.node.rothschild);
                 self.modules.clone().values().for_each(|module| {
                     module.network_change(self, network);
                 });

@@ -119,10 +119,10 @@ export default function Mempool() {
 
   const tileScale = useMemo(() => {
     const count = tiles.length;
-    if (count <= 120) return 1;
+    if (count <= 120) return 0.82;
     const over = count - 120;
-    const scaled = 1 / (1 + over / 400);
-    return Math.max(0.5, scaled);
+    const scaled = 0.82 / (1 + over / 300);
+    return Math.max(0.4, scaled);
   }, [tiles.length]);
 
   const historySeries = useMemo(() => {
@@ -201,26 +201,26 @@ export default function Mempool() {
           </div>
           <div className="mt-4 rounded-3xl border border-gray-200 bg-white p-4">
             <div
-              className="grid grid-cols-[repeat(24,minmax(0,1fr))] auto-rows-[8px] gap-1"
+              className="grid grid-cols-[repeat(24,minmax(0,1fr))] auto-rows-[6px] gap-0.5"
               style={{ gridAutoFlow: "dense" }}
             >
               {tiles.map((tile, index) => {
                 const mass = tile.mass || 0;
                 const feeRate = tile.feeRate || 0;
-                let colSpan = 2;
-                let rowSpan = 2;
+                let colSpan = 1;
+                let rowSpan = 1;
                 if (mass >= tileSizing.p95) {
-                  colSpan = 6;
-                  rowSpan = 6;
-                } else if (mass >= tileSizing.p80) {
                   colSpan = 5;
                   rowSpan = 5;
-                } else if (mass >= tileSizing.p50) {
+                } else if (mass >= tileSizing.p80) {
                   colSpan = 4;
                   rowSpan = 4;
-                } else if (mass > 0) {
+                } else if (mass >= tileSizing.p50) {
                   colSpan = 3;
                   rowSpan = 3;
+                } else if (mass > 0) {
+                  colSpan = 2;
+                  rowSpan = 2;
                 }
                 colSpan = Math.max(1, Math.round(colSpan * tileScale));
                 rowSpan = Math.max(1, Math.round(rowSpan * tileScale));

@@ -40,6 +40,21 @@ impl SelfHostedPostgresService {
         }
     }
 
+    fn auth_recovery_lock_path(data_dir: &Path) -> PathBuf {
+        let parent = data_dir.parent().unwrap_or(data_dir);
+        let id = data_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("default");
+        parent.join(format!(".kaspa-ng-auth-recovery-{id}.lock"))
+    }
+
+    fn marker_matches_password(data_dir: &Path, password: &str) -> bool {
+        std::fs::read_to_string(Self::password_marker_path(data_dir))
+            .map(|value| value.trim() == password.trim())
+            .unwrap_or(false)
+    }
+
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
         // During crash recovery Postgres emits transient connection errors while still booting.
@@ -142,23 +157,19 @@ impl SelfHostedPostgresService {
         ]
     }
 
-    fn resolve_data_dir(settings: &SelfHostedSettings) -> Result<PathBuf> {
-        let instance_slot = crate::settings::current_instance_slot();
+    fn resolve_data_dir(settings: &SelfHostedSettings, network: Network) -> Result<PathBuf> {
         if !settings.postgres_data_dir.trim().is_empty() {
             let mut path = PathBuf::from(settings.postgres_data_dir.trim());
-            if instance_slot > 0 {
-                path.push(format!("instance-{instance_slot}"));
-            }
+            path.push(crate::settings::network_profile_slug(network));
             return Ok(path);
         }
 
         let default_storage_folder = kaspa_wallet_core::storage::local::default_storage_folder();
         let storage_folder = workflow_store::fs::resolve_path(default_storage_folder)?;
-        let mut path = storage_folder.join("self-hosted").join("postgres");
-        if instance_slot > 0 {
-            path.push(format!("instance-{instance_slot}"));
-        }
-        Ok(path)
+        Ok(storage_folder
+            .join("self-hosted")
+            .join("postgres")
+            .join(crate::settings::network_profile_slug(network)))
     }
 
     fn postgres_bin_path(binary: &str) -> Result<PathBuf> {
@@ -347,8 +358,155 @@ impl SelfHostedPostgresService {
         Err(Error::Custom("postgres not ready".to_string()))
     }
 
+    async fn can_connect_with_configured_credentials(
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+    ) -> bool {
+        Self::can_connect_with_password(settings, node, settings.db_password.as_str()).await
+    }
+
+    async fn can_connect_with_password(
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+        password: &str,
+    ) -> bool {
+        let conn_str = Self::build_conn_str(
+            &settings.db_host,
+            settings.effective_db_port(node.network),
+            &settings.db_user,
+            Some(password),
+            "postgres",
+        );
+        if let Ok((_, connection)) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await {
+            spawn(async move {
+                let _ = connection.await;
+                Ok(())
+            });
+            return true;
+        }
+        false
+    }
+
+    fn read_primary_settings_password(network: Network) -> Option<String> {
+        let home = workflow_core::dirs::home_dir()?;
+        let path = home
+            .join(".kaspa")
+            .join(crate::settings::network_settings_filename(network));
+        let content = std::fs::read_to_string(path).ok()?;
+        let json = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+        json.get("self-hosted")
+            .and_then(|v| v.get("db-password"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    async fn align_password_with_running_cluster(
+        &self,
+        settings: &mut SelfHostedSettings,
+        node: &NodeSettings,
+        data_dir: &Path,
+    ) -> bool {
+        if Self::can_connect_with_configured_credentials(settings, node).await {
+            return true;
+        }
+
+        let mut candidates = Vec::<String>::new();
+        if let Ok(marker) = std::fs::read_to_string(Self::password_marker_path(data_dir)) {
+            let marker = marker.trim();
+            if !marker.is_empty() && marker != settings.db_password {
+                candidates.push(marker.to_string());
+            }
+        }
+        if let Some(primary) = Self::read_primary_settings_password(node.network)
+            && primary != settings.db_password
+            && !candidates.iter().any(|c| c == &primary)
+        {
+            candidates.push(primary);
+        }
+
+        for candidate in candidates {
+            if Self::can_connect_with_password(settings, node, candidate.as_str()).await {
+                let msg = "adopted working postgres password from known source";
+                self.logs.push("WARN", msg);
+                settings.db_password = candidate.clone();
+                if let Ok(mut guard) = self.settings.lock() {
+                    guard.db_password = candidate.clone();
+                }
+                Self::write_password_marker(data_dir, candidate.as_str());
+                return true;
+            }
+        }
+
+        false
+    }
+
     fn escape_literal(value: &str) -> String {
         value.replace('\'', "''")
+    }
+
+    fn recover_from_auth_mismatch(
+        &self,
+        settings: &SelfHostedSettings,
+        data_dir: &Path,
+    ) -> Result<bool> {
+        let lock_path = Self::auth_recovery_lock_path(data_dir);
+        if lock_path.exists() {
+            self.logs.push(
+                "ERROR",
+                "auth mismatch recovery already attempted for this instance; manual reset required",
+            );
+            return Ok(false);
+        }
+
+        std::fs::write(&lock_path, b"1").map_err(|err| Error::Custom(err.to_string()))?;
+
+        if data_dir.exists() {
+            let backup = data_dir.with_extension(format!(
+                "auth-mismatch-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ));
+            if let Err(err) = std::fs::rename(data_dir, &backup) {
+                let _ = std::fs::remove_file(&lock_path);
+                return Err(Error::Custom(format!(
+                    "failed to backup postgres data dir '{}': {}",
+                    data_dir.display(),
+                    err
+                )));
+            }
+            self.logs.push(
+                "WARN",
+                &format!(
+                    "postgres auth mismatch detected; moved cluster to '{}' and reinitializing",
+                    backup.display()
+                ),
+            );
+        }
+
+        std::fs::create_dir_all(data_dir).map_err(|err| Error::Custom(err.to_string()))?;
+        self.initdb_if_needed(settings, data_dir)?;
+        Self::write_password_marker(data_dir, settings.db_password.as_str());
+        Ok(true)
+    }
+
+    fn stop_external_cluster(data_dir: &Path) {
+        #[cfg(unix)]
+        {
+            let pid_file = data_dir.join("postmaster.pid");
+            if let Ok(content) = std::fs::read_to_string(pid_file)
+                && let Some(first) = content.lines().next()
+                && let Ok(pid_i32) = first.trim().parse::<i32>()
+            {
+                use nix::sys::signal::{Signal, kill};
+                use nix::unistd::Pid;
+                let _ = kill(Pid::from_raw(pid_i32), Signal::SIGTERM);
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
     }
 
     async fn ensure_role_and_database(
@@ -769,29 +927,53 @@ impl SelfHostedPostgresService {
     }
 
     async fn start_postgres(self: &Arc<Self>) -> Result<()> {
-        let settings = self.settings.lock().unwrap().clone();
+        let mut settings = self.settings.lock().unwrap().clone();
         let node_settings = self.node_settings.lock().unwrap().clone();
         let db_port = settings.effective_db_port(node_settings.network);
         if !settings.enabled || !settings.postgres_enabled {
             return Ok(());
         }
 
-        let data_dir = Self::resolve_data_dir(&settings)?;
+        let data_dir = Self::resolve_data_dir(&settings, node_settings.network)?;
+        let password_marker = Self::password_marker_path(&data_dir);
+        let _ = self
+            .align_password_with_running_cluster(&mut settings, &node_settings, &data_dir)
+            .await;
         let postmaster_pid = data_dir.join("postmaster.pid");
         if postmaster_pid.exists() {
             if Self::wait_for_ready(&settings, &node_settings, 5)
                 .await
                 .is_ok()
             {
-                let msg = "postmaster.pid exists; assuming postgres is already running";
-                log_info!("self-hosted-postgres: {msg}");
-                self.logs.push("INFO", msg);
+                let can_auth =
+                    Self::can_connect_with_configured_credentials(&settings, &node_settings).await;
+                if can_auth {
+                    if !password_marker.exists() {
+                        Self::write_password_marker(&data_dir, settings.db_password.as_str());
+                    }
+                    let msg = "postmaster.pid exists; assuming postgres is already running";
+                    log_info!("self-hosted-postgres: {msg}");
+                    self.logs.push("INFO", msg);
+                    self.logs.push(
+                        "INFO",
+                        "external postgres detected; log streaming only available when started by Kaspa NG",
+                    );
+                    Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
+                    return Ok(());
+                }
+
                 self.logs.push(
-                    "INFO",
-                    "external postgres detected; log streaming only available when started by Kaspa NG",
+                    "ERROR",
+                    "detected running postgres with credential mismatch; stopping stale cluster and reinitializing",
                 );
-                Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
-                return Ok(());
+                Self::stop_external_cluster(&data_dir);
+                let _ = std::fs::remove_file(&postmaster_pid);
+                if self.recover_from_auth_mismatch(&settings, &data_dir)? {
+                    self.logs.push(
+                        "INFO",
+                        "postgres auth recovery finished; starting recovered cluster",
+                    );
+                }
             }
 
             let msg = "postmaster.pid exists but postgres is not reachable; removing stale pid";
@@ -800,12 +982,6 @@ impl SelfHostedPostgresService {
             let _ = std::fs::remove_file(&postmaster_pid);
         }
         self.initdb_if_needed(&settings, &data_dir)?;
-        if data_dir.join("PG_VERSION").exists()
-            && !Self::password_marker_path(&data_dir).exists()
-            && !settings.db_password.trim().is_empty()
-        {
-            Self::write_password_marker(&data_dir, settings.db_password.as_str());
-        }
 
         let postgres_bin = Self::postgres_bin_path("postgres")?;
         let mut cmd = Command::new(postgres_bin);
@@ -894,6 +1070,31 @@ impl SelfHostedPostgresService {
             .await
             .is_ok()
         {
+            let can_auth =
+                Self::can_connect_with_configured_credentials(&settings, &node_settings).await;
+            if !can_auth {
+                self.logs.push(
+                    "ERROR",
+                    "password authentication mismatch detected for local postgres; attempting one-time cluster recovery",
+                );
+                let _ = self.stop_postgres().await;
+                if self.recover_from_auth_mismatch(&settings, &data_dir)? {
+                    self.logs.push(
+                        "INFO",
+                        "postgres auth recovery finished; service will restart postgres on next tick",
+                    );
+                    return Ok(());
+                }
+                return Ok(());
+            }
+
+            let recovery_lock = Self::auth_recovery_lock_path(&data_dir);
+            if recovery_lock.exists() {
+                let _ = std::fs::remove_file(recovery_lock);
+            }
+            if !Self::marker_matches_password(&data_dir, settings.db_password.as_str()) {
+                Self::write_password_marker(&data_dir, settings.db_password.as_str());
+            }
             Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
         }
         Ok(())

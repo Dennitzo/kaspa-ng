@@ -51,6 +51,20 @@ elif [ -f "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" ]; then
   cp "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" "$MACOS_DIR/"
 fi
 
+# Bundle local helper binaries used by Services (CPU Miner / Rothschild).
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/kaspa-miner" \
+  "${MACOS_DIR}/kaspa-miner" || true
+copy_file_if_exists \
+  "${ROOT}/cpuminer/target/${PROFILE}/kaspa-miner" \
+  "${MACOS_DIR}/kaspa-miner" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/rothschild" \
+  "${MACOS_DIR}/rothschild" || true
+copy_file_if_exists \
+  "${ROOT}/rusty-kaspa/target/${PROFILE}/rothschild" \
+  "${MACOS_DIR}/rothschild" || true
+
 if [ -d "${ROOT}/target/${PROFILE}/kaspa-explorer-ng" ]; then
   cp -r "${ROOT}/target/${PROFILE}/kaspa-explorer-ng" "$MACOS_DIR/"
 elif [ -d "${ROOT}/kaspa-explorer-ng/build" ]; then

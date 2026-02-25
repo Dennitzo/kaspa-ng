@@ -568,19 +568,31 @@ pub fn halt() {
     if let Some(runtime) = try_runtime() {
         runtime.try_send(Events::Exit).ok();
         runtime.kaspa_service().clone().terminate();
+        runtime.stop_services();
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let runtime_for_shutdown = runtime.clone();
+        std::thread::Builder::new()
+            .name("kaspa-ng-shutdown".to_string())
+            .spawn(move || {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    rt.block_on(async move { runtime_for_shutdown.shutdown().await });
+                } else {
+                    log_error!("runtime::halt(): unable to create tokio runtime for shutdown");
+                }
+                let _ = tx.send(());
+            })
+            .ok();
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let join_handle = handle.spawn(async move { runtime.shutdown().await });
-            while !join_handle.is_finished() {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-        } else if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
+        if rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .is_err()
         {
-            rt.block_on(async move { runtime.shutdown().await });
-        } else {
-            log_error!("runtime::halt(): unable to create tokio runtime for shutdown");
+            // Best-effort second stop pulse without blocking UI shutdown path.
+            runtime.stop_services();
+            std::thread::sleep(std::time::Duration::from_millis(1200));
         }
     }
 }

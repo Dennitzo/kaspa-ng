@@ -222,11 +222,30 @@ impl Settings {
                 CollapsingHeader::new(i18n("Kaspa Network"))
                     .default_open(true)
                     .show(ui, |ui| {
+                        let previous_network = self.settings.node.network;
                         ui.horizontal_wrapped(|ui|{
                             Network::iter().for_each(|network| {
                                 ui.radio_value(&mut self.settings.node.network, *network, network.name());
                             });
                         });
+                        let selected_network = self.settings.node.network;
+                        if selected_network != previous_network
+                            && let Ok(mut loaded) =
+                                crate::settings::Settings::load_for_network_sync(selected_network)
+                        {
+                            loaded.node.network = selected_network;
+                            // Keep app initialization state during live network switches.
+                            loaded.initialized = self.settings.initialized;
+                            self.settings = loaded;
+                            self.grpc_network_interface =
+                                NetworkInterfaceEditor::from(&self.settings.node.grpc_network_interface);
+                        }
+                        if crate::settings::is_network_in_use(self.settings.node.network) {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Network already in use"),
+                            );
+                        }
                     });
 
 
@@ -481,10 +500,6 @@ impl Settings {
                             Confirm::Ack => {
 
                                 core.settings = self.settings.clone();
-                                if !matches!(core.settings.node.network, Network::Mainnet) {
-                                    core.settings.node.stratum_bridge_enabled = false;
-                                    self.settings.node.stratum_bridge_enabled = false;
-                                }
                                 core.settings.store_sync().unwrap();
 
                                 cfg_if! {
@@ -497,17 +512,18 @@ impl Settings {
                                 self.runtime
                                     .stratum_bridge_service()
                                     .update_settings(&core.settings.node);
-                                if !matches!(core.settings.node.network, Network::Mainnet) {
-                                    self.runtime
-                                        .stratum_bridge_service()
-                                        .enable(false, &core.settings.node);
-                                }
+                                let bridge_enabled = core.settings.node.stratum_bridge_enabled
+                                    && core.settings.node.node_kind.is_local()
+                                    && matches!(core.settings.node.network, Network::Mainnet);
+                                self.runtime
+                                    .stratum_bridge_service()
+                                    .enable(bridge_enabled, &core.settings.node);
                                 self.runtime.cpu_miner_service().update_settings(
-                                    core.settings.node.network,
+                                    &core.settings.node,
                                     &core.settings.node.cpu_miner,
                                 );
                                 self.runtime.rothschild_service().update_settings(
-                                    core.settings.node.network,
+                                    &core.settings.node,
                                     &core.settings.node.rothschild,
                                 );
                                 #[cfg(not(target_arch = "wasm32"))]
@@ -525,10 +541,6 @@ impl Settings {
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
                                     .self_hosted_explorer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
@@ -721,12 +733,30 @@ impl Settings {
         CollapsingHeader::new(i18n("Services"))
             .default_open(true)
             .show(ui, |ui| {
+                CollapsingHeader::new(i18n("Node"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if ui
+                            .checkbox(
+                                &mut self.settings.node.remove_grpc_info_in_rusty_kaspa_log,
+                                i18n("Remove GRPC info in rusty kaspa log"),
+                            )
+                            .changed()
+                        {
+                            core.settings.node.remove_grpc_info_in_rusty_kaspa_log =
+                                self.settings.node.remove_grpc_info_in_rusty_kaspa_log;
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+                    });
+
                 #[cfg(not(target_arch = "wasm32"))]
                 CollapsingHeader::new(i18n("Self Hosted"))
                     .default_open(true)
                     .show(ui, |ui| {
-                        use egui_phosphor::light::CLIPBOARD_TEXT;
-
                         let mut changed = false;
                         let mut settings = self.settings.self_hosted.clone();
                         let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
@@ -768,81 +798,41 @@ impl Settings {
                         ui.separator();
                         ui.add_space(6.);
 
+                        let network = core.settings.node.network;
+                        let mut explorer_rest_api =
+                            format!("http://127.0.0.1:{}", settings.effective_explorer_rest_port(network));
+                        let mut k_social_custom_indexer =
+                            format!("http://127.0.0.1:{}/api", settings.effective_k_web_port(network));
+                        let k_node_port = match network {
+                            Network::Mainnet => 17110,
+                            Network::Testnet10 | Network::Testnet12 => 17210,
+                        };
+                        let mut k_social_node_ws = format!("ws://127.0.0.1:{k_node_port}");
+
                         Grid::new("self_hosted_settings_grid")
                             .num_columns(2)
                             .spacing([16.0, 6.0])
                             .show(ui, |ui| {
-                                ui.label(i18n("API Bind Address"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut settings.api_bind).desired_width(200.0))
-                                    .changed();
+                                ui.label(i18n("Explorer REST API"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut explorer_rest_api).desired_width(260.0),
+                                );
                                 ui.end_row();
 
-                                ui.label(i18n("API Port"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut settings.api_port).range(1..=65535))
-                                    .changed();
+                                ui.label(i18n("K Social Custom Indexer"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut k_social_custom_indexer)
+                                        .desired_width(260.0),
+                                );
                                 ui.end_row();
 
-                                ui.label(i18n("K API Port"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut settings.k_web_port).range(1..=65535))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Explorer REST Port"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut settings.explorer_rest_port).range(1..=65535))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Explorer Socket Port"));
-                                changed |= ui
-                                    .add(
-                                        DragValue::new(&mut settings.explorer_socket_port)
-                                            .range(1..=65535),
-                                    )
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Database Host"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut settings.db_host).desired_width(200.0))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Database Port"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut settings.db_port).range(1..=65535))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Database User"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut settings.db_user).desired_width(200.0))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Database Password"));
-                                ui.horizontal(|ui| {
-                                    changed |= ui
-                                        .add(
-                                            TextEdit::singleline(&mut settings.db_password)
-                                                .desired_width(220.0),
-                                        )
-                                        .changed();
-                                    if ui.small_button(i18n("Regenerate")).clicked() {
-                                        settings.db_password = crate::settings::generate_db_password();
-                                        changed = true;
-                                    }
-                                    if ui
-                                        .small_button(RichText::new(format!(" {CLIPBOARD_TEXT} ")))
-                                        .clicked()
-                                    {
-                                        ui.ctx().copy_text(settings.db_password.clone());
-                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
-                                    }
-                                });
+                                ui.label(i18n("K Social Your Kaspa Node"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut k_social_node_ws).desired_width(260.0),
+                                );
                                 ui.end_row();
 
                                 let mut effective_db_name =
@@ -858,28 +848,18 @@ impl Settings {
                                 );
                                 ui.end_row();
 
-                                ui.label(i18n("Database Base Name"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut settings.db_name).desired_width(200.0))
-                                    .changed();
+                                ui.label(i18n("Database User"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut settings.db_user).desired_width(200.0),
+                                );
                                 ui.end_row();
 
-                                ui.label(i18n("Indexer RPC URL"));
-                                changed |= ui
-                                    .add(
-                                        TextEdit::singleline(&mut settings.indexer_rpc_url)
-                                            .desired_width(260.0),
-                                    )
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Indexer Listen"));
-                                changed |= ui
-                                    .add(
-                                        TextEdit::singleline(&mut settings.indexer_listen)
-                                            .desired_width(200.0),
-                                    )
-                                    .changed();
+                                ui.label(i18n("Database Password"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut settings.db_password).desired_width(220.0),
+                                );
                                 ui.end_row();
 
                                 ui.label(i18n("Indexer Extra Args"));
@@ -899,9 +879,8 @@ impl Settings {
                             });
 
                         if changed {
-                            if settings.db_password.trim().is_empty() || settings.db_password == "kaspa" {
-                                settings.db_password = crate::settings::generate_db_password();
-                            }
+                            settings.db_user = "kaspadb".to_string();
+                            settings.db_password = "kaspadb".to_string();
                             // These toggles are intentionally hidden in UI and should stay enabled.
                             settings.postgres_enabled = true;
                             settings.indexer_enabled = true;
@@ -988,32 +967,21 @@ impl Settings {
                                 let switched_to_disabled = previous_enabled && !settings.enabled;
 
                                 if switched_to_enabled {
-                                    if Self::wait_for_self_hosted_ready(
+                                    if !matches!(
+                                        core.settings.explorer.source,
+                                        ExplorerDataSource::SelfHosted
+                                    ) {
+                                        core.settings.explorer.source = ExplorerDataSource::SelfHosted;
+                                        self.settings.explorer.source = ExplorerDataSource::SelfHosted;
+                                    }
+
+                                    if !Self::wait_for_self_hosted_ready(
                                         &settings,
                                         core.settings.node.network,
                                     ) {
-                                        if !matches!(
-                                            core.settings.explorer.source,
-                                            ExplorerDataSource::SelfHosted
-                                        ) {
-                                            core.settings.explorer.source =
-                                                ExplorerDataSource::SelfHosted;
-                                            self.settings.explorer.source =
-                                                ExplorerDataSource::SelfHosted;
-                                            self.runtime.toast(
-                                                UserNotification::success(i18n(
-                                                    "Self-hosted services are ready. Explorer switched to Self-hosted.",
-                                                )),
-                                            );
-                                        }
-                                    } else {
-                                        core.settings.explorer.source = ExplorerDataSource::Official;
-                                        self.settings.explorer.source = ExplorerDataSource::Official;
-                                        self.runtime.toast(
-                                            UserNotification::warning(i18n(
-                                                "Self-hosted services are not fully reachable yet (REST/Socket/Indexer/Postgres). Explorer stays on Official.",
-                                            )),
-                                        );
+                                        self.runtime.toast(UserNotification::warning(i18n(
+                                            "Self-hosted services are still starting. Explorer already uses Self-hosted and will recover as services become ready.",
+                                        )));
                                     }
                                 } else if switched_to_disabled
                                     && matches!(
@@ -1026,6 +994,22 @@ impl Settings {
                                     self.runtime.toast(UserNotification::info(i18n(
                                         "Self-hosted services disabled. Explorer switched to Official.",
                                     )));
+                                } else if settings.enabled
+                                    && !matches!(
+                                        core.settings.explorer.source,
+                                        ExplorerDataSource::SelfHosted
+                                    )
+                                {
+                                    core.settings.explorer.source = ExplorerDataSource::SelfHosted;
+                                    self.settings.explorer.source = ExplorerDataSource::SelfHosted;
+                                } else if !settings.enabled
+                                    && matches!(
+                                        core.settings.explorer.source,
+                                        ExplorerDataSource::SelfHosted
+                                    )
+                                {
+                                    core.settings.explorer.source = ExplorerDataSource::Official;
+                                    self.settings.explorer.source = ExplorerDataSource::Official;
                                 }
                             }
 
@@ -1237,7 +1221,7 @@ impl Settings {
                             core.settings.node.cpu_miner_enabled = enabled;
                             self.runtime.cpu_miner_service().enable(
                                 enabled,
-                                core.settings.node.network,
+                                &core.settings.node,
                                 &core.settings.node.cpu_miner,
                             );
                             core.store_settings();
@@ -1260,18 +1244,6 @@ impl Settings {
                                     .changed();
                                 ui.end_row();
 
-                                ui.label(i18n("Kaspad Address"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut miner.kaspad_address).desired_width(160.0))
-                                    .changed();
-                                ui.end_row();
-
-                                ui.label(i18n("Kaspad Port"));
-                                changed |= ui
-                                    .add(DragValue::new(&mut miner.kaspad_port).speed(1).range(1..=u16::MAX))
-                                    .changed();
-                                ui.end_row();
-
                                 ui.label(i18n("Threads"));
                                 changed |= ui
                                     .add(DragValue::new(&mut miner.threads).speed(1).range(1..=u16::MAX))
@@ -1283,7 +1255,7 @@ impl Settings {
                         if changed {
                             core.settings.node.cpu_miner = miner.clone();
                             self.runtime.cpu_miner_service().update_settings(
-                                core.settings.node.network,
+                                &core.settings.node,
                                 &core.settings.node.cpu_miner,
                             );
                             core.store_settings();
@@ -1372,18 +1344,18 @@ impl Settings {
                                     self.settings.node.rothschild = core.settings.node.rothschild.clone();
                                     self.settings.node.cpu_miner = core.settings.node.cpu_miner.clone();
                                     self.runtime.rothschild_service().update_settings(
-                                        core.settings.node.network,
+                                        &core.settings.node,
                                         &core.settings.node.rothschild,
                                     );
                                     self.runtime.cpu_miner_service().update_settings(
-                                        core.settings.node.network,
+                                        &core.settings.node,
                                         &core.settings.node.cpu_miner,
                                     );
                                 }
                             }
                             self.runtime.rothschild_service().enable(
                                 enabled,
-                                core.settings.node.network,
+                                &core.settings.node,
                                 &core.settings.node.rothschild,
                             );
                             core.store_settings();
@@ -1456,12 +1428,6 @@ impl Settings {
                                 });
                                 ui.end_row();
 
-                                ui.label(i18n("RPC Server"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut rothschild.rpc_server).desired_width(160.0))
-                                    .changed();
-                                ui.end_row();
-
                                 ui.label(i18n("Transactions Per Second"));
                                 changed |= ui
                                     .add(DragValue::new(&mut rothschild.tps).speed(1).range(1..=50))
@@ -1526,7 +1492,7 @@ impl Settings {
 
                             core.settings.node.rothschild = rothschild.clone();
                             self.runtime.rothschild_service().update_settings(
-                                core.settings.node.network,
+                                &core.settings.node,
                                 &core.settings.node.rothschild,
                             );
 
@@ -1536,7 +1502,7 @@ impl Settings {
                                 core.settings.node.cpu_miner.mining_address = rothschild.address.clone();
                                 self.settings.node.cpu_miner = core.settings.node.cpu_miner.clone();
                                 self.runtime.cpu_miner_service().update_settings(
-                                    core.settings.node.network,
+                                    &core.settings.node,
                                     &core.settings.node.cpu_miner,
                                 );
                             }

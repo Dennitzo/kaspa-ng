@@ -1,9 +1,12 @@
 use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+#[cfg(unix)]
+use tokio::time::timeout;
 
 pub enum SelfHostedIndexerEvents {
     Enable,
@@ -25,6 +28,112 @@ pub struct SelfHostedIndexerService {
 }
 
 impl SelfHostedIndexerService {
+    fn pidfile_path(network: Network) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "kaspa-ng-self-hosted-indexer-{}.pid",
+            crate::settings::network_profile_slug(network)
+        ))
+    }
+
+    fn write_pidfile(network: Network, pid: u32) {
+        let _ = std::fs::write(Self::pidfile_path(network), pid.to_string());
+    }
+
+    fn remove_pidfile(network: Network) {
+        let _ = std::fs::remove_file(Self::pidfile_path(network));
+    }
+
+    #[cfg(unix)]
+    fn process_is_running(pid: u32) -> bool {
+        use nix::errno::Errno;
+        use nix::sys::signal::kill;
+        use nix::unistd::Pid;
+
+        let Ok(pid_i32) = i32::try_from(pid) else {
+            return false;
+        };
+
+        match kill(Pid::from_raw(pid_i32), None) {
+            Ok(_) => true,
+            Err(Errno::EPERM) => true,
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(unix)]
+    async fn stop_pidfile_indexer_if_needed(
+        listen: &str,
+        node: &NodeSettings,
+        logs: &Arc<LogStore>,
+    ) {
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+
+        let path = Self::pidfile_path(node.network);
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(pid) = raw.trim().parse::<u32>() else {
+            let _ = std::fs::remove_file(&path);
+            return;
+        };
+        if !Self::process_is_running(pid) {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let Ok(pid_i32) = i32::try_from(pid) else {
+            return;
+        };
+
+        logs.push(
+            "WARN",
+            &format!(
+                "indexer listen address busy on {listen}; stopping stale indexer pid {pid}"
+            ),
+        );
+        let _ = kill(Pid::from_raw(pid_i32), Signal::SIGTERM);
+
+        for _ in 0..12 {
+            if !Self::process_is_running(pid) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        if Self::process_is_running(pid) {
+            let _ = kill(Pid::from_raw(pid_i32), Signal::SIGKILL);
+            for _ in 0..8 {
+                if !Self::process_is_running(pid) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    async fn terminate_process_tree(child: &mut Child) {
+        use nix::sys::signal::{Signal, killpg};
+        use nix::unistd::Pid;
+
+        if let Some(pid) = child.id() {
+            let pgid = Pid::from_raw(pid as i32);
+            let _ = killpg(pgid, Signal::SIGTERM);
+            if timeout(std::time::Duration::from_secs(2), child.wait())
+                .await
+                .is_ok()
+            {
+                return;
+            }
+            let _ = killpg(pgid, Signal::SIGKILL);
+            let _ = timeout(std::time::Duration::from_secs(2), child.wait()).await;
+        } else {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+    }
+
     fn listen_addr_available(addr: &str) -> bool {
         TcpListener::bind(addr).is_ok()
     }
@@ -264,6 +373,12 @@ impl SelfHostedIndexerService {
         }
 
         if !Self::listen_addr_available(&indexer_listen) {
+            #[cfg(unix)]
+            {
+                Self::stop_pidfile_indexer_if_needed(&indexer_listen, &node, &self.logs).await;
+            }
+        }
+        if !Self::listen_addr_available(&indexer_listen) {
             log_warn!(
                 "self-hosted-indexer: listen address already in use ({}); refusing to start indexer",
                 indexer_listen
@@ -368,6 +483,9 @@ impl SelfHostedIndexerService {
             });
         }
 
+        if let Some(pid) = child.id() {
+            Self::write_pidfile(node.network, pid);
+        }
         *self.child.lock().unwrap() = Some(child);
         self.logs
             .push("INFO", &format!("using indexer rpc endpoint: {rpc_url}"));
@@ -387,11 +505,20 @@ impl SelfHostedIndexerService {
     }
 
     async fn stop_indexer(&self) -> Result<()> {
+        let network = self.node_settings.lock().unwrap().network;
         let child = self.child.lock().unwrap().take();
         if let Some(mut child) = child {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            #[cfg(unix)]
+            {
+                Self::terminate_process_tree(&mut child).await;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
+        Self::remove_pidfile(network);
         Ok(())
     }
 }

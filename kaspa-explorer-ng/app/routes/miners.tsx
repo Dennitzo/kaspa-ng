@@ -170,8 +170,45 @@ export default function Miners() {
           throw new Error("No blocks available");
         }
 
+        minerMapRef.current.clear();
+        let scanned = 0;
+        let start: number | null = null;
+        let end: number | null = null;
+
+        const applyBlock = (hash: string, data: any) => {
+          const minerInfo = data?.extra?.minerInfo ?? null;
+          const minerAddress = data?.extra?.minerAddress ?? null;
+          const blockTime = Number(data?.header?.timestamp ?? 0) || null;
+          upsertMiner({ minerInfo, minerAddress, blockTime, blockHash: hash });
+          scanned += 1;
+          if (blockTime) {
+            start = start ? Math.min(start, blockTime) : blockTime;
+            end = end ? Math.max(end, blockTime) : blockTime;
+          }
+        };
+
+        const [firstHash, ...remainingHashes] = sample;
+        if (firstHash) {
+          try {
+            const response = await axios.get(`${getApiBase()}/blocks/${firstHash}`, {
+              params: { includeTransactions: true, includeColor: true },
+            });
+            if (!cancelled) {
+              applyBlock(firstHash, response.data);
+              setScannedBlocks(scanned);
+              setWindowStart(start);
+              setWindowEnd(end);
+              setMiners(Array.from(minerMapRef.current.values()).sort((a, b) => b.blocks - a.blocks));
+              setIsLoading(false);
+              setIsError(false);
+            }
+          } catch {
+            // Continue with batch fetch below.
+          }
+        }
+
         const blockDetails = await Promise.all(
-          sample.map(async (hash) => {
+          remainingHashes.map(async (hash) => {
             try {
               const response = await axios.get(`${getApiBase()}/blocks/${hash}`, {
                 params: { includeTransactions: true, includeColor: true },
@@ -185,23 +222,9 @@ export default function Miners() {
 
         if (cancelled) return;
 
-        minerMapRef.current.clear();
-        let scanned = 0;
-        let start: number | null = null;
-        let end: number | null = null;
-
         blockDetails.forEach((entry) => {
           if (!entry) return;
-          const { data } = entry;
-          const minerInfo = data?.extra?.minerInfo ?? null;
-          const minerAddress = data?.extra?.minerAddress ?? null;
-          const blockTime = Number(data?.header?.timestamp ?? 0) || null;
-          upsertMiner({ minerInfo, minerAddress, blockTime, blockHash: entry.hash });
-          scanned += 1;
-          if (blockTime) {
-            start = start ? Math.min(start, blockTime) : blockTime;
-            end = end ? Math.max(end, blockTime) : blockTime;
-          }
+          applyBlock(entry.hash, entry.data);
         });
 
         setScannedBlocks(scanned);

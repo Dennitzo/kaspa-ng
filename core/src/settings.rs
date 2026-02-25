@@ -3,12 +3,10 @@ use kaspa_metrics_core::Metric;
 use kaspa_utils::networking::ContextualNetAddress;
 use kaspa_wallet_core::storage::local::storage::Storage;
 use kaspa_wrpc_client::WrpcEncoding;
-use rand::distributions::Alphanumeric;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
-use std::net::TcpListener;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use workflow_core::{runtime, task::spawn};
 
 const SETTINGS_REVISION: &str = "0.0.0";
@@ -494,6 +492,8 @@ pub struct NodeSettings {
     pub rothschild: RothschildSettings,
     #[serde(default)]
     pub rothschild_enabled: bool,
+    #[serde(default = "default_true")]
+    pub remove_grpc_info_in_rusty_kaspa_log: bool,
 }
 
 fn default_stratum_bridge_enabled() -> bool {
@@ -531,6 +531,7 @@ impl Default for NodeSettings {
             cpu_miner_enabled: false,
             rothschild: RothschildSettings::default(),
             rothschild_enabled: false,
+            remove_grpc_info_in_rusty_kaspa_log: true,
         }
     }
 }
@@ -549,6 +550,8 @@ impl NodeSettings {
                 } else if self.connection_config_kind != other.connection_config_kind
                 {
                     Some(true)
+                } else if self.remove_grpc_info_in_rusty_kaspa_log != other.remove_grpc_info_in_rusty_kaspa_log {
+                    Some(false)
                 } else if self.kaspad_daemon_storage_folder_enable != other.kaspad_daemon_storage_folder_enable
                     || other.kaspad_daemon_storage_folder_enable && (self.kaspad_daemon_storage_folder != other.kaspad_daemon_storage_folder)
                 {
@@ -586,6 +589,8 @@ impl NodeSettings {
                     || self.wrpc_encoding != other.wrpc_encoding
                 {
                     Some(true)
+                } else if self.remove_grpc_info_in_rusty_kaspa_log != other.remove_grpc_info_in_rusty_kaspa_log {
+                    Some(false)
                 } else {
                     None
                 }
@@ -683,10 +688,8 @@ impl Default for UserInterfaceSettings {
 }
 
 impl UserInterfaceSettings {
-    pub fn effective_explorer_port(&self) -> u16 {
-        self.explorer_port
-            .checked_add(self_hosted_instance_port_offset())
-            .unwrap_or(self.explorer_port)
+    pub fn effective_explorer_port(&self, network: Network) -> u16 {
+        with_network_port_offset(self.explorer_port, network)
     }
 }
 
@@ -837,11 +840,8 @@ fn default_k_web_port() -> u16 {
 
 const SELF_HOSTED_PORT_OFFSET_TESTNET10: u16 = 100;
 const SELF_HOSTED_PORT_OFFSET_TESTNET12: u16 = 200;
-const SELF_HOSTED_INSTANCE_PORT_STEP: u16 = 1000;
-const SELF_HOSTED_INSTANCE_SLOT_MAX: u16 = 32;
-
-static SELF_HOSTED_INSTANCE_PORT_OFFSET: OnceLock<u16> = OnceLock::new();
-static SELF_HOSTED_INSTANCE_SLOT_LOCK: OnceLock<Option<File>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+static ACTIVE_NETWORK_LOCK_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 
 fn self_hosted_network_port_offset(network: Network) -> u16 {
     match network {
@@ -851,37 +851,33 @@ fn self_hosted_network_port_offset(network: Network) -> u16 {
     }
 }
 
-fn self_hosted_base_ports() -> [u16; 6] {
-    [19111, 19112, 19113, 5432, 3000, 8500]
+pub fn network_profile_slug(network: Network) -> &'static str {
+    match network {
+        Network::Mainnet => "mainnet",
+        Network::Testnet10 => "tn10",
+        Network::Testnet12 => "tn12",
+    }
 }
 
-fn port_available(port: u16) -> bool {
-    TcpListener::bind(("127.0.0.1", port)).is_ok()
+pub fn network_settings_filename(network: Network) -> &'static str {
+    match network {
+        Network::Mainnet => "kaspa-ng.mainnet.settings",
+        Network::Testnet10 => "kaspa-ng.tn10.settings",
+        Network::Testnet12 => "kaspa-ng.tn12.settings",
+    }
 }
 
-fn slot_works_for_all_networks(slot_offset: u16) -> bool {
-    let network_offsets = [
-        self_hosted_network_port_offset(Network::Mainnet),
-        self_hosted_network_port_offset(Network::Testnet10),
-        self_hosted_network_port_offset(Network::Testnet12),
-    ];
-
-    self_hosted_base_ports().iter().all(|base_port| {
-        network_offsets.iter().all(|network_offset| {
-            base_port
-                .checked_add(*network_offset)
-                .and_then(|v| v.checked_add(slot_offset))
-                .map(port_available)
-                .unwrap_or(false)
-        })
-    })
+#[cfg(not(target_arch = "wasm32"))]
+fn network_lock_path(network: Network) -> PathBuf {
+    std::env::temp_dir().join(format!("kaspa-ng-network-{}.lock", network_profile_slug(network)))
 }
 
-fn slot_lock_path(slot: u16) -> PathBuf {
-    std::env::temp_dir().join(format!("kaspa-ng-self-hosted-slot-{slot}.lock"))
+fn with_network_port_offset(port: u16, network: Network) -> u16 {
+    port.checked_add(self_hosted_network_port_offset(network))
+        .unwrap_or(port)
 }
 
-#[cfg(unix)]
+#[cfg(all(not(target_arch = "wasm32"), unix))]
 fn process_is_running(pid: u32) -> bool {
     use nix::errno::Errno;
     use nix::sys::signal::kill;
@@ -897,84 +893,107 @@ fn process_is_running(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(any(target_arch = "wasm32", not(unix)))]
 fn process_is_running(_pid: u32) -> bool {
     false
 }
 
-fn lock_holder_is_alive(path: &Path) -> bool {
+#[cfg(not(target_arch = "wasm32"))]
+fn lock_holder_pid(path: &Path) -> Option<u32> {
     let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
+        return None;
     };
-    let Ok(pid) = raw.trim().parse::<u32>() else {
-        return false;
-    };
-    process_is_running(pid)
+    raw.trim().parse::<u32>().ok()
 }
 
-fn try_reserve_slot(slot: u16) -> Option<File> {
-    let path = slot_lock_path(slot);
+#[cfg(not(target_arch = "wasm32"))]
+fn lock_is_owned_by_alive_other_process(path: &Path) -> bool {
+    if let Some(pid) = lock_holder_pid(path) {
+        pid != std::process::id() && process_is_running(pid)
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn try_reserve_network_lock(network: Network) -> bool {
+    let path = network_lock_path(network);
     let create = || OpenOptions::new().write(true).create_new(true).open(&path);
 
     match create() {
         Ok(mut file) => {
             let _ = file.write_all(std::process::id().to_string().as_bytes());
-            Some(file)
+            true
         }
         Err(_) => {
-            if lock_holder_is_alive(&path) {
-                return None;
+            if lock_is_owned_by_alive_other_process(&path) {
+                return false;
             }
-            // Auto-heal stale lock files if this slot ports are currently all free.
-            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
-            if slot_works_for_all_networks(slot_offset) {
-                let _ = std::fs::remove_file(&path);
-                if let Ok(mut file) = create() {
-                    let _ = file.write_all(std::process::id().to_string().as_bytes());
-                    return Some(file);
-                }
+            if lock_holder_pid(&path) == Some(std::process::id()) {
+                return true;
             }
-            None
+            let _ = std::fs::remove_file(&path);
+            if let Ok(mut file) = create() {
+                let _ = file.write_all(std::process::id().to_string().as_bytes());
+                return true;
+            }
+            false
         }
     }
 }
 
-fn self_hosted_instance_port_offset() -> u16 {
-    *SELF_HOSTED_INSTANCE_PORT_OFFSET.get_or_init(|| {
-        if let Ok(value) = std::env::var("KASPA_NG_INSTANCE_PORT_OFFSET") {
-            if let Ok(offset) = value.trim().parse::<u16>() {
-                return offset;
-            }
-        }
-
-        for slot in 0..=SELF_HOSTED_INSTANCE_SLOT_MAX {
-            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
-            if let Some(file) = try_reserve_slot(slot) {
-                let _ = SELF_HOSTED_INSTANCE_SLOT_LOCK.set(Some(file));
-                return slot_offset;
-            }
-        }
-
-        // Fallback when lock files are not writable.
-        for slot in 0..=SELF_HOSTED_INSTANCE_SLOT_MAX {
-            let slot_offset = slot.saturating_mul(SELF_HOSTED_INSTANCE_PORT_STEP);
-            if slot_works_for_all_networks(slot_offset) {
-                return slot_offset;
-            }
-        }
-
-        0
-    })
+#[cfg(not(target_arch = "wasm32"))]
+fn release_network_lock(path: &Path) {
+    if lock_holder_pid(path) == Some(std::process::id()) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
-pub fn current_instance_slot() -> u16 {
-    self_hosted_instance_port_offset() / SELF_HOSTED_INSTANCE_PORT_STEP
+#[cfg(not(target_arch = "wasm32"))]
+pub fn update_network_lock(network: Network) {
+    let lock_path = network_lock_path(network);
+    let guard = ACTIVE_NETWORK_LOCK_PATH.get_or_init(|| Mutex::new(None));
+    let mut active = guard.lock().unwrap();
+    if active.as_ref() == Some(&lock_path) {
+        return;
+    }
+
+    if let Some(old_path) = active.take() {
+        release_network_lock(old_path.as_path());
+    }
+
+    if try_reserve_network_lock(network) {
+        *active = Some(lock_path);
+    }
 }
 
-fn with_network_port_offset(port: u16, network: Network) -> u16 {
-    port.checked_add(self_hosted_network_port_offset(network))
-        .and_then(|v| v.checked_add(self_hosted_instance_port_offset()))
-        .unwrap_or(port)
+#[cfg(target_arch = "wasm32")]
+pub fn update_network_lock(_network: Network) {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_network_in_use(network: Network) -> bool {
+    let path = network_lock_path(network);
+    if !path.exists() {
+        return false;
+    }
+
+    if let Some(pid) = lock_holder_pid(path.as_path()) {
+        if pid == std::process::id() {
+            return false;
+        }
+        if process_is_running(pid) {
+            return true;
+        }
+    }
+
+    // Auto-heal stale lock.
+    let _ = std::fs::remove_file(path);
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_network_in_use(_network: Network) -> bool {
+    false
 }
 
 fn apply_port_offset_to_socket_addr(addr: &str, network: Network) -> String {
@@ -1093,8 +1112,8 @@ impl Default for SelfHostedSettings {
             explorer_socket_port: default_explorer_socket_port(),
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
-            db_user: "kaspa".to_string(),
-            db_password: String::new(),
+            db_user: "kaspadb".to_string(),
+            db_password: "kaspadb".to_string(),
             db_name: "kaspa".to_string(),
             indexer_enabled: true,
             indexer_binary: String::new(),
@@ -1258,89 +1277,34 @@ impl Default for Settings {
 
 impl Settings {}
 
-pub(crate) fn generate_db_password() -> String {
-    rand::thread_rng()
-        .sample_iter(Alphanumeric)
-        .take(24)
-        .map(char::from)
-        .collect()
-}
-
-fn storage() -> Result<Storage> {
-    let slot = current_instance_slot();
-    if slot == 0 {
-        // Keep legacy filename for primary instance to preserve existing user settings.
-        Ok(Storage::try_new("kaspa-ng.settings")?)
-    } else {
-        let filename = format!("kaspa-ng.instance-{slot}.settings");
-        Ok(Storage::try_new(filename.as_str())?)
-    }
+fn settings_storage(network: Network) -> Result<Storage> {
+    Ok(Storage::try_new(network_settings_filename(network))?)
 }
 
 fn resolve_self_hosted_postgres_data_dir(
     settings: &SelfHostedSettings,
-    slot: u16,
+    network: Network,
 ) -> Option<PathBuf> {
     if !settings.postgres_data_dir.trim().is_empty() {
         let mut path = PathBuf::from(settings.postgres_data_dir.trim());
-        if slot > 0 {
-            path.push(format!("instance-{slot}"));
-        }
+        path.push(network_profile_slug(network));
         return Some(path);
     }
 
     let default_storage_folder = kaspa_wallet_core::storage::local::default_storage_folder();
     let storage_folder = workflow_store::fs::resolve_path(default_storage_folder).ok()?;
-    let mut path = storage_folder.join("self-hosted").join("postgres");
-    if slot > 0 {
-        path.push(format!("instance-{slot}"));
-    }
-    Some(path)
-}
-
-fn maybe_use_legacy_primary_db_password(settings: &mut Settings) -> bool {
-    let slot = current_instance_slot();
-    if slot == 0 {
-        return false;
-    }
-
-    let Some(data_dir) = resolve_self_hosted_postgres_data_dir(&settings.self_hosted, slot) else {
-        return false;
-    };
-
-    // Existing instance data dirs created before per-instance settings split
-    // won't have this marker file yet.
-    let has_existing_cluster = data_dir.join("PG_VERSION").exists();
-    let has_password_marker = data_dir.join(".kaspa-ng-db-password").exists();
-    if !has_existing_cluster || has_password_marker {
-        return false;
-    }
-
-    let Ok(primary_storage) = Storage::try_new("kaspa-ng.settings") else {
-        return false;
-    };
-    if !primary_storage.exists_sync().unwrap_or(false) {
-        return false;
-    }
-
-    let Ok(primary_settings) =
-        workflow_store::fs::read_json_sync::<Settings>(primary_storage.filename())
-    else {
-        return false;
-    };
-
-    let primary_password = primary_settings.self_hosted.db_password.trim();
-    if primary_password.is_empty() || primary_password == settings.self_hosted.db_password.trim() {
-        return false;
-    }
-
-    settings.self_hosted.db_password = primary_password.to_string();
-    true
+    Some(
+        storage_folder
+            .join("self-hosted")
+            .join("postgres")
+            .join(network_profile_slug(network)),
+    )
 }
 
 fn sync_db_password_from_cluster_marker(settings: &mut Settings) -> bool {
-    let slot = current_instance_slot();
-    let Some(data_dir) = resolve_self_hosted_postgres_data_dir(&settings.self_hosted, slot) else {
+    let Some(data_dir) =
+        resolve_self_hosted_postgres_data_dir(&settings.self_hosted, settings.node.network)
+    else {
         return false;
     };
 
@@ -1357,16 +1321,149 @@ fn sync_db_password_from_cluster_marker(settings: &mut Settings) -> bool {
     true
 }
 
+fn default_settings_for_network(network: Network) -> Settings {
+    let mut settings = Settings::default();
+    settings.node.network = network;
+    settings
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn latest_settings_network() -> Network {
+    let mut latest: Option<(std::time::SystemTime, Network)> = None;
+    for network in [Network::Mainnet, Network::Testnet10, Network::Testnet12] {
+        let Ok(storage) = settings_storage(network) else {
+            continue;
+        };
+        let path = storage.filename();
+        let Ok(metadata) = std::fs::metadata(path) else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if latest.as_ref().map(|(time, _)| modified > *time).unwrap_or(true) {
+            latest = Some((modified, network));
+        }
+    }
+    latest.map(|(_, network)| network).unwrap_or(Network::Mainnet)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn latest_settings_network() -> Network {
+    Network::Mainnet
+}
+
 impl Settings {
+    pub fn load_for_network_sync(network: Network) -> Result<Self> {
+        let storage = settings_storage(network)?;
+        if storage.exists_sync().unwrap_or(false) {
+            match workflow_store::fs::read_json_sync::<Self>(storage.filename()) {
+                Ok(mut settings) => {
+                    if settings.revision != SETTINGS_REVISION {
+                        return Ok(default_settings_for_network(network));
+                    }
+
+                    let mut migrated = false;
+                    settings.node.network = network;
+
+                    if settings.user_interface.explorer_port == 0 {
+                        settings.user_interface.explorer_port = 51963;
+                        migrated = true;
+                    }
+                    if settings.self_hosted.db_user != "kaspadb" {
+                        settings.self_hosted.db_user = "kaspadb".to_string();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.db_name.trim().is_empty() {
+                        settings.self_hosted.db_name = "kaspa".to_string();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.db_password != "kaspadb" {
+                        settings.self_hosted.db_password = "kaspadb".to_string();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.db_port == 0 {
+                        settings.self_hosted.db_port = 5432;
+                        migrated = true;
+                    }
+                    if !settings.self_hosted.postgres_enabled {
+                        settings.self_hosted.postgres_enabled = true;
+                        migrated = true;
+                    }
+                    if !settings.self_hosted.indexer_enabled {
+                        settings.self_hosted.indexer_enabled = true;
+                        migrated = true;
+                    }
+                    if settings.self_hosted.explorer_rest_port == 0
+                        || settings.self_hosted.explorer_rest_port == 8000
+                    {
+                        settings.self_hosted.explorer_rest_port = default_explorer_rest_port();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.explorer_socket_port == 0
+                        || settings.self_hosted.explorer_socket_port == 8001
+                    {
+                        settings.self_hosted.explorer_socket_port = default_explorer_socket_port();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.k_web_port == 0 {
+                        settings.self_hosted.k_web_port = default_k_web_port();
+                        migrated = true;
+                    }
+                    if should_auto_sync_self_hosted_explorer_profiles(&settings.explorer.self_hosted) {
+                        let synced =
+                            self_hosted_explorer_profiles_from_settings(&settings.self_hosted);
+                        if settings.explorer.self_hosted != synced {
+                            settings.explorer.self_hosted = synced;
+                            migrated = true;
+                        }
+                    }
+                    if settings.self_hosted.enabled
+                        && !matches!(settings.explorer.source, ExplorerDataSource::SelfHosted)
+                    {
+                        settings.explorer.source = ExplorerDataSource::SelfHosted;
+                        migrated = true;
+                    }
+                    if !settings.self_hosted.enabled
+                        && matches!(settings.explorer.source, ExplorerDataSource::SelfHosted)
+                    {
+                        settings.explorer.source = ExplorerDataSource::Official;
+                        migrated = true;
+                    }
+
+                    if migrated
+                        && let Err(err) =
+                            workflow_store::fs::write_json_sync(storage.filename(), &settings)
+                    {
+                        log_warn!(
+                            "Settings::load_for_network_sync() migration store error: {}",
+                            err
+                        );
+                    }
+
+                    Ok(settings)
+                }
+                Err(err) => {
+                    log_warn!("Settings::load_for_network_sync() error: {}", err);
+                    Ok(default_settings_for_network(network))
+                }
+            }
+        } else {
+            Ok(default_settings_for_network(network))
+        }
+    }
+
     pub async fn store(&self) -> Result<()> {
-        let storage = storage()?;
+        let storage = settings_storage(self.node.network)?;
+        update_network_lock(self.node.network);
         storage.ensure_dir().await?;
         workflow_store::fs::write_json(storage.filename(), self).await?;
         Ok(())
     }
 
     pub fn store_sync(&self) -> Result<&Self> {
-        let storage = storage()?;
+        let storage = settings_storage(self.node.network)?;
+        update_network_lock(self.node.network);
         if runtime::is_chrome_extension() {
             let this = self.clone();
             spawn(async move {
@@ -1384,22 +1481,30 @@ impl Settings {
     pub async fn load() -> Result<Self> {
         use workflow_store::fs::read_json;
 
-        let storage = storage()?;
+        let network = latest_settings_network();
+        let storage = settings_storage(network)?;
         if storage.exists().await.unwrap_or(false) {
             match read_json::<Self>(storage.filename()).await {
                 Ok(mut settings) => {
                     if settings.revision != SETTINGS_REVISION {
-                        Ok(Self::default())
+                        let settings = default_settings_for_network(network);
+                        update_network_lock(settings.node.network);
+                        Ok(settings)
                     } else {
+                        let mut migrated = false;
+                        if settings.node.network != network {
+                            settings.node.network = network;
+                            migrated = true;
+                        }
                         if matches!(
                             settings.node.connection_config_kind,
                             NodeConnectionConfigKind::PublicServerCustom
                         ) {
                             settings.node.connection_config_kind =
                                 NodeConnectionConfigKind::PublicServerRandom;
+                            migrated = true;
                         }
 
-                        let mut migrated = false;
                         if settings.node.stratum_bridge.coinbase_tag_suffix.is_empty() {
                             settings.node.stratum_bridge.coinbase_tag_suffix =
                                 "KaspaNG".to_string();
@@ -1470,18 +1575,16 @@ impl Settings {
                             settings.user_interface.explorer_port = 51963;
                             migrated = true;
                         }
-                        if settings.self_hosted.db_user.trim().is_empty() {
-                            settings.self_hosted.db_user = "kaspa".to_string();
+                        if settings.self_hosted.db_user != "kaspadb" {
+                            settings.self_hosted.db_user = "kaspadb".to_string();
                             migrated = true;
                         }
                         if settings.self_hosted.db_name.trim().is_empty() {
                             settings.self_hosted.db_name = "kaspa".to_string();
                             migrated = true;
                         }
-                        if settings.self_hosted.db_password.trim().is_empty()
-                            || settings.self_hosted.db_password == "kaspa"
-                        {
-                            settings.self_hosted.db_password = generate_db_password();
+                        if settings.self_hosted.db_password != "kaspadb" {
+                            settings.self_hosted.db_password = "kaspadb".to_string();
                             migrated = true;
                         }
                         if settings.self_hosted.db_port == 0 {
@@ -1563,20 +1666,33 @@ impl Settings {
                                 "wss://api.kaspa.org".to_string();
                             migrated = true;
                         }
+                        if settings.self_hosted.enabled
+                            && !matches!(settings.explorer.source, ExplorerDataSource::SelfHosted)
+                        {
+                            settings.explorer.source = ExplorerDataSource::SelfHosted;
+                            migrated = true;
+                        }
+                        if !settings.self_hosted.enabled
+                            && matches!(settings.explorer.source, ExplorerDataSource::SelfHosted)
+                        {
+                            settings.explorer.source = ExplorerDataSource::Official;
+                            migrated = true;
+                        }
                         if migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() migration store error: {}", err);
                             }
                         }
 
-                        let password_migrated = sync_db_password_from_cluster_marker(&mut settings)
-                            || maybe_use_legacy_primary_db_password(&mut settings);
+                        let password_migrated =
+                            sync_db_password_from_cluster_marker(&mut settings);
                         if password_migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() db password sync store error: {}", err);
                             }
                         }
 
+                        update_network_lock(settings.node.network);
                         Ok(settings)
                     }
                 }
@@ -1585,15 +1701,21 @@ impl Settings {
                     if matches!(error, workflow_store::error::Error::SerdeJson(..)) {
                         // TODO - recovery process
                         log_warn!("Settings::load() error: {}", error);
-                        Ok(Self::default())
+                        let settings = default_settings_for_network(network);
+                        update_network_lock(settings.node.network);
+                        Ok(settings)
                     } else {
                         log_warn!("Settings::load() error: {}", error);
-                        Ok(Self::default())
+                        let settings = default_settings_for_network(network);
+                        update_network_lock(settings.node.network);
+                        Ok(settings)
                     }
                 }
             }
         } else {
-            Ok(Self::default())
+            let settings = default_settings_for_network(network);
+            update_network_lock(settings.node.network);
+            Ok(settings)
         }
     }
 }

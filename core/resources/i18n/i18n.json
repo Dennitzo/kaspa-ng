@@ -4219,6 +4219,8 @@
       "CPU Miner": "CPU Miner",
       "CPU Miner is available only on Testnet 10 and Testnet 12.": "CPU Miner is available only on Testnet 10 and Testnet 12.",
       "CPU Miner is disabled in Settings.": "CPU Miner is disabled in Settings.",
+      "CPU Miner: started": "CPU Miner: started",
+      "CPU Miner: stopped": "CPU Miner: stopped",
       "Cache Memory Size": "Cache Memory Size",
       "Cancel": "Cancel",
       "Cannot delete data folder while the node is running": "Cannot delete data folder while the node is running",

@@ -4,6 +4,8 @@ use std::net::TcpListener;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+#[cfg(unix)]
+use tokio::time::timeout;
 
 pub enum SelfHostedKIndexerEvents {
     Enable,
@@ -27,6 +29,28 @@ pub struct SelfHostedKIndexerService {
 }
 
 impl SelfHostedKIndexerService {
+    #[cfg(unix)]
+    async fn terminate_process_tree(child: &mut Child) {
+        use nix::sys::signal::{Signal, killpg};
+        use nix::unistd::Pid;
+
+        if let Some(pid) = child.id() {
+            let pgid = Pid::from_raw(pid as i32);
+            let _ = killpg(pgid, Signal::SIGTERM);
+            if timeout(std::time::Duration::from_secs(2), child.wait())
+                .await
+                .is_ok()
+            {
+                return;
+            }
+            let _ = killpg(pgid, Signal::SIGKILL);
+            let _ = timeout(std::time::Duration::from_secs(2), child.wait()).await;
+        } else {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+    }
+
     fn child_is_running(
         child: &mut Option<Child>,
         process_name: &str,
@@ -434,8 +458,15 @@ impl SelfHostedKIndexerService {
     async fn stop_processor(&self) -> Result<()> {
         let child = self.processor_child.lock().unwrap().take();
         if let Some(mut child) = child {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            #[cfg(unix)]
+            {
+                Self::terminate_process_tree(&mut child).await;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
         Ok(())
     }
@@ -443,8 +474,15 @@ impl SelfHostedKIndexerService {
     async fn stop_webserver(&self) -> Result<()> {
         let child = self.webserver_child.lock().unwrap().take();
         if let Some(mut child) = child {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+            #[cfg(unix)]
+            {
+                Self::terminate_process_tree(&mut child).await;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
         }
         Ok(())
     }

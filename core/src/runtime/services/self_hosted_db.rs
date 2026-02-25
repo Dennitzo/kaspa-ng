@@ -83,7 +83,7 @@ struct StatusPayload {
 
 #[derive(Serialize)]
 struct ErrorPayload {
-    error: &'static str,
+    error: String,
 }
 
 #[derive(Serialize)]
@@ -178,7 +178,7 @@ async fn status_handler(State(state): State<AppState>) -> Response {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ErrorPayload {
-                    error: "Unable to collect indexer metrics",
+                    error: err.to_string(),
                 }),
             )
                 .into_response()
@@ -206,10 +206,10 @@ async fn status_stream_handler(
                     Ok(payload) => Ok(axum::response::sse::Event::default()
                         .json_data(payload)
                         .unwrap()),
-                    Err(_) => Ok(axum::response::sse::Event::default()
+                    Err(err) => Ok(axum::response::sse::Event::default()
                         .event("error")
                         .json_data(ErrorPayload {
-                            error: "Unable to collect indexer metrics",
+                            error: err.to_string(),
                         })
                         .unwrap()),
                 }

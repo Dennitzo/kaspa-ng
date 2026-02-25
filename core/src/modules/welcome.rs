@@ -8,6 +8,22 @@ pub struct Welcome {
 }
 
 impl Welcome {
+    fn prefilled_welcome_settings(core: &Core) -> Settings {
+        let mut settings = core.settings.clone();
+        settings.node.network = Network::Mainnet;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            settings.node.node_kind = KaspadNodeKind::IntegratedAsDaemon;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            settings.node.node_kind = KaspadNodeKind::Remote;
+        }
+
+        settings
+    }
+
     pub fn new(runtime: Runtime) -> Self {
         #[allow(unused_mut)]
         let mut settings = Settings::default();
@@ -30,7 +46,7 @@ impl Welcome {
         ui: &mut egui::Ui,
     ) {
         if !self.initialized_from_core {
-            self.settings = core.settings.clone();
+            self.settings = Self::prefilled_welcome_settings(core);
             self.initialized_from_core = true;
         }
 
@@ -47,6 +63,7 @@ impl Welcome {
                 CollapsingHeader::new(i18n("Kaspa Network"))
                     .default_open(true)
                     .show(ui, |ui| {
+                            let previous_network = self.settings.node.network;
 
                             ui.horizontal_wrapped(|ui| {
                                 Network::iter().for_each(|network| {
@@ -55,12 +72,28 @@ impl Welcome {
                                 });
                             });
 
+                            let selected_network = self.settings.node.network;
+                            if selected_network != previous_network
+                                && let Ok(mut loaded) =
+                                    Settings::load_for_network_sync(selected_network)
+                            {
+                                loaded.node.network = selected_network;
+                                self.settings = loaded;
+                            }
+
                             match self.settings.node.network {
                                 Network::Mainnet => {
                                     // ui.colored_label(theme_color().warning_color, i18n("Please note that this is a beta release. Until this message is removed, please avoid using the wallet with mainnet funds."));
                                 }
                                 Network::Testnet10 => { }
                                 Network::Testnet12 => { }
+                            }
+
+                            if crate::settings::is_network_in_use(self.settings.node.network) {
+                                ui.colored_label(
+                                    theme_color().warning_color,
+                                    i18n("Network already in use"),
+                                );
                             }
                         });
                 
@@ -215,7 +248,7 @@ impl Welcome {
         ui: &mut egui::Ui,
     ) {
         if !self.initialized_from_core {
-            self.settings = core.settings.clone();
+            self.settings = Self::prefilled_welcome_settings(core);
             self.initialized_from_core = true;
         }
 
@@ -238,12 +271,24 @@ impl Welcome {
                         )
                         .clicked()
                     {
-                        this.settings.node.network = *network;
+                        if let Ok(mut loaded) = Settings::load_for_network_sync(*network) {
+                            loaded.node.network = *network;
+                            this.settings = loaded;
+                        } else {
+                            this.settings.node.network = *network;
+                        }
                         proceed = true;
                     }
 
                     ui.add_space(8.);
                 });
+
+                if crate::settings::is_network_in_use(this.settings.node.network) {
+                    ui.colored_label(
+                        theme_color().warning_color,
+                        i18n("Network already in use"),
+                    );
+                }
 
                 // ui.add_space(32.0);
                 // ui.colored_label(theme_color().alert_color, RichText::new("β").size(64.0));

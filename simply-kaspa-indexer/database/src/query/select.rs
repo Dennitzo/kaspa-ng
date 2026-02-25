@@ -41,6 +41,16 @@ pub async fn select_all_table_details(pool: &Pool<Postgres>) -> Result<Vec<Table
 }
 
 pub async fn select_var(key: &str, pool: &Pool<Postgres>) -> Result<String, Error> {
+    // Fresh/reset databases can briefly miss the vars table during schema bootstrap.
+    // Treat this like "key not found" to avoid noisy SQL errors on startup.
+    let has_vars_table: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public.vars')::text")
+            .fetch_one(pool)
+            .await?;
+    if has_vars_table.is_none() {
+        return Err(Error::RowNotFound);
+    }
+
     sqlx::query("SELECT value FROM vars WHERE key = $1").bind(key).fetch_one(pool).await?.try_get(0)
 }
 

@@ -11,6 +11,12 @@ cfg_if! {
         const LOG_BUFFER_LINES: usize = 4096;
         const LOG_BUFFER_MARGIN: usize = 128;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
+        fn default_grpc_port_for_network(network: Network) -> u16 {
+            match network {
+                Network::Mainnet => 16110,
+                Network::Testnet10 | Network::Testnet12 => 16210,
+            }
+        }
 
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
             static FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -25,11 +31,11 @@ cfg_if! {
         enum MinerEvents {
             SetEnabled {
                 enabled: bool,
-                network: Network,
+                node_settings: NodeSettings,
                 settings: CpuMinerSettings,
             },
             UpdateSettings {
-                network: Network,
+                node_settings: NodeSettings,
                 settings: CpuMinerSettings,
             },
             Exit,
@@ -43,7 +49,7 @@ cfg_if! {
             starting: AtomicBool,
             restart_pending: AtomicBool,
             logs: Mutex<Vec<Log>>,
-            network: Mutex<Network>,
+            node_settings: Mutex<NodeSettings>,
             settings: Mutex<CpuMinerSettings>,
             child: Mutex<Option<Child>>,
         }
@@ -58,29 +64,64 @@ cfg_if! {
                     starting: AtomicBool::new(false),
                     restart_pending: AtomicBool::new(false),
                     logs: Mutex::new(Vec::new()),
-                    network: Mutex::new(settings.node.network),
+                    node_settings: Mutex::new(settings.node.clone()),
                     settings: Mutex::new(settings.node.cpu_miner.clone()),
                     child: Mutex::new(None),
                 }
             }
 
-            pub fn enable(&self, enabled: bool, network: Network, settings: &CpuMinerSettings) {
+            pub fn enable(
+                &self,
+                enabled: bool,
+                node_settings: &NodeSettings,
+                settings: &CpuMinerSettings,
+            ) {
                 self.service_events
                     .try_send(MinerEvents::SetEnabled {
                         enabled,
-                        network,
+                        node_settings: node_settings.clone(),
                         settings: settings.clone(),
                     })
                     .unwrap();
             }
 
-            pub fn update_settings(&self, network: Network, settings: &CpuMinerSettings) {
+            pub fn update_settings(&self, node_settings: &NodeSettings, settings: &CpuMinerSettings) {
                 self.service_events
                     .try_send(MinerEvents::UpdateSettings {
-                        network,
+                        node_settings: node_settings.clone(),
                         settings: settings.clone(),
                     })
                     .unwrap();
+            }
+
+            fn grpc_target_from_node_settings(node_settings: &NodeSettings) -> Option<(String, u16)> {
+                if !node_settings.enable_grpc {
+                    return None;
+                }
+                let default_port = default_grpc_port_for_network(node_settings.network);
+
+                let raw = match node_settings.grpc_network_interface.kind {
+                    NetworkInterfaceKind::Local | NetworkInterfaceKind::Any => "127.0.0.1".to_string(),
+                    NetworkInterfaceKind::Custom => {
+                        node_settings.grpc_network_interface.custom.to_string()
+                    }
+                };
+
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Some(("127.0.0.1".to_string(), default_port));
+                }
+
+                if let Some((host, port)) = trimmed.rsplit_once(':')
+                    && let Ok(port) = port.parse::<u16>()
+                {
+                    let host = host.trim_matches(|c| c == '[' || c == ']');
+                    if !host.is_empty() {
+                        return Some((host.to_string(), port));
+                    }
+                }
+
+                Some((trimmed.trim_matches(|c| c == '[' || c == ']').to_string(), default_port))
             }
 
             pub fn logs(&self) -> MutexGuard<'_, Vec<Log>> {
@@ -166,7 +207,7 @@ cfg_if! {
                     return;
                 }
 
-                if !is_supported_network(*self.network.lock().unwrap()) {
+                if !is_supported_network(self.node_settings.lock().unwrap().network) {
                     return;
                 }
 
@@ -187,7 +228,7 @@ cfg_if! {
                         this.restart_pending.store(false, Ordering::SeqCst);
                         return;
                     }
-                    if !is_supported_network(*this.network.lock().unwrap()) {
+                    if !is_supported_network(this.node_settings.lock().unwrap().network) {
                         this.restart_pending.store(false, Ordering::SeqCst);
                         return;
                     }
@@ -214,7 +255,8 @@ cfg_if! {
 
                 let _guard = StartGuard(&self.starting);
 
-                let network = *self.network.lock().unwrap();
+                let node_settings = self.node_settings.lock().unwrap().clone();
+                let network = node_settings.network;
                 if !is_supported_network(network) {
                     self.update_logs(
                         i18n("CPU Miner: available only on Testnet 10 and Testnet 12.")
@@ -229,6 +271,10 @@ cfg_if! {
                     self.update_logs(i18n("CPU Miner: mining address is not set (configure it in Settings).").to_string()).await;
                     return Ok(());
                 }
+                let Some((grpc_host, grpc_port)) = Self::grpc_target_from_node_settings(&node_settings) else {
+                    self.update_logs(i18n("CPU Miner: gRPC is disabled; enable gRPC in Node settings.").to_string()).await;
+                    return Ok(());
+                };
 
                 let miner_bin = match Self::find_miner_binary() {
                     Some(bin) => bin,
@@ -246,12 +292,8 @@ cfg_if! {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
 
-                if !settings.kaspad_address.trim().is_empty() {
-                    cmd.arg("--kaspad-address").arg(settings.kaspad_address.trim());
-                }
-                if settings.kaspad_port > 0 {
-                    cmd.arg("--port").arg(settings.kaspad_port.to_string());
-                }
+                cmd.arg("--kaspad-address").arg(grpc_host);
+                cmd.arg("--port").arg(grpc_port.to_string());
                 if settings.threads > 0 {
                     cmd.arg("--threads").arg(settings.threads.to_string());
                 }
@@ -360,9 +402,9 @@ cfg_if! {
                         select! {
                             msg = this.service_events.receiver.recv().fuse() => {
                                 match msg {
-                                    Ok(MinerEvents::SetEnabled { enabled, network, settings }) => {
+                                    Ok(MinerEvents::SetEnabled { enabled, node_settings, settings }) => {
                                         this.is_enabled.store(enabled, Ordering::SeqCst);
-                                        *this.network.lock().unwrap() = network;
+                                        *this.node_settings.lock().unwrap() = node_settings;
                                         *this.settings.lock().unwrap() = settings;
                                         if enabled {
                                             let _ = this.stop_miner().await;
@@ -371,8 +413,8 @@ cfg_if! {
                                             let _ = this.stop_miner().await;
                                         }
                                     }
-                                    Ok(MinerEvents::UpdateSettings { network, settings }) => {
-                                        *this.network.lock().unwrap() = network;
+                                    Ok(MinerEvents::UpdateSettings { node_settings, settings }) => {
+                                        *this.node_settings.lock().unwrap() = node_settings;
                                         *this.settings.lock().unwrap() = settings;
                                         if this.is_enabled.load(Ordering::SeqCst) {
                                             let _ = this.stop_miner().await;
@@ -411,9 +453,9 @@ cfg_if! {
                 Self
             }
 
-            pub fn enable(&self, _enabled: bool, _network: Network, _settings: &CpuMinerSettings) {}
+            pub fn enable(&self, _enabled: bool, _node_settings: &NodeSettings, _settings: &CpuMinerSettings) {}
 
-            pub fn update_settings(&self, _network: Network, _settings: &CpuMinerSettings) {}
+            pub fn update_settings(&self, _node_settings: &NodeSettings, _settings: &CpuMinerSettings) {}
         }
 
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
