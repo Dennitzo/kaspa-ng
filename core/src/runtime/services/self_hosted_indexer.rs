@@ -87,9 +87,7 @@ impl SelfHostedIndexerService {
 
         logs.push(
             "WARN",
-            &format!(
-                "indexer listen address busy on {listen}; stopping stale indexer pid {pid}"
-            ),
+            &format!("indexer listen address busy on {listen}; stopping stale indexer pid {pid}"),
         );
         let _ = kill(Pid::from_raw(pid_i32), Signal::SIGTERM);
 

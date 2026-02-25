@@ -377,7 +377,8 @@ impl SelfHostedPostgresService {
             Some(password),
             "postgres",
         );
-        if let Ok((_, connection)) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await {
+        if let Ok((_, connection)) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await
+        {
             spawn(async move {
                 let _ = connection.await;
                 Ok(())

@@ -869,7 +869,10 @@ pub fn network_settings_filename(network: Network) -> &'static str {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn network_lock_path(network: Network) -> PathBuf {
-    std::env::temp_dir().join(format!("kaspa-ng-network-{}.lock", network_profile_slug(network)))
+    std::env::temp_dir().join(format!(
+        "kaspa-ng-network-{}.lock",
+        network_profile_slug(network)
+    ))
 }
 
 fn with_network_port_offset(port: u16, network: Network) -> u16 {
@@ -1341,11 +1344,17 @@ fn latest_settings_network() -> Network {
         let Ok(modified) = metadata.modified() else {
             continue;
         };
-        if latest.as_ref().map(|(time, _)| modified > *time).unwrap_or(true) {
+        if latest
+            .as_ref()
+            .map(|(time, _)| modified > *time)
+            .unwrap_or(true)
+        {
             latest = Some((modified, network));
         }
     }
-    latest.map(|(_, network)| network).unwrap_or(Network::Mainnet)
+    latest
+        .map(|(_, network)| network)
+        .unwrap_or(Network::Mainnet)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1410,7 +1419,9 @@ impl Settings {
                         settings.self_hosted.k_web_port = default_k_web_port();
                         migrated = true;
                     }
-                    if should_auto_sync_self_hosted_explorer_profiles(&settings.explorer.self_hosted) {
+                    if should_auto_sync_self_hosted_explorer_profiles(
+                        &settings.explorer.self_hosted,
+                    ) {
                         let synced =
                             self_hosted_explorer_profiles_from_settings(&settings.self_hosted);
                         if settings.explorer.self_hosted != synced {
@@ -1684,8 +1695,7 @@ impl Settings {
                             }
                         }
 
-                        let password_migrated =
-                            sync_db_password_from_cluster_marker(&mut settings);
+                        let password_migrated = sync_db_password_from_cluster_marker(&mut settings);
                         if password_migrated {
                             if let Err(err) = settings.store().await {
                                 log_warn!("Settings::load() db password sync store error: {}", err);

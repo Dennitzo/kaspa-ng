@@ -435,6 +435,7 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           version: "31.1"
+          repo-token: ${{ github.token }}
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable

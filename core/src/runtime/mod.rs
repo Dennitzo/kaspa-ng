@@ -586,10 +586,7 @@ pub fn halt() {
             })
             .ok();
 
-        if rx
-            .recv_timeout(std::time::Duration::from_secs(20))
-            .is_err()
-        {
+        if rx.recv_timeout(std::time::Duration::from_secs(20)).is_err() {
             // Best-effort second stop pulse without blocking UI shutdown path.
             runtime.stop_services();
             std::thread::sleep(std::time::Duration::from_millis(1200));
