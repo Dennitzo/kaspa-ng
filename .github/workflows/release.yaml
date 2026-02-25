@@ -90,11 +90,19 @@ jobs:
           mkdir -p dist
           if [ "$RUNNER_OS" = "macOS" ]; then
             cp target/release/kaspa-ng dist/
-            if [ -f target/release/stratum-bridge ]; then
-              cp target/release/stratum-bridge dist/
-            elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-              cp rusty-kaspa/target/release/stratum-bridge dist/
-            fi
+            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+              if [ -f "target/release/${bin}" ]; then
+                cp "target/release/${bin}" dist/
+              elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+                cp "rusty-kaspa/target/release/${bin}" dist/
+              elif [ -f "cpuminer/target/release/${bin}" ]; then
+                cp "cpuminer/target/release/${bin}" dist/
+              elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+                cp "simply-kaspa-indexer/target/release/${bin}" dist/
+              elif [ -f "K-indexer/target/release/${bin}" ]; then
+                cp "K-indexer/target/release/${bin}" dist/
+              fi
+            done
             if [ -d target/release/kaspa-explorer-ng ]; then
               cp -r target/release/kaspa-explorer-ng dist/
             elif [ -d kaspa-explorer-ng/build ]; then
@@ -103,11 +111,19 @@ jobs:
             fi
           else
             cp target/release/kaspa-ng dist/
-            if [ -f target/release/stratum-bridge ]; then
-              cp target/release/stratum-bridge dist/
-            elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-              cp rusty-kaspa/target/release/stratum-bridge dist/
-            fi
+            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+              if [ -f "target/release/${bin}" ]; then
+                cp "target/release/${bin}" dist/
+              elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+                cp "rusty-kaspa/target/release/${bin}" dist/
+              elif [ -f "cpuminer/target/release/${bin}" ]; then
+                cp "cpuminer/target/release/${bin}" dist/
+              elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+                cp "simply-kaspa-indexer/target/release/${bin}" dist/
+              elif [ -f "K-indexer/target/release/${bin}" ]; then
+                cp "K-indexer/target/release/${bin}" dist/
+              fi
+            done
             if [ -d target/release/kaspa-explorer-ng ]; then
               cp -r target/release/kaspa-explorer-ng dist/
             elif [ -d kaspa-explorer-ng/build ]; then
@@ -130,8 +146,26 @@ jobs:
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path dist | Out-Null
           Copy-Item target\release\kaspa-ng.exe dist\
-          if (Test-Path rusty-kaspa\target\release\stratum-bridge.exe) {
-            Copy-Item rusty-kaspa\target\release\stratum-bridge.exe dist\
+          $bins = @(
+            "stratum-bridge.exe",
+            "kaspa-miner.exe",
+            "rothschild.exe",
+            "simply-kaspa-indexer.exe",
+            "K-webserver.exe",
+            "K-transaction-processor.exe"
+          )
+          foreach ($bin in $bins) {
+            if (Test-Path "target\\release\\$bin") {
+              Copy-Item "target\\release\\$bin" dist\
+            } elseif (Test-Path "rusty-kaspa\\target\\release\\$bin") {
+              Copy-Item "rusty-kaspa\\target\\release\\$bin" dist\
+            } elseif (Test-Path "cpuminer\\target\\release\\$bin") {
+              Copy-Item "cpuminer\\target\\release\\$bin" dist\
+            } elseif (Test-Path "simply-kaspa-indexer\\target\\release\\$bin") {
+              Copy-Item "simply-kaspa-indexer\\target\\release\\$bin" dist\
+            } elseif (Test-Path "K-indexer\\target\\release\\$bin") {
+              Copy-Item "K-indexer\\target\\release\\$bin" dist\
+            }
           }
           if (Test-Path kaspa-explorer-ng\build) {
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
