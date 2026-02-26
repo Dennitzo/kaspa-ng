@@ -52,3 +52,23 @@ pub fn rothschild_mnemonic_from_private_key(private_key_hex: &str) -> Result<Str
     let mnemonic = Mnemonic::from_entropy(key_bytes, Language::English)?;
     Ok(mnemonic.phrase_string())
 }
+
+pub fn rothschild_private_key_from_mnemonic(mnemonic_phrase: &str) -> Result<String> {
+    let phrase = mnemonic_phrase
+        .split_ascii_whitespace()
+        .filter(|s| s.is_not_empty())
+        .collect::<Vec<&str>>()
+        .join(" ");
+
+    let mnemonic = Mnemonic::new(phrase, Language::English)?;
+    let entropy = mnemonic.entropy().clone();
+    if entropy.len() != 32 {
+        return Err(Error::custom(
+            "Rothschild mnemonic must be 24 words (32-byte entropy)",
+        ));
+    }
+    SecretKey::from_slice(&entropy)
+        .map_err(|_| Error::custom("Mnemonic entropy is not a valid secp256k1 private key"))?;
+
+    Ok(entropy.to_hex())
+}

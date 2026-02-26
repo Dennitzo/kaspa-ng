@@ -30,10 +30,7 @@ pub struct SelfHostedExplorerService {
 
 impl SelfHostedExplorerService {
     fn default_grpc_port_for_network(network: Network) -> u16 {
-        match network {
-            Network::Mainnet => 16110,
-            Network::Testnet10 | Network::Testnet12 => 16210,
-        }
+        crate::settings::node_grpc_port_for_network(network)
     }
 
     fn running_from_macos_bundle() -> bool {

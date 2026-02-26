@@ -193,10 +193,7 @@ impl SelfHostedIndexerService {
     }
 
     fn default_wrpc_port(network: Network) -> u16 {
-        match network {
-            Network::Mainnet => 17110,
-            Network::Testnet10 | Network::Testnet12 => 17210,
-        }
+        crate::settings::node_wrpc_borsh_port_for_network(network)
     }
 
     fn sanitize_wrpc_host(value: &str) -> String {
@@ -228,10 +225,13 @@ impl SelfHostedIndexerService {
         normalized.is_empty()
             || normalized.starts_with("ws://127.0.0.1:17110")
             || normalized.starts_with("ws://127.0.0.1:17210")
+            || normalized.starts_with("ws://127.0.0.1:17310")
             || normalized.starts_with("ws://localhost:17110")
             || normalized.starts_with("ws://localhost:17210")
+            || normalized.starts_with("ws://localhost:17310")
             || normalized.starts_with("ws://[::1]:17110")
             || normalized.starts_with("ws://[::1]:17210")
+            || normalized.starts_with("ws://[::1]:17310")
     }
 
     fn effective_indexer_rpc_url(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
@@ -376,6 +376,7 @@ impl SelfHostedIndexerService {
                 Self::stop_pidfile_indexer_if_needed(&indexer_listen, &node, &self.logs).await;
             }
         }
+
         if !Self::listen_addr_available(&indexer_listen) {
             log_warn!(
                 "self-hosted-indexer: listen address already in use ({}); refusing to start indexer",
@@ -420,7 +421,7 @@ impl SelfHostedIndexerService {
             .arg("-d")
             .arg(database_url)
             .arg("-l")
-            .arg(indexer_listen);
+            .arg(&indexer_listen);
 
         if settings.indexer_upgrade_db {
             cmd.arg("-u");
@@ -487,6 +488,10 @@ impl SelfHostedIndexerService {
         *self.child.lock().unwrap() = Some(child);
         self.logs
             .push("INFO", &format!("using indexer rpc endpoint: {rpc_url}"));
+        self.logs.push(
+            "INFO",
+            &format!("using indexer listen address: {indexer_listen}"),
+        );
         let selected_network = node.network.to_string();
         if selected_network == "testnet-12" && network_arg == "testnet-10" {
             self.logs.push(

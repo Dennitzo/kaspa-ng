@@ -34,11 +34,35 @@ jobs:
           cache: "npm"
           cache-dependency-path: kaspa-explorer-ng/package-lock.json
 
-      - name: Build kaspa-explorer-ng
-        working-directory: kaspa-explorer-ng
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry and Pipenv
+        shell: bash
         run: |
-          npm ci --prefer-offline --no-audit
+          python -m pip install --upgrade pip
+          pip install poetry pipenv
+
+      - name: Build dependency stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd simply-kaspa-indexer
+          cargo build --release
+          cd ..
+          cd kaspa-rest-server
+          poetry install
+          cd ..
+          cd kaspa-socket-server
+          pipenv install --deploy --clear
+          cd ..
+          cd kaspa-explorer-ng
+          npm install
           npm run build
+          cd ..
+          cargo build --release
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -47,6 +71,40 @@ jobs:
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Build bundled service binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd rusty-kaspa && cargo build --release -p kaspa-stratum-bridge -p rothschild)
+          (cd cpuminer && cargo build --release)
+          (cd simply-kaspa-indexer && cargo build --release -p simply-kaspa-indexer)
+          (cd K-indexer && cargo build --release -p K-webserver -p K-transaction-processor)
+
+      - name: Verify bundled service binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; else ext=""; fi
+          missing=0
+          for bin in "stratum-bridge" "kaspa-miner" "rothschild" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor"; do
+            found=""
+            for base in target/release rusty-kaspa/target/release cpuminer/target/release simply-kaspa-indexer/target/release K-indexer/target/release; do
+              if [ -f "${base}/${bin}${ext}" ]; then
+                found="${base}/${bin}${ext}"
+                break
+              fi
+            done
+            if [ -z "$found" ]; then
+              echo "Missing binary: ${bin}${ext}"
+              missing=1
+            else
+              echo "Found: ${found}"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Cache
         uses: actions/cache@v3
@@ -89,6 +147,18 @@ jobs:
             mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng/
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          fi
+          for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe; do
+            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+            [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
           powershell "Compress-Archive kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/* \"${archive}\""
@@ -123,6 +193,18 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server "$ROOT/"
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server "$ROOT/"
+          fi
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/*
@@ -157,6 +239,18 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server "$ROOT/"
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server "$ROOT/"
+          fi
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/*
@@ -199,8 +293,20 @@ jobs:
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          fi
           cp core/resources/icons/icon-256.png kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+            [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png
           mkdir -p .debpkg/usr/share/applications

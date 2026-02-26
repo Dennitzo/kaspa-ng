@@ -199,7 +199,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
           <FieldName name="Transactions" infoText="Total number of transactions involving this address." />
           <FieldValue value={!isLoadingTxCount ? numeral(txTotal).format("0,") : <LoadingSpinner />} />
           <FieldName name="UTXOs" infoText="Unspent, available outputs available at this address." />
-          <FieldValue value={!isLoadingUtxoData ? numeral(utxoData!.length).format("0,") : <LoadingSpinner />} />
+          <FieldValue value={!isLoadingUtxoData ? numeral(utxoData?.length ?? 0).format("0,") : <LoadingSpinner />} />
         </div>
       </div>
 
@@ -296,7 +296,7 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                             className="text-link cursor-pointer hover:underline"
                             onClick={() => setExpand((expand) => expand.concat(transaction.transaction_id))}
                           >
-                            Show more (+{transaction.inputs!.length - 5})
+                            Show more (+{(transaction.inputs || []).length - 5})
                           </span>
                         )}
                       </ul>

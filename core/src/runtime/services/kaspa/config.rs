@@ -55,6 +55,30 @@ impl From<NodeSettings> for Config {
     }
 }
 
+fn interface_with_default_port(interface: NetworkInterfaceConfig, default_port: u16) -> String {
+    let raw = interface.to_string();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return format!("127.0.0.1:{default_port}");
+    }
+    if trimmed.starts_with('[') {
+        if let Some(end) = trimmed.find(']') {
+            let tail = &trimmed[end + 1..];
+            if tail.starts_with(':') {
+                return trimmed.to_string();
+            }
+        }
+        return format!("{trimmed}:{default_port}");
+    }
+    if trimmed.matches(':').count() == 1 {
+        return trimmed.to_string();
+    }
+    if trimmed.contains(':') {
+        return format!("[{trimmed}]:{default_port}");
+    }
+    format!("{trimmed}:{default_port}")
+}
+
 cfg_if! {
 
     if #[cfg(not(target_arch = "wasm32"))] {
@@ -81,7 +105,12 @@ cfg_if! {
                 args.disable_upnp = !config.enable_upnp;
 
                 if config.enable_grpc {
-                    args.rpclisten = Some(config.grpc_network_interface.into());
+                    let grpc_port = crate::settings::node_grpc_port_for_network(config.network);
+                    args.rpclisten = Some(
+                        interface_with_default_port(config.grpc_network_interface, grpc_port)
+                            .parse()
+                            .map_err(|err| Error::Custom(format!("invalid grpc interface: {err}")))?,
+                    );
                 }
 
                 args.user_agent_comments = vec![user_agent_comment()];
@@ -125,15 +154,20 @@ cfg_if! {
                 }
 
                 if config.enable_grpc {
-                    args.push(format!("--rpclisten={}", config.grpc_network_interface));
+                    let grpc_port = crate::settings::node_grpc_port_for_network(config.network);
+                    args.push(format!(
+                        "--rpclisten={}",
+                        interface_with_default_port(config.grpc_network_interface, grpc_port)
+                    ));
                 } else {
                     args.push("--nogrpc");
                 }
 
+                let wrpc_port = crate::settings::node_wrpc_borsh_port_for_network(config.network);
                 if config.enable_wrpc_borsh {
-                    args.push("--rpclisten-borsh=0.0.0.0");
+                    args.push(format!("--rpclisten-borsh=0.0.0.0:{wrpc_port}"));
                 } else {
-                    args.push("--rpclisten-borsh=127.0.0.1");
+                    args.push(format!("--rpclisten-borsh=127.0.0.1:{wrpc_port}"));
                 }
 
                 args.push(format!("--uacomment={}", user_agent_comment()));

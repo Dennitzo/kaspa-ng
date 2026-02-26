@@ -31,11 +31,35 @@ jobs:
           cache: "npm"
           cache-dependency-path: kaspa-explorer-ng/package-lock.json
 
-      - name: Build kaspa-explorer-ng
-        working-directory: kaspa-explorer-ng
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry and Pipenv
+        shell: bash
         run: |
-          npm ci --prefer-offline --no-audit
+          python -m pip install --upgrade pip
+          pip install poetry pipenv
+
+      - name: Build dependency stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd simply-kaspa-indexer
+          cargo build --release
+          cd ..
+          cd kaspa-rest-server
+          poetry install
+          cd ..
+          cd kaspa-socket-server
+          pipenv install --deploy --clear
+          cd ..
+          cd kaspa-explorer-ng
+          npm install
           npm run build
+          cd ..
+          cargo build --release
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -78,6 +102,40 @@ jobs:
 
       - name: Build kaspa-ng (release)
         run: cargo build --release --bin kaspa-ng
+
+      - name: Build bundled service binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd rusty-kaspa && cargo build --release -p kaspa-stratum-bridge -p rothschild)
+          (cd cpuminer && cargo build --release)
+          (cd simply-kaspa-indexer && cargo build --release -p simply-kaspa-indexer)
+          (cd K-indexer && cargo build --release -p K-webserver -p K-transaction-processor)
+
+      - name: Verify bundled service binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; else ext=""; fi
+          missing=0
+          for bin in "stratum-bridge" "kaspa-miner" "rothschild" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor"; do
+            found=""
+            for base in target/release rusty-kaspa/target/release cpuminer/target/release simply-kaspa-indexer/target/release K-indexer/target/release; do
+              if [ -f "${base}/${bin}${ext}" ]; then
+                found="${base}/${bin}${ext}"
+                break
+              fi
+            done
+            if [ -z "$found" ]; then
+              echo "Missing binary: ${bin}${ext}"
+              missing=1
+            else
+              echo "Found: ${found}"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Package (macOS/Linux)
         if: runner.os != 'Windows'
@@ -133,6 +191,26 @@ jobs:
             cp core/resources/icons/icon-256.png dist/kaspa-ng.png
             cp core/resources/packaging/kaspa-ng.desktop dist/
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server dist/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server dist/
+          fi
+          required_files=(kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor)
+          for f in "${required_files[@]}"; do
+            if [ ! -f "dist/${f}" ]; then
+              echo "Missing packaged binary: ${f}"
+              exit 1
+            fi
+          done
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server)
+          for d in "${required_dirs[@]}"; do
+            if [ ! -d "dist/${d}" ]; then
+              echo "Missing packaged directory: ${d}"
+              exit 1
+            fi
+          done
           cp README.md LICENSE dist/
           tar -czf "${OUT}" -C dist .
           echo "ASSET=${OUT}" >> "$GITHUB_ENV"
@@ -170,6 +248,32 @@ jobs:
           if (Test-Path kaspa-explorer-ng\build) {
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
             Copy-Item -Recurse -Force kaspa-explorer-ng\build dist\kaspa-explorer-ng\
+          }
+          if (Test-Path kaspa-rest-server) {
+            Copy-Item -Recurse -Force kaspa-rest-server dist\
+          }
+          if (Test-Path kaspa-socket-server) {
+            Copy-Item -Recurse -Force kaspa-socket-server dist\
+          }
+          $requiredFiles = @(
+            "kaspa-ng.exe",
+            "stratum-bridge.exe",
+            "kaspa-miner.exe",
+            "rothschild.exe",
+            "simply-kaspa-indexer.exe",
+            "K-webserver.exe",
+            "K-transaction-processor.exe"
+          )
+          foreach ($f in $requiredFiles) {
+            if (-not (Test-Path "dist\\$f")) {
+              throw "Missing packaged binary: $f"
+            }
+          }
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server")
+          foreach ($d in $requiredDirs) {
+            if (-not (Test-Path "dist\\$d")) {
+              throw "Missing packaged directory: $d"
+            }
           }
           Copy-Item README.md dist\
           Copy-Item LICENSE dist\

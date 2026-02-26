@@ -689,7 +689,7 @@ impl Default for UserInterfaceSettings {
 
 impl UserInterfaceSettings {
     pub fn effective_explorer_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.explorer_port, network)
+        network_ports(network).explorer_ui_port
     }
 }
 
@@ -838,18 +838,67 @@ fn default_k_web_port() -> u16 {
     3000
 }
 
-const SELF_HOSTED_PORT_OFFSET_TESTNET10: u16 = 100;
-const SELF_HOSTED_PORT_OFFSET_TESTNET12: u16 = 200;
-#[cfg(not(target_arch = "wasm32"))]
-static ACTIVE_NETWORK_LOCK_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+#[derive(Clone, Copy)]
+struct NetworkPorts {
+    explorer_ui_port: u16,
+    self_hosted_api_port: u16,
+    self_hosted_rest_port: u16,
+    self_hosted_socket_port: u16,
+    self_hosted_db_port: u16,
+    self_hosted_k_web_port: u16,
+    self_hosted_indexer_port: u16,
+    node_grpc_port: u16,
+    node_wrpc_borsh_port: u16,
+}
 
-fn self_hosted_network_port_offset(network: Network) -> u16 {
+fn network_ports(network: Network) -> NetworkPorts {
     match network {
-        Network::Mainnet => 0,
-        Network::Testnet10 => SELF_HOSTED_PORT_OFFSET_TESTNET10,
-        Network::Testnet12 => SELF_HOSTED_PORT_OFFSET_TESTNET12,
+        Network::Mainnet => NetworkPorts {
+            explorer_ui_port: 51963,
+            self_hosted_api_port: 19111,
+            self_hosted_rest_port: 19112,
+            self_hosted_socket_port: 19113,
+            self_hosted_db_port: 5432,
+            self_hosted_k_web_port: 3000,
+            self_hosted_indexer_port: 8500,
+            node_grpc_port: 16110,
+            node_wrpc_borsh_port: 17110,
+        },
+        Network::Testnet10 => NetworkPorts {
+            explorer_ui_port: 52063,
+            self_hosted_api_port: 19211,
+            self_hosted_rest_port: 19212,
+            self_hosted_socket_port: 19213,
+            self_hosted_db_port: 5532,
+            self_hosted_k_web_port: 3100,
+            self_hosted_indexer_port: 8600,
+            node_grpc_port: 16210,
+            node_wrpc_borsh_port: 17210,
+        },
+        Network::Testnet12 => NetworkPorts {
+            explorer_ui_port: 52163,
+            self_hosted_api_port: 19311,
+            self_hosted_rest_port: 19312,
+            self_hosted_socket_port: 19313,
+            self_hosted_db_port: 5632,
+            self_hosted_k_web_port: 3200,
+            self_hosted_indexer_port: 8700,
+            node_grpc_port: 16310,
+            node_wrpc_borsh_port: 17310,
+        },
     }
 }
+
+pub fn node_grpc_port_for_network(network: Network) -> u16 {
+    network_ports(network).node_grpc_port
+}
+
+pub fn node_wrpc_borsh_port_for_network(network: Network) -> u16 {
+    network_ports(network).node_wrpc_borsh_port
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static ACTIVE_NETWORK_LOCK_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 
 pub fn network_profile_slug(network: Network) -> &'static str {
     match network {
@@ -873,11 +922,6 @@ fn network_lock_path(network: Network) -> PathBuf {
         "kaspa-ng-network-{}.lock",
         network_profile_slug(network)
     ))
-}
-
-fn with_network_port_offset(port: u16, network: Network) -> u16 {
-    port.checked_add(self_hosted_network_port_offset(network))
-        .unwrap_or(port)
 }
 
 #[cfg(all(not(target_arch = "wasm32"), unix))]
@@ -999,19 +1043,38 @@ pub fn is_network_in_use(_network: Network) -> bool {
     false
 }
 
-fn apply_port_offset_to_socket_addr(addr: &str, network: Network) -> String {
+fn apply_fixed_port_to_socket_addr(addr: &str, fixed_port: u16) -> String {
     let trimmed = addr.trim();
     if trimmed.is_empty() {
-        return trimmed.to_string();
+        return format!("127.0.0.1:{fixed_port}");
     }
 
-    let Some((host, port)) = trimmed.rsplit_once(':') else {
-        return trimmed.to_string();
+    let mut authority = trimmed;
+    if let Some((_, rest)) = authority.split_once("://") {
+        authority = rest;
+    }
+    if let Some((left, _)) = authority.split_once('/') {
+        authority = left;
+    }
+
+    let Some((host, port)) = (if authority.starts_with('[') {
+        let Some(end) = authority.find(']') else {
+            return format!("127.0.0.1:{fixed_port}");
+        };
+        let host = &authority[..=end];
+        let Some(port) = authority[end + 1..].strip_prefix(':') else {
+            return format!("127.0.0.1:{fixed_port}");
+        };
+        Some((host, port))
+    } else {
+        authority.rsplit_once(':')
+    }) else {
+        return format!("127.0.0.1:{fixed_port}");
     };
-    let Ok(port) = port.parse::<u16>() else {
-        return trimmed.to_string();
+    let Ok(_port) = port.parse::<u16>() else {
+        return format!("127.0.0.1:{fixed_port}");
     };
-    let port = with_network_port_offset(port, network);
+    let port = fixed_port;
 
     if host.starts_with('[') && host.ends_with(']') {
         format!("{host}:{port}")
@@ -1135,27 +1198,30 @@ impl Default for SelfHostedSettings {
 
 impl SelfHostedSettings {
     pub fn effective_api_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.api_port, network)
+        network_ports(network).self_hosted_api_port
     }
 
     pub fn effective_explorer_rest_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.explorer_rest_port, network)
+        network_ports(network).self_hosted_rest_port
     }
 
     pub fn effective_explorer_socket_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.explorer_socket_port, network)
+        network_ports(network).self_hosted_socket_port
     }
 
     pub fn effective_db_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.db_port, network)
+        network_ports(network).self_hosted_db_port
     }
 
     pub fn effective_k_web_port(&self, network: Network) -> u16 {
-        with_network_port_offset(self.k_web_port, network)
+        network_ports(network).self_hosted_k_web_port
     }
 
     pub fn effective_indexer_listen(&self, network: Network) -> String {
-        apply_port_offset_to_socket_addr(&self.indexer_listen, network)
+        apply_fixed_port_to_socket_addr(
+            &self.indexer_listen,
+            network_ports(network).self_hosted_indexer_port,
+        )
     }
 }
 
@@ -1580,6 +1646,26 @@ impl Settings {
                             ) {
                                 settings.node.rothschild.mnemonic = mnemonic;
                                 migrated = true;
+                            }
+                        }
+                        if settings.node.rothschild_enabled
+                            && settings.node.rothschild.mnemonic.trim().is_not_empty()
+                        {
+                            if let Ok(private_key) = rothschild_private_key_from_mnemonic(
+                                settings.node.rothschild.mnemonic.as_str(),
+                            ) {
+                                if settings.node.rothschild.private_key != private_key {
+                                    settings.node.rothschild.private_key = private_key;
+                                    migrated = true;
+                                }
+                                if let Ok(address) = rothschild_address_from_private_key(
+                                    settings.node.network,
+                                    settings.node.rothschild.private_key.as_str(),
+                                ) && settings.node.rothschild.address != address
+                                {
+                                    settings.node.rothschild.address = address;
+                                    migrated = true;
+                                }
                             }
                         }
                         if settings.user_interface.explorer_port == 0 {

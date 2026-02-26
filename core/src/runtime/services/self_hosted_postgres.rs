@@ -1,6 +1,7 @@
 use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -25,6 +26,11 @@ pub struct SelfHostedPostgresService {
 }
 
 impl SelfHostedPostgresService {
+    fn postgres_auto_install_attempted() -> &'static OnceLock<()> {
+        static ONCE: OnceLock<()> = OnceLock::new();
+        &ONCE
+    }
+
     fn password_marker_path(data_dir: &Path) -> PathBuf {
         data_dir.join(".kaspa-ng-db-password")
     }
@@ -180,9 +186,19 @@ impl SelfHostedPostgresService {
         };
 
         for bin_dir in Self::candidate_bin_dirs() {
-            let candidate = PathBuf::from(bin_dir).join(&bin_name);
+            let candidate = bin_dir.join(&bin_name);
             if candidate.exists() {
                 return Ok(candidate);
+            }
+        }
+
+        if Self::postgres_auto_install_attempted().set(()).is_ok() {
+            let _ = Self::attempt_auto_install_postgres();
+            for bin_dir in Self::candidate_bin_dirs() {
+                let candidate = bin_dir.join(&bin_name);
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
             }
         }
 
@@ -195,39 +211,152 @@ impl SelfHostedPostgresService {
         )))
     }
 
-    fn candidate_bin_dirs() -> Vec<&'static str> {
-        let mut dirs = Vec::new();
+    fn candidate_bin_dirs() -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent()
+        {
+            dirs.push(exe_dir.join("postgres").join("bin"));
+
+            #[cfg(target_os = "macos")]
+            {
+                // Kaspa-NG.app/Contents/MacOS -> Kaspa-NG.app/Contents/Resources/postgres/bin
+                dirs.push(exe_dir.join("../Resources/postgres/bin"));
+                dirs.push(exe_dir.join("../../Resources/postgres/bin"));
+            }
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            dirs.push(cwd.join("postgres").join("bin"));
+        }
+
+        if let Some(home) = workflow_core::dirs::home_dir() {
+            dirs.push(home.join(".kaspa/self-hosted/postgres-runtime/bin"));
+        }
 
         #[cfg(target_os = "macos")]
         {
             dirs.extend([
-                "/opt/homebrew/opt/postgresql@15/bin",
-                "/usr/local/opt/postgresql@15/bin",
-                "/opt/homebrew/opt/postgresql/bin",
-                "/usr/local/opt/postgresql/bin",
+                PathBuf::from("/opt/homebrew/opt/postgresql@15/bin"),
+                PathBuf::from("/usr/local/opt/postgresql@15/bin"),
+                PathBuf::from("/opt/homebrew/opt/postgresql/bin"),
+                PathBuf::from("/usr/local/opt/postgresql/bin"),
             ]);
         }
 
         #[cfg(target_os = "linux")]
         {
             dirs.extend([
-                "/usr/lib/postgresql/15/bin",
-                "/usr/pgsql-15/bin",
-                "/usr/local/pgsql/bin",
-                "/usr/local/bin",
-                "/usr/bin",
+                PathBuf::from("/usr/lib/postgresql/15/bin"),
+                PathBuf::from("/usr/pgsql-15/bin"),
+                PathBuf::from("/usr/local/pgsql/bin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
             ]);
         }
 
         #[cfg(target_os = "windows")]
         {
             dirs.extend([
-                "C:\\Program Files\\PostgreSQL\\15\\bin",
-                "C:\\Program Files (x86)\\PostgreSQL\\15\\bin",
+                PathBuf::from("C:\\Program Files\\PostgreSQL\\15\\bin"),
+                PathBuf::from("C:\\Program Files (x86)\\PostgreSQL\\15\\bin"),
             ]);
         }
 
         dirs
+    }
+
+    fn run_command_success(cmd: &mut std::process::Command) -> bool {
+        matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn attempt_auto_install_postgres() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(prefix) = std::process::Command::new("brew")
+                .args(["--prefix", "postgresql@15"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+                && prefix.status.success()
+            {
+                let path = String::from_utf8_lossy(&prefix.stdout).trim().to_string();
+                if !path.is_empty() && PathBuf::from(path).join("bin/postgres").exists() {
+                    return true;
+                }
+            }
+
+            let mut list = std::process::Command::new("brew");
+            list.args(["list", "postgresql@15"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            if Self::run_command_success(&mut list) {
+                return true;
+            }
+
+            let mut install = std::process::Command::new("brew");
+            install
+                .args(["install", "postgresql@15"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            return Self::run_command_success(&mut install);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let mut apt_direct = std::process::Command::new("apt-get");
+            apt_direct
+                .args(["update"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            if Self::run_command_success(&mut apt_direct) {
+                let mut apt_install = std::process::Command::new("apt-get");
+                apt_install
+                    .args(["install", "-y", "postgresql-15"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                if Self::run_command_success(&mut apt_install) {
+                    return true;
+                }
+            }
+
+            let mut sudo_update = std::process::Command::new("sudo");
+            sudo_update
+                .args(["-n", "apt-get", "update"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            if Self::run_command_success(&mut sudo_update) {
+                let mut sudo_install = std::process::Command::new("sudo");
+                sudo_install
+                    .args(["-n", "apt-get", "install", "-y", "postgresql-15"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                return Self::run_command_success(&mut sudo_install);
+            }
+            return false;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let mut winget = std::process::Command::new("winget");
+            winget
+                .args([
+                    "install",
+                    "-e",
+                    "--id",
+                    "PostgreSQL.PostgreSQL.15",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                    "--silent",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            return Self::run_command_success(&mut winget);
+        }
+
+        #[allow(unreachable_code)]
+        false
     }
 
     fn find_in_path(bin_name: &str) -> Option<PathBuf> {

@@ -24,6 +24,14 @@ class KaspadMultiClient(object):
                 return k
         return None
 
+    def __get_any_online_kaspad(self):
+        for k in self.kaspads:
+            if k.server_version:
+                return k
+        if self.kaspads:
+            return self.kaspads[0]
+        return None
+
     async def __get_ready_kaspad(self):
         kaspad = self.__get_kaspad()
         if kaspad is not None:
@@ -68,8 +76,26 @@ class KaspadMultiClient(object):
             return await kaspad.request(command, params, timeout=timeout)
         except KaspadCommunicationError:
             await self.initialize_all(force=False)
-            kaspad = await self.__get_ready_kaspad()
-            return await kaspad.request(command, params, timeout=timeout)
+            try:
+                kaspad = await self.__get_ready_kaspad()
+                return await kaspad.request(command, params, timeout=timeout)
+            except KaspadCommunicationError as strict_error:
+                # Fallback path:
+                # Some RPC calls are still useful while syncing (e.g. blockdag / fee estimate / balances).
+                # Prefer strict "synced+utxoindex" backends, but if none exist yet, try any reachable backend.
+                last_error = strict_error
+                online = self.__get_any_online_kaspad()
+                candidates = [online] if online else []
+                candidates.extend([k for k in self.kaspads if k not in candidates])
+
+                for candidate in candidates:
+                    try:
+                        return await candidate.request(command, params, timeout=timeout)
+                    except Exception as err:
+                        last_error = err
+                        continue
+
+                raise KaspadCommunicationError(str(last_error))
 
     async def notify(self, command, params, callback):
         kaspad = await self.__get_ready_kaspad()

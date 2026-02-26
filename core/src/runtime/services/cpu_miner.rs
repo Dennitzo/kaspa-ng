@@ -12,10 +12,7 @@ cfg_if! {
         const LOG_BUFFER_MARGIN: usize = 128;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
         fn default_grpc_port_for_network(network: Network) -> u16 {
-            match network {
-                Network::Mainnet => 16110,
-                Network::Testnet10 | Network::Testnet12 => 16210,
-            }
+            crate::settings::node_grpc_port_for_network(network)
         }
 
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {

@@ -230,6 +230,15 @@ impl Core {
             module.init(&mut this);
         });
 
+        #[cfg(not(target_arch = "wasm32"))]
+        if this.startup_network_selection_pending {
+            this.runtime.self_hosted_postgres_service().enable(false);
+            this.runtime.self_hosted_indexer_service().enable(false);
+            this.runtime.self_hosted_db_service().enable(false);
+            this.runtime.self_hosted_explorer_service().enable(false);
+            this.runtime.self_hosted_k_indexer_service().enable(false);
+        }
+
         this.wallet_update_list();
 
         cfg_if! {
@@ -323,6 +332,13 @@ impl Core {
             .sender
             .try_send(Events::StoreSettings)
             .unwrap();
+    }
+
+    fn flush_pending_settings_now(&mut self) {
+        if self.settings_storage_requested {
+            self.settings_storage_requested = false;
+            self.settings.store_sync().unwrap();
+        }
     }
 
     pub fn network(&self) -> Network {
@@ -451,6 +467,7 @@ impl Core {
 impl eframe::App for Core {
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "linux")))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.flush_pending_settings_now();
         self.is_shutdown_pending = true;
         crate::runtime::halt();
         println!("{}", i18n("bye!"));
@@ -458,6 +475,7 @@ impl eframe::App for Core {
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
     fn on_exit(&mut self) {
+        self.flush_pending_settings_now();
         self.is_shutdown_pending = true;
         crate::runtime::halt();
         println!("{}", i18n("bye!"));
@@ -534,8 +552,38 @@ impl eframe::App for Core {
 }
 
 impl Core {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn apply_self_hosted_enable_state(&self) {
+        let self_hosted_enabled = self.settings.self_hosted.enabled;
+        let postgres_enabled = self_hosted_enabled && self.settings.self_hosted.postgres_enabled;
+        let indexer_enabled = self_hosted_enabled && self.settings.self_hosted.indexer_enabled;
+        let k_enabled = self_hosted_enabled
+            && self.settings.self_hosted.k_enabled
+            && matches!(self.settings.node.network, Network::Mainnet);
+
+        self.runtime
+            .self_hosted_postgres_service()
+            .enable(postgres_enabled);
+        self.runtime
+            .self_hosted_indexer_service()
+            .enable(indexer_enabled);
+        self.runtime
+            .self_hosted_db_service()
+            .enable(self_hosted_enabled);
+        self.runtime
+            .self_hosted_explorer_service()
+            .enable(self_hosted_enabled);
+        self.runtime
+            .self_hosted_k_indexer_service()
+            .enable(k_enabled);
+    }
+
     pub fn complete_startup_network_selection(&mut self) {
         self.startup_network_selection_pending = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.apply_self_hosted_enable_state();
+        }
     }
 
     fn render_frame(&mut self, ctx: &Context, frame: &mut eframe::Frame) {

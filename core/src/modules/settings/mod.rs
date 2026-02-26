@@ -803,10 +803,7 @@ impl Settings {
                             format!("http://127.0.0.1:{}", settings.effective_explorer_rest_port(network));
                         let mut k_social_custom_indexer =
                             format!("http://127.0.0.1:{}/api", settings.effective_k_web_port(network));
-                        let k_node_port = match network {
-                            Network::Mainnet => 17110,
-                            Network::Testnet10 | Network::Testnet12 => 17210,
-                        };
+                        let k_node_port = crate::settings::node_wrpc_borsh_port_for_network(network);
                         let mut k_social_node_ws = format!("ws://127.0.0.1:{k_node_port}");
 
                         Grid::new("self_hosted_settings_grid")
@@ -1369,6 +1366,25 @@ impl Settings {
                         let mut private_key_changed = false;
                         let rothschild = &mut self.settings.node.rothschild;
                         use egui_phosphor::light::CLIPBOARD_TEXT;
+
+                        if rothschild.private_key.trim().is_not_empty() {
+                            if let Ok(address) = rothschild_address_from_private_key(
+                                core.settings.node.network,
+                                &rothschild.private_key,
+                            ) && rothschild.address != address
+                            {
+                                rothschild.address = address;
+                                changed = true;
+                            }
+
+                            if rothschild.mnemonic.trim().is_empty()
+                                && let Ok(mnemonic) =
+                                    rothschild_mnemonic_from_private_key(&rothschild.private_key)
+                            {
+                                rothschild.mnemonic = mnemonic;
+                                changed = true;
+                            }
+                        }
 
                         Grid::new("rothschild_settings_grid")
                             .num_columns(2)
