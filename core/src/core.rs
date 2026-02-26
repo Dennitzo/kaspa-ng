@@ -237,7 +237,9 @@ impl Core {
             this.runtime.self_hosted_db_service().enable(false);
             this.runtime.self_hosted_explorer_service().enable(false);
             this.runtime.self_hosted_k_indexer_service().enable(false);
-            this.runtime.self_hosted_kasia_indexer_service().enable(false);
+            this.runtime
+                .self_hosted_kasia_indexer_service()
+                .enable(false);
         }
 
         this.wallet_update_list();

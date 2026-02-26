@@ -1520,8 +1520,7 @@ impl Settings {
                         migrated = true;
                     }
                     if settings.self_hosted.kasia_indexer_port == 0 {
-                        settings.self_hosted.kasia_indexer_port =
-                            default_kasia_indexer_port();
+                        settings.self_hosted.kasia_indexer_port = default_kasia_indexer_port();
                         migrated = true;
                     }
                     if should_auto_sync_self_hosted_explorer_profiles(
@@ -1759,8 +1758,7 @@ impl Settings {
                             migrated = true;
                         }
                         if settings.self_hosted.kasia_indexer_port == 0 {
-                            settings.self_hosted.kasia_indexer_port =
-                                default_kasia_indexer_port();
+                            settings.self_hosted.kasia_indexer_port = default_kasia_indexer_port();
                             migrated = true;
                         }
                         if should_auto_sync_self_hosted_explorer_profiles(

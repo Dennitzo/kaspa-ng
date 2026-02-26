@@ -51,14 +51,21 @@ impl SelfHostedKasiaIndexerService {
         }
     }
 
-    fn child_is_running(child: &mut Option<Child>, process_name: &str, logs: &Arc<LogStore>) -> bool {
+    fn child_is_running(
+        child: &mut Option<Child>,
+        process_name: &str,
+        logs: &Arc<LogStore>,
+    ) -> bool {
         let Some(proc) = child.as_mut() else {
             return false;
         };
 
         match proc.try_wait() {
             Ok(Some(status)) => {
-                logs.push("WARN", &format!("{process_name} exited with status: {status}"));
+                logs.push(
+                    "WARN",
+                    &format!("{process_name} exited with status: {status}"),
+                );
                 *child = None;
                 false
             }
@@ -148,7 +155,9 @@ impl SelfHostedKasiaIndexerService {
 
         #[cfg(not(unix))]
         fn is_executable(path: &PathBuf) -> bool {
-            std::fs::metadata(path).map(|meta| meta.is_file()).unwrap_or(false)
+            std::fs::metadata(path)
+                .map(|meta| meta.is_file())
+                .unwrap_or(false)
         }
 
         fn pick(path: PathBuf) -> Option<PathBuf> {
@@ -164,7 +173,11 @@ impl SelfHostedKasiaIndexerService {
         } else {
             "kasia-indexer"
         };
-        let raw_bin = if cfg!(windows) { "indexer.exe" } else { "indexer" };
+        let raw_bin = if cfg!(windows) {
+            "indexer.exe"
+        } else {
+            "indexer"
+        };
         let rel_candidates = [
             format!("target/release/{app_bin}"),
             format!("kasia-indexer/target/release/{raw_bin}"),
@@ -196,7 +209,11 @@ impl SelfHostedKasiaIndexerService {
                 return Some(path);
             }
 
-            let path = dir.join("kasia-indexer").join("target").join("release").join(raw_bin);
+            let path = dir
+                .join("kasia-indexer")
+                .join("target")
+                .join("release")
+                .join(raw_bin);
             if let Some(path) = pick(path) {
                 return Some(path);
             }
@@ -294,7 +311,11 @@ impl SelfHostedKasiaIndexerService {
         };
 
         let bind_host = Self::resolve_bind_host(&settings.api_bind);
-        let listen = format!("{}:{}", bind_host, settings.effective_kasia_indexer_port(node.network));
+        let listen = format!(
+            "{}:{}",
+            bind_host,
+            settings.effective_kasia_indexer_port(node.network)
+        );
         if !Self::listen_addr_available(&listen) {
             self.log_blocked_once(format!(
                 "kasia-indexer API port already in use on {listen}; refusing to start"
@@ -314,14 +335,17 @@ impl SelfHostedKasiaIndexerService {
 
         let mut cmd = Command::new(&binary);
         let rust_backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_else(|_| "1".to_string());
-        let rust_lib_backtrace = std::env::var("RUST_LIB_BACKTRACE")
-            .unwrap_or_else(|_| rust_backtrace.clone());
+        let rust_lib_backtrace =
+            std::env::var("RUST_LIB_BACKTRACE").unwrap_or_else(|_| rust_backtrace.clone());
         cmd.env("NETWORK_TYPE", network_type)
             .env("KASPA_NODE_WBORSH_URL", Self::effective_wrpc_url(&node))
             .env("KASIA_INDEXER_DB_ROOT", Self::default_db_root())
             .env(
                 "KASIA_INDEXER_API_BIND",
-                format!("0.0.0.0:{}", settings.effective_kasia_indexer_port(node.network)),
+                format!(
+                    "0.0.0.0:{}",
+                    settings.effective_kasia_indexer_port(node.network)
+                ),
             )
             .env("RUST_BACKTRACE", rust_backtrace)
             .env("RUST_LIB_BACKTRACE", rust_lib_backtrace)
@@ -355,9 +379,7 @@ impl SelfHostedKasiaIndexerService {
         self.clear_blocked_reason();
         self.logs.push(
             "INFO",
-            &format!(
-                "started kasia-indexer (network={network_type}, api=http://{listen})"
-            ),
+            &format!("started kasia-indexer (network={network_type}, api=http://{listen})"),
         );
 
         let logs_out = self.logs.clone();

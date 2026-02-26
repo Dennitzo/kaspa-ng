@@ -497,11 +497,7 @@ impl<'core> Menu<'core> {
             {
                 ui.separator();
                 if self
-                    .menu_tab_button(
-                        ui,
-                        i18n("Kasia"),
-                        active == TypeId::of::<modules::Kasia>(),
-                    )
+                    .menu_tab_button(ui, i18n("Kasia"), active == TypeId::of::<modules::Kasia>())
                     .clicked()
                 {
                     self.select::<modules::Kasia>();

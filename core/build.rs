@@ -536,7 +536,10 @@ fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> 
         )?;
     }
 
-    let orchestrator = kasia_root.join("src").join("hooks").join("useOrchestrator.ts");
+    let orchestrator = kasia_root
+        .join("src")
+        .join("hooks")
+        .join("useOrchestrator.ts");
     if orchestrator.exists() {
         patch_file_replace_all(
             &orchestrator,
@@ -547,7 +550,10 @@ fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> 
         )?;
     }
 
-    let network_store = kasia_root.join("src").join("store").join("network.store.ts");
+    let network_store = kasia_root
+        .join("src")
+        .join("store")
+        .join("network.store.ts");
     if network_store.exists() {
         patch_file_replace_all(
             &network_store,
@@ -558,7 +564,10 @@ fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> 
         )?;
     }
 
-    let session_store = kasia_root.join("src").join("store").join("session.store.ts");
+    let session_store = kasia_root
+        .join("src")
+        .join("store")
+        .join("session.store.ts");
     if session_store.exists() {
         patch_file_replace_all(
             &session_store,
@@ -653,7 +662,10 @@ fn ensure_kasia_wasm_package(
     std::fs::create_dir_all(&tmp_root)?;
 
     for (idx, url) in urls.iter().enumerate() {
-        println!("cargo:warning=Attempting Kasia wasm SDK download ({}) from {url}", idx + 1);
+        println!(
+            "cargo:warning=Attempting Kasia wasm SDK download ({}) from {url}",
+            idx + 1
+        );
 
         let archive_path = tmp_root.join(format!("sdk-{idx}.zip"));
         if !download_file(url, &archive_path) {
@@ -751,9 +763,7 @@ fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     let host = std::env::var("HOST").unwrap_or_default();
     let target = std::env::var("TARGET").unwrap_or_default();
     if !host.is_empty() && !target.is_empty() && host != target {
-        println!(
-            "cargo:warning=Skipping kasia-indexer build (cross-compile: {host} -> {target})"
-        );
+        println!("cargo:warning=Skipping kasia-indexer build (cross-compile: {host} -> {target})");
         return Ok(());
     }
 
@@ -786,7 +796,11 @@ fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed={}", db_src.display());
     println!("cargo:rerun-if-changed={}", protocol_src.display());
 
-    let bin_name = if cfg!(windows) { "indexer.exe" } else { "indexer" };
+    let bin_name = if cfg!(windows) {
+        "indexer.exe"
+    } else {
+        "indexer"
+    };
     let bin_path = indexer_root.join("target").join("release").join(bin_name);
 
     let latest_src = newest_mtime(&indexer_toml)
