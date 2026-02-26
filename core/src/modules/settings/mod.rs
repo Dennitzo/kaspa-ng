@@ -901,7 +901,7 @@ impl Settings {
                                 );
                                 ui.end_row();
 
-                                ui.label(i18n("Self-hosted Indexer"));
+                                ui.label(i18n("Simply-Kaspa-Indexer"));
                                 ui.add_enabled(
                                     false,
                                     TextEdit::singleline(&mut indexer_addr).desired_width(260.0),

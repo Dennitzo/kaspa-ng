@@ -72,9 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine worker thread count
     let worker_threads = args.worker_threads.unwrap_or_else(|| {
-        std::thread::available_parallelism()
+        let cpu_count = std::thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(4)
+            .unwrap_or(4);
+        cpu_count
     });
 
     // Build custom Tokio runtime

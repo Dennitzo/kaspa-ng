@@ -8,8 +8,6 @@ use serde::Deserialize;
 pub struct IndexerConfig {
     #[serde(default = "default_kasia_indexer_db_root")]
     pub kasia_indexer_db_root: PathBuf,
-    #[serde(default = "default_kasia_indexer_api_bind")]
-    pub kasia_indexer_api_bind: String,
     #[serde(default = "default_network_type")]
     pub network_type: NetworkType,
     pub kaspa_node_wborsh_url: Option<String>,
@@ -23,10 +21,6 @@ fn default_periodic_processor_interval_secs() -> u64 {
 
 fn default_network_type() -> NetworkType {
     NetworkType::Mainnet
-}
-
-fn default_kasia_indexer_api_bind() -> String {
-    "0.0.0.0:8080".to_string()
 }
 
 fn default_kasia_indexer_db_root() -> PathBuf {

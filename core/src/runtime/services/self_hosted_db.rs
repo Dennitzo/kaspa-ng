@@ -305,6 +305,7 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     })
     .await
     .unwrap_or_default();
+    let kasia_total_size_bytes: i64 = kasia_sizes.values().copied().sum();
 
     let mut existing_names = table_stats
         .iter()
@@ -334,7 +335,7 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     let largest_table = table_stats.first().map(|row| row.table_name.clone());
 
     Ok(StatusPayload {
-        db_size_bytes,
+        db_size_bytes: db_size_bytes.saturating_add(kasia_total_size_bytes),
         connected_clients,
         table_count,
         uptime_seconds,

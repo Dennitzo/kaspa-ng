@@ -111,6 +111,7 @@ jobs:
           (cd cpuminer && cargo build --release)
           (cd simply-kaspa-indexer && cargo build --release -p simply-kaspa-indexer)
           (cd K-indexer && cargo build --release -p K-webserver -p K-transaction-processor)
+          (cd kasia-indexer && cargo build --release -p indexer)
 
       - name: Verify bundled service binaries
         shell: bash
@@ -118,11 +119,14 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; else ext=""; fi
           missing=0
-          for bin in "stratum-bridge" "kaspa-miner" "rothschild" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor"; do
+          for bin in "stratum-bridge" "kaspa-miner" "rothschild" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor" "kasia-indexer"; do
             found=""
-            for base in target/release rusty-kaspa/target/release cpuminer/target/release simply-kaspa-indexer/target/release K-indexer/target/release; do
+            for base in target/release rusty-kaspa/target/release cpuminer/target/release simply-kaspa-indexer/target/release K-indexer/target/release kasia-indexer/target/release; do
               if [ -f "${base}/${bin}${ext}" ]; then
                 found="${base}/${bin}${ext}"
+                break
+              elif [ "${bin}" = "kasia-indexer" ] && [ -f "${base}/indexer${ext}" ]; then
+                found="${base}/indexer${ext}"
                 break
               fi
             done
@@ -148,7 +152,7 @@ jobs:
           mkdir -p dist
           if [ "$RUNNER_OS" = "macOS" ]; then
             cp target/release/kaspa-ng dist/
-            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
               if [ -f "target/release/${bin}" ]; then
                 cp "target/release/${bin}" dist/
               elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
@@ -159,6 +163,8 @@ jobs:
                 cp "simply-kaspa-indexer/target/release/${bin}" dist/
               elif [ -f "K-indexer/target/release/${bin}" ]; then
                 cp "K-indexer/target/release/${bin}" dist/
+              elif [ -f "kasia-indexer/target/release/indexer" ] && [ "${bin}" = "kasia-indexer" ]; then
+                cp "kasia-indexer/target/release/indexer" "dist/${bin}"
               fi
             done
             if [ -d target/release/kaspa-explorer-ng ]; then
@@ -167,9 +173,16 @@ jobs:
               mkdir -p dist/kaspa-explorer-ng
               cp -r kaspa-explorer-ng/build dist/kaspa-explorer-ng/
             fi
+            if [ -d target/release/Kasia/dist ]; then
+              mkdir -p dist/Kasia
+              cp -r target/release/Kasia/dist dist/Kasia/
+            elif [ -d Kasia/dist ]; then
+              mkdir -p dist/Kasia
+              cp -r Kasia/dist dist/Kasia/
+            fi
           else
             cp target/release/kaspa-ng dist/
-            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor; do
+            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
               if [ -f "target/release/${bin}" ]; then
                 cp "target/release/${bin}" dist/
               elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
@@ -180,6 +193,8 @@ jobs:
                 cp "simply-kaspa-indexer/target/release/${bin}" dist/
               elif [ -f "K-indexer/target/release/${bin}" ]; then
                 cp "K-indexer/target/release/${bin}" dist/
+              elif [ -f "kasia-indexer/target/release/indexer" ] && [ "${bin}" = "kasia-indexer" ]; then
+                cp "kasia-indexer/target/release/indexer" "dist/${bin}"
               fi
             done
             if [ -d target/release/kaspa-explorer-ng ]; then
@@ -187,6 +202,13 @@ jobs:
             elif [ -d kaspa-explorer-ng/build ]; then
               mkdir -p dist/kaspa-explorer-ng
               cp -r kaspa-explorer-ng/build dist/kaspa-explorer-ng/
+            fi
+            if [ -d target/release/Kasia/dist ]; then
+              mkdir -p dist/Kasia
+              cp -r target/release/Kasia/dist dist/Kasia/
+            elif [ -d Kasia/dist ]; then
+              mkdir -p dist/Kasia
+              cp -r Kasia/dist dist/Kasia/
             fi
             cp core/resources/icons/icon-256.png dist/kaspa-ng.png
             cp core/resources/packaging/kaspa-ng.desktop dist/
@@ -197,14 +219,14 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server dist/
           fi
-          required_files=(kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor)
+          required_files=(kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
           for f in "${required_files[@]}"; do
             if [ ! -f "dist/${f}" ]; then
               echo "Missing packaged binary: ${f}"
               exit 1
             fi
           done
-          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server)
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia)
           for d in "${required_dirs[@]}"; do
             if [ ! -d "dist/${d}" ]; then
               echo "Missing packaged directory: ${d}"
@@ -230,7 +252,8 @@ jobs:
             "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
-            "K-transaction-processor.exe"
+            "K-transaction-processor.exe",
+            "kasia-indexer.exe"
           )
           foreach ($bin in $bins) {
             if (Test-Path "target\\release\\$bin") {
@@ -243,11 +266,20 @@ jobs:
               Copy-Item "simply-kaspa-indexer\\target\\release\\$bin" dist\
             } elseif (Test-Path "K-indexer\\target\\release\\$bin") {
               Copy-Item "K-indexer\\target\\release\\$bin" dist\
+            } elseif ($bin -eq "kasia-indexer.exe" -and (Test-Path "kasia-indexer\\target\\release\\indexer.exe")) {
+              Copy-Item "kasia-indexer\\target\\release\\indexer.exe" "dist\\kasia-indexer.exe"
             }
           }
           if (Test-Path kaspa-explorer-ng\build) {
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
             Copy-Item -Recurse -Force kaspa-explorer-ng\build dist\kaspa-explorer-ng\
+          }
+          if (Test-Path target\release\Kasia\dist) {
+            New-Item -ItemType Directory -Path dist\Kasia | Out-Null
+            Copy-Item -Recurse -Force target\release\Kasia\dist dist\Kasia\
+          } elseif (Test-Path Kasia\dist) {
+            New-Item -ItemType Directory -Path dist\Kasia | Out-Null
+            Copy-Item -Recurse -Force Kasia\dist dist\Kasia\
           }
           if (Test-Path kaspa-rest-server) {
             Copy-Item -Recurse -Force kaspa-rest-server dist\
@@ -262,14 +294,15 @@ jobs:
             "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
-            "K-transaction-processor.exe"
+            "K-transaction-processor.exe",
+            "kasia-indexer.exe"
           )
           foreach ($f in $requiredFiles) {
             if (-not (Test-Path "dist\\$f")) {
               throw "Missing packaged binary: $f"
             }
           }
-          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server")
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Kasia")
           foreach ($d in $requiredDirs) {
             if (-not (Test-Path "dist\\$d")) {
               throw "Missing packaged directory: $d"

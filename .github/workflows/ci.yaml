@@ -467,11 +467,23 @@ jobs:
           elif [ -f rusty-kaspa/target/release/stratum-bridge.exe ]; then
             cp rusty-kaspa/target/release/stratum-bridge.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           fi
+          if [ -f target/release/kasia-indexer.exe ]; then
+            cp target/release/kasia-indexer.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          elif [ -f kasia-indexer/target/release/indexer.exe ]; then
+            cp kasia-indexer/target/release/indexer.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kasia-indexer.exe
+          fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/Kasia/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia
+            cp -r target/release/Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia/
+          elif [ -d Kasia/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia
+            cp -r Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia/
           fi
 
       - name: Upload Windows build to GitHub 
@@ -496,11 +508,23 @@ jobs:
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
             cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
           fi
+          if [ -f target/release/kasia-indexer ]; then
+            cp target/release/kasia-indexer "$ROOT/"
+          elif [ -f kasia-indexer/target/release/indexer ]; then
+            cp kasia-indexer/target/release/indexer "$ROOT/kasia-indexer"
+          fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
+          fi
+          if [ -d target/release/Kasia/dist ]; then
+            mkdir -p "$ROOT/Kasia"
+            cp -r target/release/Kasia/dist "$ROOT/Kasia/"
+          elif [ -d Kasia/dist ]; then
+            mkdir -p "$ROOT/Kasia"
+            cp -r Kasia/dist "$ROOT/Kasia/"
           fi
 
       - name: Upload MacOS (arm64) build to GitHub
@@ -528,11 +552,23 @@ jobs:
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
             cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
           fi
+          if [ -f target/release/kasia-indexer ]; then
+            cp target/release/kasia-indexer "$ROOT/"
+          elif [ -f kasia-indexer/target/release/indexer ]; then
+            cp kasia-indexer/target/release/indexer "$ROOT/kasia-indexer"
+          fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
+          fi
+          if [ -d target/release/Kasia/dist ]; then
+            mkdir -p "$ROOT/Kasia"
+            cp -r target/release/Kasia/dist "$ROOT/Kasia/"
+          elif [ -d Kasia/dist ]; then
+            mkdir -p "$ROOT/Kasia"
+            cp -r Kasia/dist "$ROOT/Kasia/"
           fi
 
       - name: Upload MacOS (x64) build to GitHub
@@ -556,11 +592,23 @@ jobs:
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
             cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           fi
+          if [ -f target/release/kasia-indexer ]; then
+            cp target/release/kasia-indexer kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          elif [ -f kasia-indexer/target/release/indexer ]; then
+            cp kasia-indexer/target/release/indexer kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kasia-indexer
+          fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/Kasia/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia
+            cp -r target/release/Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia/
+          elif [ -d Kasia/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia
+            cp -r Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia/
           fi
           cp core/resources/icons/icon-256.png kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
@@ -571,12 +619,24 @@ jobs:
           elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
             cp rusty-kaspa/target/release/stratum-bridge .debpkg/usr/bin/
           fi
+          if [ -f target/release/kasia-indexer ]; then
+            cp target/release/kasia-indexer .debpkg/usr/bin/
+          elif [ -f kasia-indexer/target/release/indexer ]; then
+            cp kasia-indexer/target/release/indexer .debpkg/usr/bin/kasia-indexer
+          fi
           if [ -d target/release/kaspa-explorer-ng ]; then
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r target/release/kaspa-explorer-ng/* .debpkg/usr/bin/kaspa-explorer-ng/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/Kasia/dist ]; then
+            mkdir -p .debpkg/usr/bin/Kasia
+            cp -r target/release/Kasia/dist .debpkg/usr/bin/Kasia/
+          elif [ -d Kasia/dist ]; then
+            mkdir -p .debpkg/usr/bin/Kasia
+            cp -r Kasia/dist .debpkg/usr/bin/Kasia/
           fi
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png

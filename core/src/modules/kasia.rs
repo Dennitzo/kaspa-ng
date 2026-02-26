@@ -510,9 +510,8 @@ fn handle_kasia_request(mut stream: TcpStream, root: &Path) -> std::io::Result<(
         let looks_like_asset = clean.rsplit_once('.').is_some();
         if looks_like_asset {
             let body = b"Not Found";
-            let headers = format!(
-                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n"
-            );
+            let headers =
+                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n";
             stream.write_all(headers.as_bytes())?;
             stream.write_all(body)?;
             stream.flush()?;

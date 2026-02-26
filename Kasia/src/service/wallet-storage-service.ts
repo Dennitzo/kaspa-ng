@@ -11,57 +11,12 @@ import { StoredWallet, UnlockedWallet } from "src/types/wallet.type";
 
 export class WalletStorageService {
   private _storageKey: string = "wallets";
-  private _backupStorageKey: string = "wallets_backup";
 
   constructor() {
-    this.ensureStorageInitialized();
-  }
-
-  private parseWallets(raw: string | null): StoredWallet[] | null {
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as StoredWallet[]) : null;
-    } catch (error) {
-      console.warn("Failed to parse wallet storage payload:", error);
-      return null;
+    // Initialize wallets array if it doesn't exist
+    if (!localStorage.getItem(this._storageKey)) {
+      localStorage.setItem(this._storageKey, JSON.stringify([]));
     }
-  }
-
-  private readWallets(): StoredWallet[] {
-    const primary = this.parseWallets(localStorage.getItem(this._storageKey));
-    if (primary) return primary;
-
-    const backup = this.parseWallets(localStorage.getItem(this._backupStorageKey));
-    if (backup) {
-      this.writeWallets(backup);
-      return backup;
-    }
-
-    this.writeWallets([]);
-    return [];
-  }
-
-  private writeWallets(wallets: StoredWallet[]): void {
-    const serialized = JSON.stringify(wallets);
-    localStorage.setItem(this._storageKey, serialized);
-    localStorage.setItem(this._backupStorageKey, serialized);
-  }
-
-  private ensureStorageInitialized(): void {
-    const primary = this.parseWallets(localStorage.getItem(this._storageKey));
-    const backup = this.parseWallets(localStorage.getItem(this._backupStorageKey));
-
-    if (primary) {
-      localStorage.setItem(this._backupStorageKey, JSON.stringify(primary));
-      return;
-    }
-    if (backup) {
-      localStorage.setItem(this._storageKey, JSON.stringify(backup));
-      return;
-    }
-
-    this.writeWallets([]);
   }
 
   static getPrivateKey(
@@ -85,7 +40,9 @@ export class WalletStorageService {
     name: string;
     createdAt: string;
   }[] {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) return [];
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     return wallets.map(({ id, name, createdAt }) => ({
       id,
       name,
@@ -94,7 +51,10 @@ export class WalletStorageService {
   }
 
   getDecrypted(walletId: string, password: string): UnlockedWallet {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) throw new Error("No wallets found");
+
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     const wallet = wallets.find((w) => w.id === walletId);
 
     if (!wallet) {
@@ -158,7 +118,10 @@ export class WalletStorageService {
     password: string,
     passphrase?: string
   ): string {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) throw new Error("Storage not initialized");
+
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
 
     const newWallet: StoredWallet = {
       id: uuidv4(),
@@ -172,14 +135,17 @@ export class WalletStorageService {
     };
 
     wallets.push(newWallet);
-    this.writeWallets(wallets);
+    localStorage.setItem(this._storageKey, JSON.stringify(wallets));
     return newWallet.id;
   }
 
   deleteWallet(walletId: string) {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) return;
+
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     const updatedWallets = wallets.filter((w) => w.id !== walletId);
-    this.writeWallets(updatedWallets);
+    localStorage.setItem(this._storageKey, JSON.stringify(updatedWallets));
 
     // clean-up messaging-related localStorage keys
     localStorage.removeItem(`kasia_last_opened_contact_${walletId}`);
@@ -188,7 +154,9 @@ export class WalletStorageService {
   }
 
   isInitialized() {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) return false;
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     return wallets.length > 0;
   }
 
@@ -200,7 +168,10 @@ export class WalletStorageService {
     currentPassword: string,
     newPassword: string
   ): Promise<void> {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) throw new Error("No wallets found");
+
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     const walletIndex = wallets.findIndex((w) => w.id === walletId);
 
     if (walletIndex === -1) {
@@ -244,7 +215,7 @@ export class WalletStorageService {
       };
 
       // Save to localStorage first - if this fails, original state is preserved
-      this.writeWallets(updatedWallets);
+      localStorage.setItem(this._storageKey, JSON.stringify(updatedWallets));
     } catch (error) {
       console.error("Error changing password:", error);
       throw new Error("Invalid current password");
@@ -255,7 +226,10 @@ export class WalletStorageService {
    * Change the name of an existing wallet
    */
   changeWalletName(walletId: string, newName: string): void {
-    const wallets = this.readWallets();
+    const walletsString = localStorage.getItem(this._storageKey);
+    if (!walletsString) throw new Error("No wallets found");
+
+    const wallets = JSON.parse(walletsString) as StoredWallet[];
     const walletIndex = wallets.findIndex((w) => w.id === walletId);
 
     if (walletIndex === -1) {
@@ -280,6 +254,6 @@ export class WalletStorageService {
     };
 
     // Save to localStorage first - if this fails, original state is preserved
-    this.writeWallets(updatedWallets);
+    localStorage.setItem(this._storageKey, JSON.stringify(updatedWallets));
   }
 }

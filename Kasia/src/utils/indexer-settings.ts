@@ -3,24 +3,6 @@ const INDEXER_URL_KEY = "kasia_indexer_url";
 const INDEXER_CONNECTION_MODE_KEY = "kasia_indexer_connection_mode";
 const NODE_CONNECTION_MODE_KEY = "kasia_node_connection_mode";
 
-const getRuntimeIndexerDefaults = (): {
-  mainnet?: string;
-  testnet?: string;
-} => {
-  const runtimeConfig =
-    (globalThis as {
-      __KASPA_NG_KASIA_CONFIG?: {
-        indexerMainnetUrl?: string;
-        indexerTestnetUrl?: string;
-      };
-    }).__KASPA_NG_KASIA_CONFIG ?? {};
-
-  return {
-    mainnet: runtimeConfig.indexerMainnetUrl,
-    testnet: runtimeConfig.indexerTestnetUrl,
-  };
-};
-
 // gets whether the indexer is disabled.
 // checks localStorage. Defaults to false (enabled) if no value is set.
 export function isIndexerDisabled(): boolean {
@@ -74,7 +56,6 @@ export function setNodeConnectionMode(mode: "auto" | "manual"): void {
 export function getEffectiveIndexerUrl(network: "mainnet" | "testnet"): string {
   const connectionMode = getIndexerConnectionMode();
   const customUrl = getIndexerUrl();
-  const runtimeDefaults = getRuntimeIndexerDefaults();
 
   if (connectionMode === "manual" && customUrl) {
     return customUrl;
@@ -84,15 +65,7 @@ export function getEffectiveIndexerUrl(network: "mainnet" | "testnet"): string {
     setIndexerConnectionMode("auto");
   }
 
-  if (network === "mainnet") {
-    return (
-      runtimeDefaults.mainnet ??
-      import.meta.env.VITE_INDEXER_MAINNET_URL ??
-      ""
-    );
-  }
-
-  return (
-    runtimeDefaults.testnet ?? import.meta.env.VITE_INDEXER_TESTNET_URL ?? ""
-  );
+  return network === "mainnet"
+    ? import.meta.env.VITE_INDEXER_MAINNET_URL
+    : import.meta.env.VITE_INDEXER_TESTNET_URL;
 }

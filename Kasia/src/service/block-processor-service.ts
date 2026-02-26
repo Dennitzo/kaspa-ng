@@ -1,9 +1,6 @@
 import { IBlockAdded, ITransaction, RpcClient } from "kaspa-wasm";
 import { BlockAddedData, Header } from "../types/all";
-import {
-  ResolutionTimeoutException,
-  SenderAndAcceptanceResolutionService,
-} from "./sender-and-acceptance-resolution-service";
+import { SenderAndAcceptanceResolutionService } from "./sender-and-acceptance-resolution-service";
 import { useMessagingStore } from "../store/messaging.store";
 import { useWalletStore } from "../store/wallet.store";
 import {
@@ -95,9 +92,8 @@ export class BlockProcessorService extends EventEmitter<{
   }
 
   private async safeProcessTransaction(tx: ITransaction, header: Header) {
-    let txId: string | undefined;
     try {
-      txId = tx.verboseData?.transactionId;
+      const txId = tx.verboseData?.transactionId;
 
       if (!txId || this.processedTransactionIds.has(txId)) {
         return;
@@ -324,19 +320,6 @@ export class BlockProcessorService extends EventEmitter<{
 
       this.emit("newTransaction", rawTransactionToEmit);
     } catch (error) {
-      if (error instanceof ResolutionTimeoutException) {
-        if (txId) {
-          this.processedTransactionIds.delete(txId);
-        }
-        if (devMode) {
-          console.warn(
-            "Block Processor - Sender resolution timed out, will retry if seen again",
-            { txId, error }
-          );
-        }
-        return;
-      }
-
       console.error(
         `Block Processor - Error while processing transaction`,
         tx,

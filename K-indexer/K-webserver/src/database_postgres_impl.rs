@@ -230,8 +230,8 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut bind_count = 1; // Start with 1 since we already have requester_pubkey
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (b.block_time < ${} OR (b.block_time = ${} AND b.id < ${}))",
@@ -240,9 +240,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (b.block_time > ${} OR (b.block_time = ${} AND b.id > ${}))",
@@ -251,6 +252,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY b.block_time DESC, b.id DESC");
@@ -263,15 +265,17 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut query_builder = sqlx::query(&query).bind(&requester_pubkey_bytes);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -365,8 +369,8 @@ impl DatabaseInterface for PostgresDbManager {
         // $1 = requester_pubkey, $2 = from_time_millis, $3 = to_time_millis
         let mut bind_count = 3;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_count, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_count, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (ucc.content_count < ${} OR (ucc.content_count = ${} AND b.id < ${}))",
@@ -375,9 +379,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_count, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_count, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (ucc.content_count > ${} OR (ucc.content_count = ${} AND b.id > ${}))",
@@ -386,6 +391,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         query.push_str(" ORDER BY ucc.content_count DESC, b.id DESC");
 
@@ -397,15 +403,17 @@ impl DatabaseInterface for PostgresDbManager {
             .bind(from_time_millis as i64)
             .bind(to_time_millis as i64);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_count, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_count, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_count as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_count, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_count, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_count as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -518,7 +526,7 @@ impl DatabaseInterface for PostgresDbManager {
         }
 
         // Add search filter for nickname (decode Base64 and search plain text)
-        if searched_user_nickname.as_ref().is_some() {
+        if let Some(_) = searched_user_nickname.as_ref() {
             bind_count += 1;
             query.push_str(&format!(
                 " AND convert_from(decode(b.base64_encoded_nickname, 'base64'), 'UTF8') ILIKE ${}",
@@ -526,8 +534,8 @@ impl DatabaseInterface for PostgresDbManager {
             ));
         }
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (b.block_time < ${} OR (b.block_time = ${} AND b.id < ${}))",
@@ -536,9 +544,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (b.block_time > ${} OR (b.block_time = ${} AND b.id > ${}))",
@@ -547,6 +556,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY b.block_time DESC, b.id DESC");
@@ -571,15 +581,17 @@ impl DatabaseInterface for PostgresDbManager {
             query_builder = query_builder.bind(search_pattern);
         }
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -781,8 +793,8 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut bind_count = 1;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kb.block_time < ${} OR (kb.block_time = ${} AND kb.id < ${}))",
@@ -791,9 +803,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kb.block_time > ${} OR (kb.block_time = ${} AND kb.id > ${}))",
@@ -802,6 +815,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY kb.block_time DESC, kb.id DESC");
@@ -815,15 +829,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query);
         query_builder = query_builder.bind(&requester_pubkey_bytes);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -886,8 +902,8 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut bind_count = 1;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time < ${} OR (kf.block_time = ${} AND kf.id < ${}))",
@@ -896,9 +912,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time > ${} OR (kf.block_time = ${} AND kf.id > ${}))",
@@ -907,6 +924,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY kf.block_time DESC, kf.id DESC");
@@ -920,15 +938,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query);
         query_builder = query_builder.bind(&requester_pubkey_bytes);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -998,8 +1018,8 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut bind_count = 2;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time < ${} OR (kf.block_time = ${} AND kf.id < ${}))",
@@ -1008,9 +1028,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time > ${} OR (kf.block_time = ${} AND kf.id > ${}))",
@@ -1019,6 +1040,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY kf.block_time DESC, kf.id DESC");
@@ -1034,15 +1056,17 @@ impl DatabaseInterface for PostgresDbManager {
             .bind(&user_pubkey_bytes)
             .bind(&requester_pubkey_bytes);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -1117,8 +1141,8 @@ impl DatabaseInterface for PostgresDbManager {
 
         let mut bind_count = 2;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time < ${} OR (kf.block_time = ${} AND kf.id < ${}))",
@@ -1127,9 +1151,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 query.push_str(&format!(
                     " AND (kf.block_time > ${} OR (kf.block_time = ${} AND kf.id > ${}))",
@@ -1138,6 +1163,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         if options.sort_descending {
             query.push_str(" ORDER BY kf.block_time DESC, kf.id DESC");
@@ -1153,15 +1179,17 @@ impl DatabaseInterface for PostgresDbManager {
             .bind(&user_pubkey_bytes)
             .bind(&requester_pubkey_bytes);
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -1224,8 +1252,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic to the all_posts CTE
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -1234,17 +1262,18 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor)
-        {
-            bind_count += 2;
-            cursor_conditions.push_str(&format!(
-                " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
-                bind_count - 1,
-                bind_count - 1,
-                bind_count
-            ));
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+                bind_count += 2;
+                cursor_conditions.push_str(&format!(
+                    " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
+                    bind_count - 1,
+                    bind_count - 1,
+                    bind_count
+                ));
+            }
         }
 
         let order_clause = if options.sort_descending {
@@ -1353,16 +1382,16 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&requester_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor)
-        {
-            query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+                query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
+            }
         }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor)
-        {
-            query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+                query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
+            }
         }
 
         query_builder = query_builder.bind(offset_limit);
@@ -1434,8 +1463,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -1444,9 +1473,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -1455,6 +1485,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -1561,15 +1592,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&requester_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 
@@ -1677,8 +1710,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic for unified content table
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -1687,9 +1720,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -1698,6 +1732,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -1847,15 +1882,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&mentioned_user_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder
             .bind(offset_limit)
@@ -2079,7 +2116,7 @@ impl DatabaseInterface for PostgresDbManager {
                 let mentioned_pubkeys_bytes: Vec<Vec<u8>> = row.get("mentioned_pubkeys");
                 let mentioned_pubkeys: Vec<String> = mentioned_pubkeys_bytes
                     .into_iter()
-                    .map(hex::encode)
+                    .map(|bytes| hex::encode(bytes))
                     .collect();
 
                 let post_record = KPostRecord {
@@ -2112,7 +2149,7 @@ impl DatabaseInterface for PostgresDbManager {
                 let mentioned_pubkeys_bytes: Vec<Vec<u8>> = row.get("mentioned_pubkeys");
                 let mentioned_pubkeys: Vec<String> = mentioned_pubkeys_bytes
                     .into_iter()
-                    .map(hex::encode)
+                    .map(|bytes| hex::encode(bytes))
                     .collect();
 
                 let referenced_content_id: Option<Vec<u8>> = row.get("referenced_content_id");
@@ -2173,8 +2210,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic to the limited_replies CTE
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -2183,9 +2220,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -2194,6 +2232,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -2318,15 +2357,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&post_id_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder
             .bind(offset_limit)
@@ -2398,8 +2439,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic to the limited_replies CTE
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -2408,9 +2449,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -2419,6 +2461,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -2543,15 +2586,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&user_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder
             .bind(offset_limit)
@@ -2623,8 +2668,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic to the all_posts CTE
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -2633,9 +2678,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -2644,6 +2690,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -2788,15 +2835,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&user_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder
             .bind(offset_limit)
@@ -2942,8 +2991,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
         let mut bind_count = 1;
 
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (km.block_time < ${} OR (km.block_time = ${} AND km.id < ${}))",
@@ -2952,8 +3001,9 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        }
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (km.block_time > ${} OR (km.block_time = ${} AND km.id > ${}))",
@@ -2962,6 +3012,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let final_order_clause = if options.sort_descending {
             "ORDER BY block_time DESC, notification_id DESC"
@@ -3048,15 +3099,17 @@ impl DatabaseInterface for PostgresDbManager {
         let mut query_builder = sqlx::query(&query).bind(&requester_pubkey_bytes);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder
             .bind(offset_limit)
@@ -3291,8 +3344,8 @@ impl DatabaseInterface for PostgresDbManager {
         let mut cursor_conditions = String::new();
 
         // Add cursor logic
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time < ${} OR (c.block_time = ${} AND c.id < ${}))",
@@ -3301,9 +3354,10 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 bind_count += 2;
                 cursor_conditions.push_str(&format!(
                     " AND (c.block_time > ${} OR (c.block_time = ${} AND c.id > ${}))",
@@ -3312,6 +3366,7 @@ impl DatabaseInterface for PostgresDbManager {
                     bind_count
                 ));
             }
+        }
 
         let order_clause = if options.sort_descending {
             " ORDER BY c.block_time DESC, c.id DESC"
@@ -3420,15 +3475,17 @@ impl DatabaseInterface for PostgresDbManager {
             .bind(hashtag);
 
         // Add cursor parameters if present
-        if let Some(before_cursor) = &options.before
-            && let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
+        if let Some(before_cursor) = &options.before {
+            if let Ok((before_timestamp, before_id)) = Self::parse_compound_cursor(before_cursor) {
                 query_builder = query_builder.bind(before_timestamp as i64).bind(before_id);
             }
+        }
 
-        if let Some(after_cursor) = &options.after
-            && let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
+        if let Some(after_cursor) = &options.after {
+            if let Ok((after_timestamp, after_id)) = Self::parse_compound_cursor(after_cursor) {
                 query_builder = query_builder.bind(after_timestamp as i64).bind(after_id);
             }
+        }
 
         query_builder = query_builder.bind(offset_limit);
 

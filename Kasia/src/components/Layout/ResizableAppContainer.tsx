@@ -11,17 +11,16 @@ export const ResizableAppContainer: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const isMobile = useIsMobile();
-  const [width, setWidth] = useState<number>(window.innerWidth);
+  const [width, setWidth] = useState<number>(CONTAINER_DEFAULT); // set default to 1600
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
   const isResizing = useRef<null | "left" | "right">(null);
 
-  const minWidth = 0;
+  const minWidth = MOBILE_BREAKPOINT;
 
   // track window width changes
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
-      setWidth(window.innerWidth);
     };
 
     window.addEventListener("resize", handleResize);
@@ -74,14 +73,14 @@ export const ResizableAppContainer: React.FC<{ children: React.ReactNode }> = ({
     <div
       className={clsx(
         "bg-primary-bg flex min-h-0 flex-col sm:min-h-screen",
-        isMobile ? "w-full" : "relative w-full"
+        isMobile ? "w-full" : "relative mx-auto rounded-lg shadow-2xl"
       )}
       style={
         !isMobile
           ? {
-              width: "100%",
+              width,
               minWidth,
-              maxWidth: "100%",
+              maxWidth: "100vw",
             }
           : undefined
       }

@@ -4429,6 +4429,7 @@
       "Kasia WebView": "Kasia WebView",
       "Kasia WebView (Address:Port)": "Kasia WebView (Address:Port)",
       "Kasia build not found. Run `npm install` and `npm run build:production` in `Kasia`.": "Kasia build not found. Run `npm install` and `npm run build:production` in `Kasia`.",
+      "Kasia services are available only on Mainnet.": "Kasia services are available only on Mainnet.",
       "Kasia-indexer": "Kasia-indexer",
       "Kaspa Discord": "Kaspa Discord",
       "Kaspa Integration Guide": "Kaspa Integration Guide",

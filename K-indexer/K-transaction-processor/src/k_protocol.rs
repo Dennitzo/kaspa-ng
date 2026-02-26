@@ -1,6 +1,8 @@
 use crate::database::{DbPool, Transaction};
 use crate::hashtag_extractor::extract_hashtags_from_base64;
 use anyhow::Result;
+use hex;
+use serde_json;
 use tracing::{error, info, warn};
 
 // Kaspa message signature verification imports (from main K-indexer)
@@ -80,6 +82,69 @@ pub struct KFollow {
     pub sender_pubkey: String,
     pub sender_signature: String,
     pub following_action: String, // "follow" or "unfollow"
+    pub followed_user_pubkey: String,
+}
+
+// Database record structures for PostgreSQL
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KPostRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub base64_encoded_message: String,
+    pub mentioned_pubkeys: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KReplyRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub post_id: String,
+    pub base64_encoded_message: String,
+    pub mentioned_pubkeys: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KBroadcastRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub base64_encoded_nickname: String,
+    pub base64_encoded_profile_image: Option<String>,
+    pub base64_encoded_message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KVoteRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub post_id: String,
+    pub vote: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KBlockRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub blocking_action: String,
+    pub blocked_user_pubkey: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KFollowRecord {
+    pub transaction_id: String,
+    pub block_time: i64,
+    pub sender_pubkey: String,
+    pub sender_signature: String,
+    pub following_action: String,
     pub followed_user_pubkey: String,
 }
 
@@ -603,7 +668,7 @@ impl KProtocolProcessor {
             let mentioned_pubkeys_bytes: Result<Vec<Vec<u8>>, _> = k_post
                 .mentioned_pubkeys
                 .iter()
-                .map(hex::decode)
+                .map(|pk| hex::decode(pk))
                 .collect();
             let mentioned_pubkeys_bytes = mentioned_pubkeys_bytes?;
 
@@ -811,7 +876,7 @@ impl KProtocolProcessor {
             let mentioned_pubkeys_bytes: Result<Vec<Vec<u8>>, _> = k_reply
                 .mentioned_pubkeys
                 .iter()
-                .map(hex::decode)
+                .map(|pk| hex::decode(pk))
                 .collect();
             let mentioned_pubkeys_bytes = mentioned_pubkeys_bytes?;
 
