@@ -718,6 +718,35 @@ fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> 
         )?;
     }
 
+    let resizable_container = kasia_root
+        .join("src")
+        .join("components")
+        .join("Layout")
+        .join("ResizableAppContainer.tsx");
+    if resizable_container.exists() {
+        patch_file_replace_all(
+            &resizable_container,
+            &[
+                (
+                    "const [width, setWidth] = useState<number>(CONTAINER_DEFAULT); // set default to 1600",
+                    "const [width, setWidth] = useState<number>(window.innerWidth);",
+                ),
+                (
+                    "    const handleResize = () => {\n      setWindowWidth(window.innerWidth);\n    };",
+                    "    const handleResize = () => {\n      setWindowWidth(window.innerWidth);\n      setWidth(window.innerWidth);\n    };",
+                ),
+                (
+                    "        isMobile ? \"w-full\" : \"relative mx-auto rounded-lg shadow-2xl\"",
+                    "        isMobile ? \"w-full\" : \"relative w-full\"",
+                ),
+                (
+                    "              width,",
+                    "              width: Math.min(width, windowWidth),",
+                ),
+            ],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -1291,6 +1320,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     if !k_indexer_root.exists() {
         return Ok(());
     }
+    apply_k_indexer_runtime_patches(&k_indexer_root)?;
 
     let k_indexer_toml = k_indexer_root.join("Cargo.toml");
     let web_src = k_indexer_root.join("K-webserver").join("src");
@@ -1367,6 +1397,84 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     }
 
     sync_k_indexer_binaries(&web_bin, &processor_bin, &repo_root)?;
+    Ok(())
+}
+
+fn apply_k_indexer_runtime_patches(k_indexer_root: &Path) -> Result<(), Box<dyn Error>> {
+    let processor_toml = k_indexer_root
+        .join("K-transaction-processor")
+        .join("Cargo.toml");
+    if processor_toml.exists() {
+        replace_dependency_line(
+            &processor_toml,
+            "kaspa-wallet-core",
+            "kaspa-hashes = { git = \"https://github.com/kaspanet/rusty-kaspa.git\" }",
+        )?;
+        patch_file_replace_all(
+            &processor_toml,
+            &[(
+                "kaspa-wallet-core = { git = \"https://github.com/kaspanet/rusty-kaspa.git\", features = [\"wasm32-sdk\"] }",
+                "kaspa-hashes = { git = \"https://github.com/kaspanet/rusty-kaspa.git\" }",
+            )],
+        )?;
+    }
+
+    let protocol_rs = k_indexer_root
+        .join("K-transaction-processor")
+        .join("src")
+        .join("k_protocol.rs");
+    if protocol_rs.exists() {
+        patch_file_replace_all(
+            &protocol_rs,
+            &[
+                (
+                    "use kaspa_wallet_core::message::{PersonalMessage, verify_message};\nuse secp256k1::XOnlyPublicKey;",
+                    "use kaspa_hashes::{Hash, PersonalMessageSigningHash};\nuse secp256k1::{Message, XOnlyPublicKey, schnorr::Signature};",
+                ),
+                (
+                    "    /// Verify a Kaspa message signature using the proper kaspa-wallet-core verification\n    /// This uses Kaspa's PersonalMessageSigningHash and Schnorr signature verification\n    fn verify_kaspa_signature(&self, message: &str, signature: &str, public_key_hex: &str) -> bool {\n        // Create PersonalMessage from the message string\n        let personal_message = PersonalMessage(message);\n",
+                    "    fn calc_personal_message_hash(message: &str) -> Hash {\n        let mut hasher = PersonalMessageSigningHash::new();\n        hasher.write(message.as_bytes());\n        hasher.finalize()\n    }\n\n    /// Verify a Kaspa message signature using Kaspa PersonalMessageSigningHash + Schnorr.\n    fn verify_kaspa_signature(&self, message: &str, signature: &str, public_key_hex: &str) -> bool {\n",
+                ),
+                (
+                    "        // Verify the message signature using Kaspa's verify_message function\n        match verify_message(&personal_message, &signature_bytes, &public_key) {\n            Ok(()) => {\n                //info!(\"Kaspa message signature verification successful\");\n                true\n            }\n            Err(err) => {\n                error!(\"Kaspa message signature verification failed: {}\", err);\n                false\n            }\n        }\n",
+                    "        let hash = Self::calc_personal_message_hash(message);\n        let msg = match Message::from_digest_slice(hash.as_bytes().as_slice()) {\n            Ok(msg) => msg,\n            Err(err) => {\n                error!(\"Failed to build secp256k1 message digest: {}\", err);\n                return false;\n            }\n        };\n        let sig = match Signature::from_slice(signature_bytes.as_slice()) {\n            Ok(sig) => sig,\n            Err(err) => {\n                error!(\"Failed to parse Schnorr signature: {}\", err);\n                return false;\n            }\n        };\n\n        let secp = secp256k1::Secp256k1::verification_only();\n        match secp.verify_schnorr(&sig, &msg, &public_key) {\n            Ok(()) => true,\n            Err(err) => {\n                error!(\"Kaspa message signature verification failed: {}\", err);\n                false\n            }\n        }\n",
+                ),
+            ],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn replace_dependency_line(
+    path: &Path,
+    dep_name: &str,
+    replacement: &str,
+) -> Result<(), Box<dyn Error>> {
+    let contents = std::fs::read_to_string(path)?;
+    let marker = format!("{dep_name} =");
+    let mut changed = false;
+    let mut rewritten = String::with_capacity(contents.len() + 64);
+
+    for line in contents.lines() {
+        if line.trim_start().starts_with(&marker) {
+            rewritten.push_str(replacement);
+            rewritten.push('\n');
+            changed = true;
+        } else {
+            rewritten.push_str(line);
+            rewritten.push('\n');
+        }
+    }
+
+    if changed {
+        std::fs::write(path, rewritten)?;
+        println!(
+            "cargo:warning=Applied kaspa-ng dependency patch to {}",
+            path.display()
+        );
+    }
+
     Ok(())
 }
 

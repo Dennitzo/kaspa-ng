@@ -5,9 +5,9 @@ use hex;
 use serde_json;
 use tracing::{error, info, warn};
 
-// Kaspa message signature verification imports (from main K-indexer)
-use kaspa_wallet_core::message::{PersonalMessage, verify_message};
-use secp256k1::XOnlyPublicKey;
+// Kaspa message signature verification imports
+use kaspa_hashes::{Hash, PersonalMessageSigningHash};
+use secp256k1::{Message, XOnlyPublicKey, schnorr::Signature};
 
 // K Protocol Data Models (ported from main K-indexer)
 use serde::{Deserialize, Serialize};
@@ -157,12 +157,14 @@ impl KProtocolProcessor {
         Self { db_pool }
     }
 
-    /// Verify a Kaspa message signature using the proper kaspa-wallet-core verification
-    /// This uses Kaspa's PersonalMessageSigningHash and Schnorr signature verification
-    fn verify_kaspa_signature(&self, message: &str, signature: &str, public_key_hex: &str) -> bool {
-        // Create PersonalMessage from the message string
-        let personal_message = PersonalMessage(message);
+    fn calc_personal_message_hash(message: &str) -> Hash {
+        let mut hasher = PersonalMessageSigningHash::new();
+        hasher.write(message.as_bytes());
+        hasher.finalize()
+    }
 
+    /// Verify a Kaspa message signature using Kaspa PersonalMessageSigningHash + Schnorr.
+    fn verify_kaspa_signature(&self, message: &str, signature: &str, public_key_hex: &str) -> bool {
         // Parse signature from hex (64 bytes for Schnorr signature)
         let signature_bytes = match hex::decode(signature) {
             Ok(bytes) => {
@@ -216,12 +218,25 @@ impl KProtocolProcessor {
             }
         };
 
-        // Verify the message signature using Kaspa's verify_message function
-        match verify_message(&personal_message, &signature_bytes, &public_key) {
-            Ok(()) => {
-                //info!("Kaspa message signature verification successful");
-                true
+        let hash = Self::calc_personal_message_hash(message);
+        let msg = match Message::from_digest_slice(hash.as_bytes().as_slice()) {
+            Ok(msg) => msg,
+            Err(err) => {
+                error!("Failed to build secp256k1 message digest: {}", err);
+                return false;
             }
+        };
+        let sig = match Signature::from_slice(signature_bytes.as_slice()) {
+            Ok(sig) => sig,
+            Err(err) => {
+                error!("Failed to parse Schnorr signature: {}", err);
+                return false;
+            }
+        };
+
+        let secp = secp256k1::Secp256k1::verification_only();
+        match secp.verify_schnorr(&sig, &msg, &public_key) {
+            Ok(()) => true,
             Err(err) => {
                 error!("Kaspa message signature verification failed: {}", err);
                 false

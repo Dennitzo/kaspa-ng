@@ -1,9 +1,15 @@
-import { FC } from "react";
+import { FC, useEffect, useMemo, useState } from "react";
 import { ThemeToggle } from "../Common/ThemeToggle";
 import { useNavigate } from "react-router";
 import { DatabaseZap } from "lucide-react";
-import { isIndexerDisabled } from "../../utils/indexer-settings";
+import {
+  getEffectiveIndexerUrl,
+  getIndexerStatusMeta,
+  isIndexerDisabled,
+} from "../../utils/indexer-settings";
 import { ConnectionIndicator } from "../Common/ConnectionIndicator";
+import { useNetworkStore } from "../../store/network.store";
+import { checkIndexerHealth, type IndexerStatus } from "../../utils/indexer-validation";
 
 type Props = {
   isWalletReady: boolean;
@@ -13,6 +19,86 @@ type Props = {
 
 export const Header: FC<Props> = () => {
   const navigate = useNavigate();
+  const network = useNetworkStore((state) =>
+    state.network === "mainnet" ? "mainnet" : "testnet"
+  );
+  const indexerStatus = getIndexerStatusMeta(network);
+  const effectiveIndexerUrl = useMemo(
+    () => getEffectiveIndexerUrl(network),
+    [network]
+  );
+  const [health, setHealth] = useState<"checking" | IndexerStatus>("checking");
+
+  useEffect(() => {
+    if (indexerStatus.kind === "off") {
+      setHealth("error");
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const probe = async () => {
+      if (!cancelled) {
+        setHealth("checking");
+      }
+      const status = await checkIndexerHealth(effectiveIndexerUrl);
+      if (!cancelled) {
+        setHealth(status);
+      }
+    };
+
+    void probe();
+    intervalId = setInterval(() => {
+      void probe();
+    }, 12000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [effectiveIndexerUrl, indexerStatus.kind]);
+
+  const tone =
+    indexerStatus.kind === "self-hosted"
+      ? {
+          chip: "text-[var(--text-primary)]",
+          label: "Self-hosted",
+        }
+      : indexerStatus.kind === "official"
+        ? {
+            chip: "text-[var(--text-primary)]",
+            label: "Official",
+          }
+        : {
+            chip: "text-[var(--text-primary)]",
+            label: "Off",
+          };
+  const healthTone =
+    health === "success"
+      ? {
+          dot: "bg-[var(--accent-green)]",
+          border: "border-[var(--accent-green)]/40",
+          text: "Connected",
+        }
+      : health === "reachable"
+        ? {
+            dot: "bg-[var(--accent-yellow)]",
+            border: "border-[var(--accent-yellow)]/40",
+            text: "Reachable",
+          }
+        : health === "checking"
+          ? {
+              dot: "bg-[var(--accent-yellow)] animate-pulse",
+              border: "border-[var(--accent-yellow)]/30",
+              text: "Checking",
+            }
+          : {
+              dot: "bg-[var(--accent-red)]",
+              border: "border-[var(--accent-red)]/40",
+              text: "Unreachable",
+            };
+
   return (
     <div className="border-primary-border flex items-center justify-between border-b bg-[var(--secondary-bg)] px-8 py-1 text-center select-none">
       <div
@@ -30,6 +116,18 @@ export const Header: FC<Props> = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        <div
+          className={`bg-primary-bg/60 hidden items-center gap-2 rounded-full border px-3 py-1 text-xs sm:flex ${tone.chip} ${healthTone.border}`}
+        >
+          <span className={`h-2 w-2 rounded-full ${healthTone.dot}`} />
+          <span className="font-medium">Indexer {tone.label}</span>
+          <span className="text-[var(--text-secondary)]">
+            {indexerStatus.addressPort}
+          </span>
+          <span className="text-[var(--text-secondary)]/90">
+            {healthTone.text}
+          </span>
+        </div>
         <ConnectionIndicator />
         {isIndexerDisabled() && (
           <DatabaseZap className="size-5 text-[var(--accent-red)]/80" />

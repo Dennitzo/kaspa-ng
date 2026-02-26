@@ -148,8 +148,9 @@ export const LockedSettingsModal: React.FC = () => {
     try {
       const urlToTest =
         indexerConnectionMode === "auto"
-          ? import.meta.env.VITE_INDEXER_MAINNET_URL ||
-            import.meta.env.VITE_INDEXER_TESTNET_URL
+          ? getEffectiveIndexerUrl(
+              selectedNetwork === "mainnet" ? "mainnet" : "testnet"
+            )
           : indexerUrl;
 
       if (!urlToTest) {

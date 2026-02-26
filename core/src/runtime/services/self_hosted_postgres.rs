@@ -23,6 +23,7 @@ pub struct SelfHostedPostgresService {
     pub is_enabled: AtomicBool,
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
+    last_restart_at: Mutex<Option<Instant>>,
 }
 
 impl SelfHostedPostgresService {
@@ -107,6 +108,7 @@ impl SelfHostedPostgresService {
             ),
             logs: logs.postgres,
             child: Mutex::new(None),
+            last_restart_at: Mutex::new(None),
         }
     }
 
@@ -1196,6 +1198,7 @@ impl SelfHostedPostgresService {
         }
 
         *self.child.lock().unwrap() = Some(child);
+        *self.last_restart_at.lock().unwrap() = Some(Instant::now());
         if Self::wait_for_ready(&settings, &node_settings, 20)
             .await
             .is_ok()
@@ -1337,6 +1340,19 @@ impl Service for SelfHostedPostgresService {
                                     // Postgres listens on a per-network effective port, so we must
                                     // restart when network switch changes the effective port.
                                     if previous_port != next_port {
+                                        if let Some(last_restart_at) =
+                                            *this.last_restart_at.lock().unwrap()
+                                            && last_restart_at.elapsed() < Duration::from_secs(8)
+                                        {
+                                            this.logs.push(
+                                                "INFO",
+                                                &format!(
+                                                    "ignoring transient network switch (port {} -> {}) during restart cooldown",
+                                                    previous_port, next_port
+                                                ),
+                                            );
+                                            continue;
+                                        }
                                         this.logs.push(
                                             "INFO",
                                             &format!(

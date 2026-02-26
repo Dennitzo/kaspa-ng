@@ -77,6 +77,7 @@ jobs:
         with:
           name: ci-error-summary-check
           path: ${{ env.CI_LOG_DIR }}/ci-error-summary.txt
+          overwrite: true
 
   test:
     name: Tests
@@ -178,6 +179,7 @@ jobs:
         with:
           name: ci-error-summary-test
           path: ${{ env.CI_LOG_DIR }}/ci-error-summary.txt
+          overwrite: true
 
   lints:
     name: Lints
@@ -260,6 +262,7 @@ jobs:
         with:
           name: ci-error-summary-lints
           path: ${{ env.CI_LOG_DIR }}/ci-error-summary.txt
+          overwrite: true
 
   wasm32:
     name: WASM32 Builds
@@ -375,6 +378,7 @@ jobs:
         with:
           name: ci-error-summary-wasm32
           path: ${{ env.CI_LOG_DIR }}/ci-error-summary.txt
+          overwrite: true
 
   build-release:
     runs-on: ${{ matrix.os }}
@@ -492,6 +496,7 @@ jobs:
         with: 
           name: kaspa-ng-${{ env.SHORT_SHA }}-windows-x64
           path: kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          overwrite: true
 
       - name: Build on MacOS (arm64)
         if: |
@@ -535,6 +540,7 @@ jobs:
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
           path: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
+          overwrite: true
 
       - name: Build on MacOS (x64)
         if: |
@@ -579,6 +585,7 @@ jobs:
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
           path: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
+          overwrite: true
 
       - name: Build on Linux
         if: runner.os == 'Linux'
@@ -649,6 +656,7 @@ jobs:
         with: 
           name: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
           path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
+          overwrite: true
 
       - name: Package Debian Release
         if: runner.os == 'Linux'
@@ -696,6 +704,7 @@ jobs:
         with:
           name: ci-error-summary-build-release
           path: ${{ env.CI_LOG_DIR }}/ci-error-summary.txt
+          overwrite: true
       # - name: Package Details
       #   if: runner.os == 'Linux'
       #   run: |

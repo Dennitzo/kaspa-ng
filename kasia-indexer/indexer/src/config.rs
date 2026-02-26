@@ -10,6 +10,8 @@ pub struct IndexerConfig {
     pub kasia_indexer_db_root: PathBuf,
     #[serde(default = "default_network_type")]
     pub network_type: NetworkType,
+    #[serde(default = "default_kasia_indexer_api_bind")]
+    pub kasia_indexer_api_bind: String,
     pub kaspa_node_wborsh_url: Option<String>,
     #[serde(default = "default_periodic_processor_interval_secs")]
     pub periodic_processor_interval_secs: u64,
@@ -25,6 +27,10 @@ fn default_network_type() -> NetworkType {
 
 fn default_kasia_indexer_db_root() -> PathBuf {
     std::env::home_dir().unwrap().join(".kasia-indexer")
+}
+
+fn default_kasia_indexer_api_bind() -> String {
+    "0.0.0.0:8080".to_string()
 }
 
 pub fn get_indexer_config() -> anyhow::Result<IndexerConfig> {

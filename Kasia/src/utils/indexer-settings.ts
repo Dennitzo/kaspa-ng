@@ -54,6 +54,13 @@ export function setNodeConnectionMode(mode: "auto" | "manual"): void {
 }
 
 export function getEffectiveIndexerUrl(network: "mainnet" | "testnet"): string {
+  const runtimeConfig =
+    (globalThis as {
+      __KASPA_NG_KASIA_CONFIG?: {
+        indexerMainnetUrl?: string;
+        indexerTestnetUrl?: string;
+      };
+    }).__KASPA_NG_KASIA_CONFIG ?? {};
   const connectionMode = getIndexerConnectionMode();
   const customUrl = getIndexerUrl();
 
@@ -66,6 +73,78 @@ export function getEffectiveIndexerUrl(network: "mainnet" | "testnet"): string {
   }
 
   return network === "mainnet"
-    ? import.meta.env.VITE_INDEXER_MAINNET_URL
-    : import.meta.env.VITE_INDEXER_TESTNET_URL;
+    ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL
+    : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL;
+}
+
+export function toAddressPortDisplay(url: string | null): string {
+  if (!url) {
+    return "n/a";
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) {
+      return `${parsed.hostname}:${parsed.port}`;
+    }
+    return parsed.hostname;
+  } catch {
+    return url
+      .replace(/^https?:\/\//, "")
+      .replace(/^wss?:\/\//, "")
+      .replace(/\/+$/, "");
+  }
+}
+
+function isPrivateIpv4Host(hostname: string): boolean {
+  if (/^10\./.test(hostname)) return true;
+  if (/^192\.168\./.test(hostname)) return true;
+  const match172 = hostname.match(/^172\.(\d{1,3})\./);
+  if (match172) {
+    const octet = Number(match172[1]);
+    if (octet >= 16 && octet <= 31) return true;
+  }
+  return false;
+}
+
+function isSelfHostedUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "0.0.0.0" ||
+      isPrivateIpv4Host(host)
+    );
+  } catch {
+    const normalized = toAddressPortDisplay(url).toLowerCase();
+    return normalized.startsWith("127.0.0.1") || normalized.startsWith("localhost");
+  }
+}
+
+export function getIndexerStatusLabel(network: "mainnet" | "testnet"): string {
+  if (isIndexerDisabled()) {
+    return "Indexer Off";
+  }
+
+  const effective = getEffectiveIndexerUrl(network);
+  const kind = isSelfHostedUrl(effective) ? "Self-hosted" : "Official";
+  return `Indexer ${kind} ${toAddressPortDisplay(effective)}`;
+}
+
+export function getIndexerStatusMeta(network: "mainnet" | "testnet"): {
+  kind: "off" | "self-hosted" | "official";
+  addressPort: string;
+} {
+  if (isIndexerDisabled()) {
+    return { kind: "off", addressPort: "n/a" };
+  }
+
+  const effective = getEffectiveIndexerUrl(network);
+  return {
+    kind: isSelfHostedUrl(effective) ? "self-hosted" : "official",
+    addressPort: toAddressPortDisplay(effective),
+  };
 }

@@ -319,6 +319,7 @@ jobs:
         with:
           name: kaspa-ng-${{ runner.os }}-${{ github.ref_name }}
           path: ${{ env.ASSET }}
+          overwrite: true
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

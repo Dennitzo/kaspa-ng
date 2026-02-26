@@ -247,7 +247,8 @@ async fn main() -> anyhow::Result<()> {
         context.clone(),
     );
     let (api_shutdown_tx, api_shutdown_rx) = tokio::sync::mpsc::channel(2);
-    let api_handle = tokio::spawn(api_service.serve("0.0.0.0:8080", api_shutdown_rx));
+    let api_bind = context.config.kasia_indexer_api_bind.clone();
+    let api_handle = tokio::spawn(async move { api_service.serve(&api_bind, api_shutdown_rx).await });
 
     let options = ConnectOptions {
         block_async_connect: false,
