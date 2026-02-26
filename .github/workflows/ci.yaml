@@ -466,21 +466,33 @@ jobs:
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
-          if [ -f target/release/stratum-bridge.exe ]; then
-            cp target/release/stratum-bridge.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
-          elif [ -f rusty-kaspa/target/release/stratum-bridge.exe ]; then
-            cp rusty-kaspa/target/release/stratum-bridge.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
-          fi
-          if [ -f target/release/kasia-indexer.exe ]; then
-            cp target/release/kasia-indexer.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
-          elif [ -f kasia-indexer/target/release/indexer.exe ]; then
-            cp kasia-indexer/target/release/indexer.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kasia-indexer.exe
-          fi
+          for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            if [ -f "target/release/${bin}" ]; then
+              cp "target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+            elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+              cp "rusty-kaspa/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+            elif [ -f "cpuminer/target/release/${bin}" ]; then
+              cp "cpuminer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+            elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+              cp "simply-kaspa-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+            elif [ -f "K-indexer/target/release/${bin}" ]; then
+              cp "K-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+            elif [ "${bin}" = "kasia-indexer.exe" ] && [ -f "kasia-indexer/target/release/indexer.exe" ]; then
+              cp "kasia-indexer/target/release/indexer.exe" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${bin}
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K
+            cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K/
+          elif [ -d K/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K
+            cp -r K/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K/
           fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia
@@ -489,6 +501,12 @@ jobs:
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia
             cp -r Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia/
           fi
+          for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng K Kasia; do
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
 
       - name: Upload Windows build to GitHub 
         if: runner.os == 'Windows'
@@ -508,21 +526,33 @@ jobs:
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge "$ROOT/"
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
-          fi
-          if [ -f target/release/kasia-indexer ]; then
-            cp target/release/kasia-indexer "$ROOT/"
-          elif [ -f kasia-indexer/target/release/indexer ]; then
-            cp kasia-indexer/target/release/indexer "$ROOT/kasia-indexer"
-          fi
+          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "target/release/${bin}" ]; then
+              cp "target/release/${bin}" "$ROOT/"
+            elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+              cp "rusty-kaspa/target/release/${bin}" "$ROOT/"
+            elif [ -f "cpuminer/target/release/${bin}" ]; then
+              cp "cpuminer/target/release/${bin}" "$ROOT/"
+            elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+              cp "simply-kaspa-indexer/target/release/${bin}" "$ROOT/"
+            elif [ -f "K-indexer/target/release/${bin}" ]; then
+              cp "K-indexer/target/release/${bin}" "$ROOT/"
+            elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
+              cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
+          fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r target/release/K/dist "$ROOT/K/"
+          elif [ -d K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r K/dist "$ROOT/K/"
           fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p "$ROOT/Kasia"
@@ -531,6 +561,12 @@ jobs:
             mkdir -p "$ROOT/Kasia"
             cp -r Kasia/dist "$ROOT/Kasia/"
           fi
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng K Kasia; do
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
 
       - name: Upload MacOS (arm64) build to GitHub
         if: |
@@ -553,21 +589,33 @@ jobs:
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge "$ROOT/"
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge "$ROOT/"
-          fi
-          if [ -f target/release/kasia-indexer ]; then
-            cp target/release/kasia-indexer "$ROOT/"
-          elif [ -f kasia-indexer/target/release/indexer ]; then
-            cp kasia-indexer/target/release/indexer "$ROOT/kasia-indexer"
-          fi
+          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "target/release/${bin}" ]; then
+              cp "target/release/${bin}" "$ROOT/"
+            elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+              cp "rusty-kaspa/target/release/${bin}" "$ROOT/"
+            elif [ -f "cpuminer/target/release/${bin}" ]; then
+              cp "cpuminer/target/release/${bin}" "$ROOT/"
+            elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+              cp "simply-kaspa-indexer/target/release/${bin}" "$ROOT/"
+            elif [ -f "K-indexer/target/release/${bin}" ]; then
+              cp "K-indexer/target/release/${bin}" "$ROOT/"
+            elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
+              cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
+          fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r target/release/K/dist "$ROOT/K/"
+          elif [ -d K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r K/dist "$ROOT/K/"
           fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p "$ROOT/Kasia"
@@ -576,6 +624,12 @@ jobs:
             mkdir -p "$ROOT/Kasia"
             cp -r Kasia/dist "$ROOT/Kasia/"
           fi
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng K Kasia; do
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
 
       - name: Upload MacOS (x64) build to GitHub
         if: |
@@ -594,21 +648,33 @@ jobs:
           set -o pipefail
           cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
           cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-          fi
-          if [ -f target/release/kasia-indexer ]; then
-            cp target/release/kasia-indexer kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-          elif [ -f kasia-indexer/target/release/indexer ]; then
-            cp kasia-indexer/target/release/indexer kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kasia-indexer
-          fi
+          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "target/release/${bin}" ]; then
+              cp "target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+            elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+              cp "rusty-kaspa/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+            elif [ -f "cpuminer/target/release/${bin}" ]; then
+              cp "cpuminer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+            elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+              cp "simply-kaspa-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+            elif [ -f "K-indexer/target/release/${bin}" ]; then
+              cp "K-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+            elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
+              cp "kasia-indexer/target/release/indexer" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${bin}
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K
+            cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K/
+          elif [ -d K/dist ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K
+            cp -r K/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K/
           fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia
@@ -621,22 +687,34 @@ jobs:
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           mkdir -p .debpkg/usr/bin
           cp target/release/kaspa-ng .debpkg/usr/bin/
-          if [ -f target/release/stratum-bridge ]; then
-            cp target/release/stratum-bridge .debpkg/usr/bin/
-          elif [ -f rusty-kaspa/target/release/stratum-bridge ]; then
-            cp rusty-kaspa/target/release/stratum-bridge .debpkg/usr/bin/
-          fi
-          if [ -f target/release/kasia-indexer ]; then
-            cp target/release/kasia-indexer .debpkg/usr/bin/
-          elif [ -f kasia-indexer/target/release/indexer ]; then
-            cp kasia-indexer/target/release/indexer .debpkg/usr/bin/kasia-indexer
-          fi
+          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "target/release/${bin}" ]; then
+              cp "target/release/${bin}" .debpkg/usr/bin/
+            elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
+              cp "rusty-kaspa/target/release/${bin}" .debpkg/usr/bin/
+            elif [ -f "cpuminer/target/release/${bin}" ]; then
+              cp "cpuminer/target/release/${bin}" .debpkg/usr/bin/
+            elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
+              cp "simply-kaspa-indexer/target/release/${bin}" .debpkg/usr/bin/
+            elif [ -f "K-indexer/target/release/${bin}" ]; then
+              cp "K-indexer/target/release/${bin}" .debpkg/usr/bin/
+            elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
+              cp "kasia-indexer/target/release/indexer" .debpkg/usr/bin/${bin}
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r target/release/kaspa-explorer-ng/* .debpkg/usr/bin/kaspa-explorer-ng/
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
+          fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p .debpkg/usr/bin/K
+            cp -r target/release/K/dist .debpkg/usr/bin/K/
+          elif [ -d K/dist ]; then
+            mkdir -p .debpkg/usr/bin/K
+            cp -r K/dist .debpkg/usr/bin/K/
           fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p .debpkg/usr/bin/Kasia
@@ -645,6 +723,12 @@ jobs:
             mkdir -p .debpkg/usr/bin/Kasia
             cp -r Kasia/dist .debpkg/usr/bin/Kasia/
           fi
+          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          done
+          for d in kaspa-explorer-ng K Kasia; do
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png
           mkdir -p .debpkg/usr/share/applications

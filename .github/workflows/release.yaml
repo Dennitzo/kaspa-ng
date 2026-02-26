@@ -173,6 +173,13 @@ jobs:
               mkdir -p dist/kaspa-explorer-ng
               cp -r kaspa-explorer-ng/build dist/kaspa-explorer-ng/
             fi
+            if [ -d target/release/K/dist ]; then
+              mkdir -p dist/K
+              cp -r target/release/K/dist dist/K/
+            elif [ -d K/dist ]; then
+              mkdir -p dist/K
+              cp -r K/dist dist/K/
+            fi
             if [ -d target/release/Kasia/dist ]; then
               mkdir -p dist/Kasia
               cp -r target/release/Kasia/dist dist/Kasia/
@@ -203,6 +210,13 @@ jobs:
               mkdir -p dist/kaspa-explorer-ng
               cp -r kaspa-explorer-ng/build dist/kaspa-explorer-ng/
             fi
+            if [ -d target/release/K/dist ]; then
+              mkdir -p dist/K
+              cp -r target/release/K/dist dist/K/
+            elif [ -d K/dist ]; then
+              mkdir -p dist/K
+              cp -r K/dist dist/K/
+            fi
             if [ -d target/release/Kasia/dist ]; then
               mkdir -p dist/Kasia
               cp -r target/release/Kasia/dist dist/Kasia/
@@ -226,7 +240,7 @@ jobs:
               exit 1
             fi
           done
-          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia)
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia)
           for d in "${required_dirs[@]}"; do
             if [ ! -d "dist/${d}" ]; then
               echo "Missing packaged directory: ${d}"
@@ -274,6 +288,13 @@ jobs:
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
             Copy-Item -Recurse -Force kaspa-explorer-ng\build dist\kaspa-explorer-ng\
           }
+          if (Test-Path target\release\K\dist) {
+            New-Item -ItemType Directory -Path dist\K | Out-Null
+            Copy-Item -Recurse -Force target\release\K\dist dist\K\
+          } elseif (Test-Path K\dist) {
+            New-Item -ItemType Directory -Path dist\K | Out-Null
+            Copy-Item -Recurse -Force K\dist dist\K\
+          }
           if (Test-Path target\release\Kasia\dist) {
             New-Item -ItemType Directory -Path dist\Kasia | Out-Null
             Copy-Item -Recurse -Force target\release\Kasia\dist dist\Kasia\
@@ -302,7 +323,7 @@ jobs:
               throw "Missing packaged binary: $f"
             }
           }
-          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Kasia")
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "K", "Kasia")
           foreach ($d in $requiredDirs) {
             if (-not (Test-Path "dist\\$d")) {
               throw "Missing packaged directory: $d"

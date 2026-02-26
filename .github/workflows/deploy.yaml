@@ -153,6 +153,13 @@ jobs:
             mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-explorer-ng/
           fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/K
+            cp -r target/release/K/dist kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/K/
+          elif [ -d K/dist ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/K
+            cp -r K/dist kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/K/
+          fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/Kasia
             cp -r target/release/Kasia/dist kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/Kasia/
@@ -169,7 +176,7 @@ jobs:
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
@@ -208,6 +215,13 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r target/release/K/dist "$ROOT/K/"
+          elif [ -d K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r K/dist "$ROOT/K/"
+          fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p "$ROOT/Kasia"
             cp -r target/release/Kasia/dist "$ROOT/Kasia/"
@@ -224,7 +238,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
@@ -263,6 +277,13 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r target/release/K/dist "$ROOT/K/"
+          elif [ -d K/dist ]; then
+            mkdir -p "$ROOT/K"
+            cp -r K/dist "$ROOT/K/"
+          fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p "$ROOT/Kasia"
             cp -r target/release/Kasia/dist "$ROOT/Kasia/"
@@ -279,7 +300,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
@@ -327,6 +348,17 @@ jobs:
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
           fi
+          if [ -d target/release/K/dist ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/K
+            cp -r target/release/K/dist kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/K/
+            mkdir -p .debpkg/usr/bin/K
+            cp -r target/release/K/dist .debpkg/usr/bin/K/
+          elif [ -d K/dist ]; then
+            mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/K
+            cp -r K/dist kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/K/
+            mkdir -p .debpkg/usr/bin/K
+            cp -r K/dist .debpkg/usr/bin/K/
+          fi
           if [ -d target/release/Kasia/dist ]; then
             mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/Kasia
             cp -r target/release/Kasia/dist kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/Kasia/
@@ -349,7 +381,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Kasia; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps

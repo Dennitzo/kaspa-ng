@@ -5066,6 +5066,7 @@ dependencies = [
  "derive_more 0.99.20",
  "downcast",
  "faster-hex",
+ "getrandom 0.3.4",
  "hex",
  "js-sys",
  "kaspa-addresses",
