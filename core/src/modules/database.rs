@@ -76,7 +76,8 @@ impl Database {
     const DB_RESTART_COOLDOWN: Duration = Duration::from_secs(8);
     const DB_RESTART_RETRY_DELAY: Duration = Duration::from_millis(750);
 
-    const INDEXER_TABLES: [&'static str; 19] = [
+    const INDEXER_TABLES: [&'static str; 36] = [
+        // simply-kaspa-indexer (Postgres)
         "vars",
         "blocks",
         "block_parent",
@@ -96,6 +97,24 @@ impl Database {
         "k_follows",
         "k_contents",
         "k_hashtags",
+        // kasia-indexer (Fjall partitions)
+        "metadata",
+        "block_compact_header",
+        "daa_index_compact_header",
+        "block_gaps",
+        "handshake_by_receiver",
+        "handshake_by_sender",
+        "tx-id-to-handshake",
+        "contextual_message_by_sender",
+        "payment_by_receiver",
+        "payment_by_sender",
+        "tx_id_to_payment",
+        "accepting_block_to_tx_id",
+        "tx_id_to_acceptance",
+        "pending_sender_resolution",
+        "self_stash_by_owner",
+        "tx-id-to-self-stash",
+        "tx-id-to-contextual-message",
     ];
 
     pub fn new(runtime: Runtime) -> Self {

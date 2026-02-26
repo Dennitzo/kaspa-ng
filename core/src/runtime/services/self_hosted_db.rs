@@ -9,10 +9,12 @@ use axum::{
 };
 use serde::Serialize;
 use std::convert::Infallible;
+use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio_postgres::NoTls;
 use tokio_stream::wrappers::IntervalStream;
+use walkdir::WalkDir;
 
 const TABLE_STATS_SQL: &str = r#"
 SELECT
@@ -51,6 +53,8 @@ impl DbConfig {
 struct AppState {
     db: DbConfig,
     logs: LogStores,
+    kasia_metrics_url: String,
+    kasia_partitions_root: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -92,7 +96,150 @@ struct LogResponse {
     lines: Vec<crate::runtime::services::log_store::LogLine>,
 }
 
-async fn collect_stats(db: &DbConfig) -> Result<StatusPayload> {
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct KasiaMetricsSnapshot {
+    handshakes_by_sender: u64,
+    uniq_handshakes_by_receiver: u64,
+    payments_by_sender: u64,
+    uniq_payments_by_receiver: u64,
+    contextual_messages: u64,
+    blocks_processed: u64,
+    unknown_sender_entries: u64,
+}
+
+#[derive(Clone, Copy)]
+struct KasiaTableEstimate {
+    table_name: &'static str,
+    row_estimate: Option<i64>,
+}
+
+const KASIA_TABLES: [KasiaTableEstimate; 17] = [
+    KasiaTableEstimate {
+        table_name: "metadata",
+        row_estimate: Some(1),
+    },
+    KasiaTableEstimate {
+        table_name: "block_compact_header",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "daa_index_compact_header",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "block_gaps",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "handshake_by_receiver",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "handshake_by_sender",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "tx-id-to-handshake",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "contextual_message_by_sender",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "payment_by_receiver",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "payment_by_sender",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "tx_id_to_payment",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "accepting_block_to_tx_id",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "tx_id_to_acceptance",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "pending_sender_resolution",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "self_stash_by_owner",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "tx-id-to-self-stash",
+        row_estimate: None,
+    },
+    KasiaTableEstimate {
+        table_name: "tx-id-to-contextual-message",
+        row_estimate: None,
+    },
+];
+
+async fn fetch_kasia_metrics(url: &str) -> Option<KasiaMetricsSnapshot> {
+    let fut = http::get_json::<KasiaMetricsSnapshot>(url);
+    match tokio::time::timeout(Duration::from_millis(1200), fut).await {
+        Ok(Ok(metrics)) => Some(metrics),
+        _ => None,
+    }
+}
+
+fn estimate_kasia_rows(metrics: &KasiaMetricsSnapshot, table_name: &str) -> Option<i64> {
+    let value = match table_name {
+        "metadata" => 1,
+        "block_compact_header" => metrics.blocks_processed,
+        "daa_index_compact_header" => metrics.blocks_processed,
+        "handshake_by_receiver" => metrics.uniq_handshakes_by_receiver,
+        "handshake_by_sender" => metrics.handshakes_by_sender,
+        "tx-id-to-handshake" => metrics.uniq_handshakes_by_receiver,
+        "contextual_message_by_sender" => metrics.contextual_messages,
+        "tx-id-to-contextual-message" => metrics.contextual_messages,
+        "payment_by_receiver" => metrics.uniq_payments_by_receiver,
+        "payment_by_sender" => metrics.payments_by_sender,
+        "tx_id_to_payment" => metrics.uniq_payments_by_receiver,
+        "pending_sender_resolution" => metrics.unknown_sender_entries,
+        _ => return None,
+    };
+    Some(value as i64)
+}
+
+fn collect_kasia_partition_sizes(partitions_root: &Path) -> HashMap<String, i64> {
+    let mut sizes = HashMap::<String, i64>::new();
+    if !partitions_root.exists() {
+        return sizes;
+    }
+
+    for entry in WalkDir::new(partitions_root).into_iter().flatten() {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel_path) = entry.path().strip_prefix(partitions_root) else {
+            continue;
+        };
+        let Some(first_component) = rel_path.iter().next() else {
+            continue;
+        };
+        let Some(partition_name) = first_component.to_str() else {
+            continue;
+        };
+        let file_len = entry.metadata().map(|meta| meta.len() as i64).unwrap_or(0);
+        *sizes.entry(partition_name.to_string()).or_insert(0) += file_len;
+    }
+
+    sizes
+}
+
+async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
+    let db = &state.db;
     let (client, connection) = tokio_postgres::connect(&db.to_conn_string(), NoTls)
         .await
         .map_err(|err| Error::Custom(err.to_string()))?;
@@ -140,7 +287,7 @@ async fn collect_stats(db: &DbConfig) -> Result<StatusPayload> {
         .query(TABLE_STATS_SQL, &[])
         .await
         .map_err(|err| Error::Custom(err.to_string()))?;
-    let table_stats = rows
+    let mut table_stats = rows
         .into_iter()
         .map(|row| TableStats {
             table_name: row
@@ -150,6 +297,37 @@ async fn collect_stats(db: &DbConfig) -> Result<StatusPayload> {
             total_size_bytes: row.get::<_, i64>(2),
         })
         .collect::<Vec<_>>();
+
+    let kasia_metrics = fetch_kasia_metrics(&state.kasia_metrics_url).await;
+    let kasia_sizes = tokio::task::spawn_blocking({
+        let root = state.kasia_partitions_root.clone();
+        move || collect_kasia_partition_sizes(&root)
+    })
+    .await
+    .unwrap_or_default();
+
+    let mut existing_names = table_stats
+        .iter()
+        .map(|stats| stats.table_name.clone())
+        .collect::<std::collections::HashSet<String>>();
+
+    for estimate in KASIA_TABLES {
+        if existing_names.contains(estimate.table_name) {
+            continue;
+        }
+        let live_rows = kasia_metrics
+            .as_ref()
+            .and_then(|metrics| estimate_kasia_rows(metrics, estimate.table_name))
+            .or(estimate.row_estimate)
+            .unwrap_or(0);
+        let total_size_bytes = kasia_sizes.get(estimate.table_name).copied().unwrap_or(0);
+        table_stats.push(TableStats {
+            table_name: estimate.table_name.to_string(),
+            live_rows,
+            total_size_bytes,
+        });
+        existing_names.insert(estimate.table_name.to_string());
+    }
 
     let total_live_rows = table_stats.iter().map(|row| row.live_rows).sum();
     let total_size_bytes = table_stats.iter().map(|row| row.total_size_bytes).sum();
@@ -171,7 +349,7 @@ async fn collect_stats(db: &DbConfig) -> Result<StatusPayload> {
 }
 
 async fn status_handler(State(state): State<AppState>) -> Response {
-    match collect_stats(&state.db).await {
+    match collect_stats(&state).await {
         Ok(payload) => Json(payload).into_response(),
         Err(err) => {
             log_warn!("self-hosted-db: status error: {err}");
@@ -197,12 +375,12 @@ async fn status_stream_handler(
 ) -> Sse<impl futures::Stream<Item = std::result::Result<axum::response::sse::Event, Infallible>>> {
     let interval_secs = query.interval.map(|value| value.clamp(5, 60)).unwrap_or(10);
 
-    let db = state.db.clone();
+    let app_state = state.clone();
     let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(interval_secs)))
         .then(move |_| {
-            let db = db.clone();
+            let app_state = app_state.clone();
             async move {
-                match collect_stats(&db).await {
+                match collect_stats(&app_state).await {
                     Ok(payload) => Ok(axum::response::sse::Event::default()
                         .json_data(payload)
                         .unwrap()),
@@ -278,6 +456,15 @@ pub struct SelfHostedDbService {
 }
 
 impl SelfHostedDbService {
+    fn resolve_api_host(bind: &str) -> String {
+        let trimmed = bind.trim();
+        if trimmed.is_empty() || trimmed == "0.0.0.0" || trimmed == "::" || trimmed == "[::]" {
+            "127.0.0.1".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     pub fn new(
         application_events: ApplicationEventsChannel,
         settings: &Settings,
@@ -335,6 +522,17 @@ impl SelfHostedDbService {
             &settings.db_name,
             node_settings.network,
         );
+        let api_host = Self::resolve_api_host(&settings.api_bind);
+        let kasia_metrics_url = format!(
+            "http://{}:{}/metrics",
+            api_host,
+            settings.effective_kasia_indexer_port(node_settings.network)
+        );
+        let kasia_partitions_root = workflow_core::dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".kasia-indexer")
+            .join(node_settings.network.to_string())
+            .join("partitions");
 
         let state = AppState {
             db: DbConfig {
@@ -345,6 +543,8 @@ impl SelfHostedDbService {
                 dbname: db_name,
             },
             logs: self.logs.clone(),
+            kasia_metrics_url,
+            kasia_partitions_root,
         };
 
         let app = Router::new()

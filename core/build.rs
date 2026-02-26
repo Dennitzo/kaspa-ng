@@ -73,13 +73,17 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
     }
 
     if !target.join(".git").exists() {
-        println!("cargo:warning=Skipping sync for {name} (not a git repository)");
-        return Ok(());
+        println!("cargo:warning={name} has no .git; bootstrapping git metadata");
+        if !bootstrap_git_metadata(&repo_root, &target, name, url)? {
+            println!("cargo:warning=Skipping sync for {name} (not a git repository)");
+            return Ok(());
+        }
     }
 
-    let mut stashed = false;
+    let mut created_stash_ref: Option<String> = None;
     if has_local_git_changes(&target)? {
         println!("cargo:warning={name} has local changes; stashing before pull");
+        let before_stash = stash_head_oid(&target)?;
         let status = Command::new("git")
             .current_dir(&target)
             .args([
@@ -91,7 +95,18 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
             ])
             .status();
         if status.map(|s| s.success()).unwrap_or(false) {
-            stashed = true;
+            let after_stash = stash_head_oid(&target)?;
+            if after_stash != before_stash {
+                created_stash_ref = Some("stash@{0}".to_string());
+            } else {
+                println!(
+                    "cargo:warning={name} stash command succeeded but no stash entry was created"
+                );
+                println!(
+                    "cargo:warning=Skipping pull for {name} to avoid overwriting unstashed local changes"
+                );
+                return Ok(());
+            }
         } else {
             println!("cargo:warning=Failed to stash local changes for {name}; skipping pull");
             return Ok(());
@@ -106,17 +121,108 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         println!("cargo:warning=Failed to update {name} via git pull --ff-only");
     }
 
-    if stashed {
-        let status = Command::new("git")
+    if let Some(stash_ref) = created_stash_ref {
+        let apply_with_index = Command::new("git")
             .current_dir(&target)
-            .args(["stash", "pop"])
-            .status();
-        if status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=Failed to re-apply stashed local changes for {name}");
+            .args(["stash", "apply", "--index", &stash_ref])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        let reapplied = if apply_with_index {
+            true
+        } else {
+            println!(
+                "cargo:warning=Failed to re-apply stashed local changes with --index for {name}; retrying without index"
+            );
+            Command::new("git")
+                .current_dir(&target)
+                .args(["stash", "apply", &stash_ref])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+
+        if reapplied {
+            let dropped = Command::new("git")
+                .current_dir(&target)
+                .args(["stash", "drop", &stash_ref])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !dropped {
+                println!(
+                    "cargo:warning=Re-applied local stash for {name}, but failed to drop {stash_ref}"
+                );
+            }
+        } else {
+            println!(
+                "cargo:warning=Failed to re-apply stashed local changes for {name}; stash kept as {stash_ref}"
+            );
         }
     }
 
     Ok(())
+}
+
+fn bootstrap_git_metadata(
+    repo_root: &Path,
+    target: &Path,
+    name: &str,
+    url: &str,
+) -> Result<bool, Box<dyn Error>> {
+    let target_git = target.join(".git");
+    if target_git.exists() {
+        return Ok(true);
+    }
+
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_name = format!(".kaspa-ng-sync-{name}-{pid}-{nanos}");
+    let tmp_clone = repo_root.join(tmp_name);
+
+    let cloned = Command::new("git")
+        .current_dir(repo_root)
+        .args(["clone", "--depth", "1", "--no-checkout", url])
+        .arg(&tmp_clone)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !cloned {
+        let _ = std::fs::remove_dir_all(&tmp_clone);
+        return Ok(false);
+    }
+
+    let tmp_git = tmp_clone.join(".git");
+    if !tmp_git.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_clone);
+        return Ok(false);
+    }
+
+    let moved = std::fs::rename(&tmp_git, &target_git).is_ok();
+    let _ = std::fs::remove_dir_all(&tmp_clone);
+    if !moved {
+        return Ok(false);
+    }
+
+    let ok = Command::new("git")
+        .current_dir(target)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        let _ = std::fs::remove_dir_all(&target_git);
+        return Ok(false);
+    }
+
+    println!(
+        "cargo:warning={name} git metadata bootstrapped; local changes will be stashed before pull"
+    );
+    Ok(true)
 }
 
 fn has_local_git_changes(repo_dir: &Path) -> Result<bool, Box<dyn Error>> {
@@ -125,6 +231,22 @@ fn has_local_git_changes(repo_dir: &Path) -> Result<bool, Box<dyn Error>> {
         .args(["status", "--porcelain"])
         .output()?;
     Ok(!output.stdout.is_empty())
+}
+
+fn stash_head_oid(repo_dir: &Path) -> Result<Option<String>, Box<dyn Error>> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["rev-parse", "-q", "--verify", "refs/stash"])
+        .output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if line.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(line))
+    }
 }
 
 fn export_rusty_kaspa_workspace_version() -> Result<(), Box<dyn Error>> {
