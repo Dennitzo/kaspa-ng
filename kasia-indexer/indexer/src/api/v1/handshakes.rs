@@ -1,0 +1,339 @@
+use crate::api::to_rpc_address;
+use crate::context::IndexerContext;
+use anyhow::{Context, bail};
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::get;
+use axum::{Json, Router};
+use indexer_db::AddressPayload;
+use indexer_db::messages::handshake::{
+    HandshakeByReceiverPartition, HandshakeBySenderPartition, TxIdToHandshakePartition,
+};
+use indexer_db::processing::tx_id_to_acceptance::TxIDToAcceptancePartition;
+use itertools::Itertools;
+use kaspa_rpc_core::RpcAddress;
+use serde::{Deserialize, Serialize};
+use std::ops::Deref;
+use tokio::task::spawn_blocking;
+use utoipa::{IntoParams, ToSchema};
+
+#[derive(Clone)]
+pub struct HandshakeApi {
+    tx_keyspace: fjall::TxKeyspace,
+    handshake_by_sender_partition: HandshakeBySenderPartition,
+    handshake_by_receiver_partition: HandshakeByReceiverPartition,
+    tx_id_to_acceptance_partition: TxIDToAcceptancePartition,
+    tx_id_to_handshake_partition: TxIdToHandshakePartition,
+    context: IndexerContext,
+}
+
+impl HandshakeApi {
+    pub fn new(
+        tx_keyspace: fjall::TxKeyspace,
+        handshake_by_sender_partition: HandshakeBySenderPartition,
+        handshake_by_receiver_partition: HandshakeByReceiverPartition,
+        tx_id_to_acceptance_partition: TxIDToAcceptancePartition,
+        tx_id_to_handshake_partition: TxIdToHandshakePartition,
+        context: IndexerContext,
+    ) -> Self {
+        Self {
+            tx_keyspace,
+            handshake_by_sender_partition,
+            handshake_by_receiver_partition,
+            tx_id_to_acceptance_partition,
+            tx_id_to_handshake_partition,
+            context,
+        }
+    }
+
+    pub fn router() -> Router<Self> {
+        Router::new()
+            .route("/by-sender", get(get_handshakes_by_sender))
+            .route("/by-receiver", get(get_handshakes_by_receiver))
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct HandshakePaginationParams {
+    pub limit: Option<usize>,
+    pub block_time: Option<u64>,
+    pub address: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HandshakeResponse {
+    pub tx_id: String,
+    pub sender: String,
+    pub receiver: String,
+    pub block_time: u64,
+    pub accepting_block: Option<String>,
+    pub accepting_daa_score: Option<u64>,
+    pub message_payload: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/handshakes/by-sender",
+    params(HandshakePaginationParams),
+    responses(
+        (status = 200, description = "Get handshakes by sender", body = [HandshakeResponse]),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+async fn get_handshakes_by_sender(
+    State(state): State<HandshakeApi>,
+    Query(params): Query<HandshakePaginationParams>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(10).min(50);
+    let cursor = params.block_time.unwrap_or(0);
+
+    let sender_rpc = match RpcAddress::try_from(params.address) {
+        Ok(addr) => addr,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid address: {e}"),
+                }),
+            ));
+        }
+    };
+    let sender = match AddressPayload::try_from(&sender_rpc) {
+        Ok(payload) => payload,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid address payload: {e}"),
+                }),
+            ));
+        }
+    };
+
+    let result = spawn_blocking(move || {
+        let rtx = state.tx_keyspace.read_tx();
+
+        let mut seen_tx_ids = std::collections::HashSet::with_capacity(limit);
+
+        state
+            .handshake_by_sender_partition
+            .iter_by_sender_from_block_time_rtx(&rtx, sender, cursor)
+            .process_results(|iter| {
+                iter.filter(|hs| seen_tx_ids.insert(hs.tx_id))
+                    .take(limit)
+                    .map(|handshake| {
+                        let block_time = handshake.block_time.into();
+
+                        let sender_str =
+                            to_rpc_address(&handshake.sender, state.context.network_type)
+                                .context("Sender address conversion error")?
+                                .map(|addr| addr.to_string())
+                                .unwrap_or_default();
+
+                        let receiver_str =
+                            match to_rpc_address(&handshake.receiver, state.context.network_type) {
+                                Ok(None) => bail!(
+                                    "Database consistency error: receiver address has EMPTY_VERSION"
+                                ),
+                                Err(error) => bail!(error.context(format!(
+                                    "receiver address conversion failed (receiver={:?})",
+                                    handshake.receiver
+                                ))),
+                                Ok(Some(address)) => address.to_string(),
+                            };
+
+                        let acceptance = state
+                            .tx_id_to_acceptance_partition
+                            .acceptance_by_tx_id_rtx(&rtx, &handshake.tx_id)?;
+
+                        let (accepting_block, accepting_daa_score) =
+                            if let Some(acceptance) = acceptance {
+                                (
+                                    Some(faster_hex::hex_string(
+                                        &acceptance.header.accepting_block_hash,
+                                    )),
+                                    Some(acceptance.header.accepting_daa.into()),
+                                )
+                            } else {
+                                (None, None)
+                            };
+
+                        let payload_bytes = state
+                            .tx_id_to_handshake_partition
+                            .get_rtx(&rtx, &handshake.tx_id)
+                            .with_context(|| "Database error")?
+                            .context("Missing handshake payload")?;
+
+                        let message_payload = faster_hex::hex_string(payload_bytes.as_ref());
+
+                        Ok(HandshakeResponse {
+                            tx_id: faster_hex::hex_string(&handshake.tx_id),
+                            sender: sender_str,
+                            receiver: receiver_str,
+                            block_time,
+                            accepting_block,
+                            accepting_daa_score,
+                            message_payload,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .flatten()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(handshakes)) => Ok(Json(handshakes)),
+        Ok(Err(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )),
+        Err(join_err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Task error: {join_err}"),
+            }),
+        )),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/handshakes/by-receiver",
+    params(HandshakePaginationParams),
+    responses(
+        (status = 200, description = "Get handshakes by receiver", body = [HandshakeResponse]),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+async fn get_handshakes_by_receiver(
+    State(state): State<HandshakeApi>,
+    Query(params): Query<HandshakePaginationParams>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(10).min(50);
+    let cursor = params.block_time.unwrap_or(0);
+
+    let receiver_rpc = match RpcAddress::try_from(params.address.clone()) {
+        Ok(addr) => addr,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid address: {e}"),
+                }),
+            ));
+        }
+    };
+    let receiver = match AddressPayload::try_from(&receiver_rpc) {
+        Ok(payload) => payload,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid address payload: {e}"),
+                }),
+            ));
+        }
+    };
+
+    let result = spawn_blocking(move || {
+        let rtx = state.tx_keyspace.read_tx();
+
+        let mut seen_tx_ids = std::collections::HashSet::with_capacity(limit);
+
+        state
+            .handshake_by_receiver_partition
+            .iter_by_receiver_from_block_time_rtx(&rtx, &receiver, cursor)
+            .process_results(|iter| {
+                iter.filter(|hs_key_payload_tuple| seen_tx_ids.insert(hs_key_payload_tuple.0.tx_id))
+                    .take(limit)
+                    .map(|handshake_key_payload_tuple| {
+                        let (handshake, sender_payload) = handshake_key_payload_tuple;
+
+                        let block_time = handshake.block_time.into();
+
+                        let sender_str =
+                            to_rpc_address(&sender_payload, state.context.network_type)
+                                .context(format!(
+                                    "Address conversion error (sender_payload={:?})",
+                                    &sender_payload.deref()
+                                ))?
+                                .map(|a| a.to_string())
+                                .unwrap_or_default();
+
+                        let receiver_str =
+                            match to_rpc_address(&handshake.receiver, state.context.network_type) {
+                                Ok(Some(addr)) => addr.to_string(),
+                                Ok(None) => bail!(
+                                    "Database consistency error: receiver address has EMPTY_VERSION"
+                                ),
+                                Err(e) => bail!("Address conversion error: {}", e),
+                            };
+
+                        let acceptance = state
+                            .tx_id_to_acceptance_partition
+                            .acceptance_by_tx_id_rtx(&rtx, &handshake.tx_id)?;
+
+                        let payload_bytes = match state
+                            .tx_id_to_handshake_partition
+                            .get_rtx(&rtx, &handshake.tx_id)
+                        {
+                            Ok(Some(bts)) => bts,
+                            Ok(None) => bail!("Missing handshake payload"),
+                            Err(e) => bail!("Database error: {}", e),
+                        };
+                        let message_payload = faster_hex::hex_string(payload_bytes.as_ref());
+                        let (accepting_block, accepting_daa_score) =
+                            if let Some(acceptance) = acceptance {
+                                (
+                                    Some(faster_hex::hex_string(
+                                        &acceptance.header.accepting_block_hash,
+                                    )),
+                                    Some(acceptance.header.accepting_daa.into()),
+                                )
+                            } else {
+                                (None, None)
+                            };
+
+                        Ok(HandshakeResponse {
+                            tx_id: faster_hex::hex_string(&handshake.tx_id),
+                            sender: sender_str,
+                            receiver: receiver_str,
+                            block_time,
+                            accepting_block,
+                            accepting_daa_score,
+                            message_payload,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .flatten()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(handshakes)) => Ok(Json(handshakes)),
+        Ok(Err(e)) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )),
+        Err(join_err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Task error: {join_err}"),
+            }),
+        )),
+    }
+}

@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+/* Default (Dark) Theme */
+:root {
+  --primary-bg: #242424;
+  --secondary-bg: #1b1c1a;
+  --primary-border: #505459;
+  --secondary-border: #3b3b3b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #9ca3af;
+  --accent-blue: #5c97f9;
+  --accent-purple: #8b5cf6;
+  --accent-green: #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-orange: #f76b21;
+  --accent-red: #ef4444;
+  --input-bg: #3b3b3b;
+  --success: #10b981;
+  --button-primary: #70c7ba;
+  --kas-primary: #70c7ba;
+  --kas-secondary: #49eacb;
+  --text-warning: #fbb81a;
+  /* amber-300 */
+
+  /* Older iOS uses constant(); harmless on Android */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --primary-bg: #f2f2f2;
+  --secondary-bg: #ffffff;
+  --primary-border: #e2e8f0;
+  --secondary-border: #cbcbcb;
+  --text-primary: #1e293b;
+  --text-secondary: #6b7280;
+  --accent-blue: #4185f3;
+  --accent-purple: #8b5cf6;
+  --accent-green: #10b981;
+  --accent-yellow: #d48803;
+  --accent-orange: #f76b21;
+  --accent-red: #dc2626;
+  --input-bg: #f7f7f7;
+  --success: #10b981;
+  --button-primary: #70c7ba;
+  --kas-primary: #70c7ba;
+  --kas-secondary: #49eacb;
+  --color-kas-secondary: #49eacb;
+  --text-warning: #d97706;
+}
+
+@theme {
+  --color-primary-bg: var(--primary-bg);
+  --color-secondary-bg: var(--secondary-bg);
+  --color-primary-border: var(--primary-border);
+  --color-secondary-border: var(--secondary-border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-green: var(--accent-green);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-input-bg: var(--input-bg);
+  --color-success: var(--success);
+  --color-kas-primary: var(--kas-primary);
+  --color-kas-secondary: var(--kas-secondary);
+  --color-text-warning: var(--text-warning);
+
+  --animate-slide: slideInFromRight 0.5s ease-out;
+
+  @keyframes slideInFromRight {
+    from {
+      opacity: 0;
+      transform: translateX(40%);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  --animate-fade-out-5s: fadeOut5s 5s ease-in-out forwards;
+
+  @keyframes fadeOut5s {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0;
+    }
+  }
+}
+
+/* we need this to assist with splash > loaded app transition. Its our css limit */
+html,
+body {
+  background-color: var(--primary-bg);
+  height: 100%;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  line-height: 1.4;
+  color: var(--text-primary);
+  touch-action: manipulation;
+}
+
+#root {
+  padding-top: var(--sat);
+  padding-bottom: max(var(--sab), var(--kb, 0));
+
+  min-height: 100dvh;
+}
+
+input[type="password"]::-webkit-reveal-button {
+  display: none;
+}
+
+@supports (height: 100svh) {
+  #root {
+    min-height: 100svh;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  /* extra helper classes to account for mobile safe areas */
+  .p-safe {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .py-safe {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-right);
+  }
+
+  .m-safe {
+    margin: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .mx-safe {
+    margin-left: env(safe-area-inset-left);
+    margin-right: env(safe-area-inset-right);
+  }
+  .my-safe {
+    margin-top: env(safe-area-inset-top);
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+  .mt-safe {
+    margin-top: env(safe-area-inset-top);
+  }
+  .mr-safe {
+    margin-right: env(safe-area-inset-right);
+  }
+  .mb-safe {
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+  .ml-safe {
+    margin-left: env(safe-area-inset-right);
+  }
+
+  .top-safe {
+    top: env(safe-area-inset-top);
+  }
+  .right-safe {
+    right: env(safe-area-inset-right);
+  }
+  .bottom-safe {
+    bottom: env(safe-area-inset-bottom);
+  }
+  .left-safe {
+    left: env(safe-area-inset-right);
+  }
+}

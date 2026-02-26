@@ -1,0 +1,3 @@
+[submodule "vendors/tauri-plugin-biometry"]
+	path = vendors/tauri-plugin-biometry
+	url = https://github.com/IzioDev/tauri-plugin-biometry.git

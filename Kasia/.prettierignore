@@ -1,0 +1,11 @@
+node_modules
+src/service/indexer/generated/
+dist
+build
+*.lock
+*.log
+.vscode
+*.md
+cipher
+cipher-wasm
+wasm

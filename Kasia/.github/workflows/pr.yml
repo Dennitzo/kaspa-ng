@@ -1,0 +1,41 @@
+name: PR
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - master
+
+env:
+  HUSKY: 0
+  SUFFIX: ${{ github.ref_name == 'master' && 'production' || 'staging' }}
+
+jobs:
+  lint-type-check-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: "npm"
+          cache-dependency-path: "package-lock.json"
+
+      - name: Install dependencies
+        run: npm run submodule:init && npm install
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Prettier
+        run: npm run format:check
+
+      - name: Run TypeScript type check
+        run: npm run type-check
+
+      - name: Run Tests
+        run: npm run test
