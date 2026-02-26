@@ -624,7 +624,15 @@ instances:
                                 let _ = monitor
                                     .update_logs(format!("RK Bridge: exited ({})", status))
                                     .await;
-                                monitor.schedule_restart("bridge exited");
+                                if status.success() {
+                                    let _ = monitor
+                                        .update_logs(
+                                            "RK Bridge: exited cleanly; automatic restart skipped.".to_string(),
+                                        )
+                                        .await;
+                                } else {
+                                    monitor.schedule_restart("bridge exited with error");
+                                }
                                 return;
                             }
                             Ok(None) => {}
