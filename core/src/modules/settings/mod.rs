@@ -547,9 +547,19 @@ impl Settings {
                                     .self_hosted_k_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_kasia_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime.self_hosted_k_indexer_service().enable(
                                     core.settings.self_hosted.enabled
                                         && core.settings.self_hosted.k_enabled
+                                        && matches!(core.settings.node.network, Network::Mainnet),
+                                );
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime.self_hosted_kasia_indexer_service().enable(
+                                    core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.kasia_enabled
                                         && matches!(core.settings.node.network, Network::Mainnet),
                                 );
 
@@ -760,6 +770,8 @@ impl Settings {
                         let mut changed = false;
                         let mut settings = self.settings.self_hosted.clone();
                         let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
+                        let is_kasia_network =
+                            matches!(core.settings.node.network, Network::Mainnet);
                         let self_hosted_enabled = settings.enabled;
 
                         if ui
@@ -782,6 +794,19 @@ impl Settings {
                             changed = true;
                         }
 
+                        if ui
+                            .add_enabled(
+                                is_kasia_network && self_hosted_enabled,
+                                Checkbox::new(
+                                    &mut settings.kasia_enabled,
+                                    i18n("Enable Kasia services"),
+                                ),
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
+
                         if !is_mainnet {
                             ui.colored_label(
                                 theme_color().warning_color,
@@ -794,22 +819,67 @@ impl Settings {
                             );
                         }
 
+                        if !is_kasia_network {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Kasia services are available only on Mainnet."),
+                            );
+                        } else if !self_hosted_enabled {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Enable self-hosted database services first to use Kasia."),
+                            );
+                        }
+
                         ui.add_space(6.);
                         ui.separator();
                         ui.add_space(6.);
 
                         let network = core.settings.node.network;
-                        let mut explorer_rest_api =
-                            format!("http://127.0.0.1:{}", settings.effective_explorer_rest_port(network));
-                        let mut k_social_custom_indexer =
-                            format!("http://127.0.0.1:{}/api", settings.effective_k_web_port(network));
+                        let service_host = Self::connect_host_for_bind(&settings.api_bind);
+                        let mut self_hosted_api =
+                            format!("http://{service_host}:{}", settings.effective_api_port(network));
+                        let mut explorer_rest_api = format!(
+                            "http://{service_host}:{}",
+                            settings.effective_explorer_rest_port(network)
+                        );
+                        let mut explorer_socket_api = format!(
+                            "http://{service_host}:{}",
+                            settings.effective_explorer_socket_port(network)
+                        );
+                        let mut postgres_addr =
+                            format!("{}:{}", settings.db_host, settings.effective_db_port(network));
+                        let mut indexer_addr = settings.effective_indexer_listen(network);
+                        let mut k_social_custom_indexer = format!(
+                            "http://{service_host}:{}/api",
+                            settings.effective_k_web_port(network)
+                        );
+                        let mut kasia_custom_indexer = format!(
+                            "http://{service_host}:{}",
+                            settings.effective_kasia_indexer_port(network)
+                        );
+                        let mut k_social_webview = "http://127.0.0.1:19120".to_string();
+                        let mut explorer_webview =
+                            format!("http://127.0.0.1:{}", core.settings.user_interface.effective_explorer_port(network));
+                        let mut kasia_webview =
+                            format!("http://127.0.0.1:{}", core.settings.user_interface.effective_kasia_port(network));
                         let k_node_port = crate::settings::node_wrpc_borsh_port_for_network(network);
+                        let node_grpc_port = crate::settings::node_grpc_port_for_network(network);
                         let mut k_social_node_ws = format!("ws://127.0.0.1:{k_node_port}");
+                        let mut kaspa_node_wrpc = format!("ws://127.0.0.1:{k_node_port}");
+                        let mut kaspa_node_grpc = format!("127.0.0.1:{node_grpc_port}");
 
                         Grid::new("self_hosted_settings_grid")
                             .num_columns(2)
                             .spacing([16.0, 6.0])
                             .show(ui, |ui| {
+                                ui.label(i18n("Self-hosted API"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut self_hosted_api).desired_width(260.0),
+                                );
+                                ui.end_row();
+
                                 ui.label(i18n("Explorer REST API"));
                                 ui.add_enabled(
                                     false,
@@ -817,7 +887,28 @@ impl Settings {
                                 );
                                 ui.end_row();
 
-                                ui.label(i18n("K Social Custom Indexer"));
+                                ui.label(i18n("Explorer Socket API"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut explorer_socket_api).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("PostgreSQL"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut postgres_addr).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Self-hosted Indexer"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut indexer_addr).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("K-Social API"));
                                 ui.add_enabled(
                                     false,
                                     TextEdit::singleline(&mut k_social_custom_indexer)
@@ -825,10 +916,53 @@ impl Settings {
                                 );
                                 ui.end_row();
 
-                                ui.label(i18n("K Social Your Kaspa Node"));
+                                ui.label(i18n("K-Social WebView"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut k_social_webview).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("K-Social Node WS"));
                                 ui.add_enabled(
                                     false,
                                     TextEdit::singleline(&mut k_social_node_ws).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Kasia API"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut kasia_custom_indexer)
+                                        .desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Explorer WebView"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut explorer_webview).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Kasia WebView"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut kasia_webview).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Kaspa Node wRPC Borsh"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut kaspa_node_wrpc).desired_width(260.0),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Kaspa Node gRPC"));
+                                ui.add_enabled(
+                                    false,
+                                    TextEdit::singleline(&mut kaspa_node_grpc).desired_width(260.0),
                                 );
                                 ui.end_row();
 
@@ -927,6 +1061,12 @@ impl Settings {
                             self.runtime
                                 .self_hosted_k_indexer_service()
                                 .update_node_settings(core.settings.node.clone());
+                            self.runtime
+                                .self_hosted_kasia_indexer_service()
+                                .update_settings(core.settings.self_hosted.clone());
+                            self.runtime
+                                .self_hosted_kasia_indexer_service()
+                                .update_node_settings(core.settings.node.clone());
 
                             if previous_enabled != settings.enabled {
                                 self.runtime.self_hosted_postgres_service().enable(
@@ -948,6 +1088,13 @@ impl Settings {
                                             && core.settings.self_hosted.k_enabled
                                             && is_mainnet,
                                     );
+                                self.runtime
+                                    .self_hosted_kasia_indexer_service()
+                                    .enable(
+                                        settings.enabled
+                                            && core.settings.self_hosted.kasia_enabled
+                                            && is_kasia_network,
+                                    );
                             } else {
                                 self.runtime
                                     .self_hosted_k_indexer_service()
@@ -955,6 +1102,13 @@ impl Settings {
                                         settings.enabled
                                             && core.settings.self_hosted.k_enabled
                                             && is_mainnet,
+                                    );
+                                self.runtime
+                                    .self_hosted_kasia_indexer_service()
+                                    .enable(
+                                        settings.enabled
+                                            && core.settings.self_hosted.kasia_enabled
+                                            && is_kasia_network,
                                     );
                             }
 

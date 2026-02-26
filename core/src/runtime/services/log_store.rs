@@ -51,6 +51,7 @@ pub struct LogStores {
     pub postgres: Arc<LogStore>,
     pub indexer: Arc<LogStore>,
     pub k_indexer: Arc<LogStore>,
+    pub kasia_indexer: Arc<LogStore>,
     pub rest: Arc<LogStore>,
     pub socket: Arc<LogStore>,
 }

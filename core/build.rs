@@ -16,15 +16,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     export_rusty_kaspa_workspace_version()?;
     sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
     sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
+    sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
+    sync_external_repo_if_needed(
+        "kasia-indexer",
+        "https://github.com/K-Kluster/kasia-indexer.git",
+    )?;
     build_explorer_if_needed()?;
     if external_builds_enabled() {
         build_k_social_if_needed()?;
+        build_kasia_if_needed()?;
     }
     build_cpu_miner_if_needed()?;
     build_rothschild_if_needed()?;
     build_simply_kaspa_indexer_if_needed()?;
     if external_builds_enabled() {
         build_k_indexer_if_needed()?;
+        build_kasia_indexer_if_needed()?;
     }
     build_stratum_bridge_if_needed()?;
     Ok(())
@@ -335,6 +342,129 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let kasia_root = repo_root.join("Kasia");
+    if !kasia_root.exists() {
+        return Ok(());
+    }
+
+    let package_json = kasia_root.join("package.json");
+    let lockfile = kasia_root.join("package-lock.json");
+    let src_dir = kasia_root.join("src");
+    let public_dir = kasia_root.join("public");
+    let scripts_dir = kasia_root.join("scripts");
+    let cipher_dir = kasia_root.join("cipher");
+    let wasm_dir = kasia_root.join("wasm");
+    let wasm_package_json = wasm_dir.join("package.json");
+    let biometry_vendor_dir = kasia_root.join("vendors").join("tauri-plugin-biometry");
+    let biometry_vendor_package = biometry_vendor_dir.join("package.json");
+    let build_index = kasia_root.join("dist").join("index.html");
+
+    println!("cargo:rerun-if-changed={}", package_json.display());
+    println!("cargo:rerun-if-changed={}", lockfile.display());
+    println!("cargo:rerun-if-changed={}", src_dir.display());
+    println!("cargo:rerun-if-changed={}", public_dir.display());
+    println!("cargo:rerun-if-changed={}", scripts_dir.display());
+    println!("cargo:rerun-if-changed={}", cipher_dir.display());
+    println!("cargo:rerun-if-changed={}", wasm_dir.display());
+    println!("cargo:rerun-if-env-changed=KASIA_WASM_SDK_URL");
+    println!("cargo:rerun-if-env-changed=KASIA_WASM_AUTO_FETCH");
+    println!(
+        "cargo:rerun-if-changed={}",
+        kasia_root.join("vite.config.ts").display()
+    );
+
+    apply_kasia_runtime_patches(&kasia_root)?;
+    ensure_kasia_biometry_stub(&biometry_vendor_dir)?;
+
+    let latest_src = newest_mtime(&package_json)
+        .into_iter()
+        .chain(newest_mtime(&lockfile))
+        .chain(newest_mtime(&src_dir))
+        .chain(newest_mtime(&public_dir))
+        .chain(newest_mtime(&scripts_dir))
+        .chain(newest_mtime(&cipher_dir))
+        .chain(newest_mtime(&wasm_dir))
+        .max();
+
+    if build_index.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src)
+        && bin_time >= src_time
+    {
+        sync_kasia_build(&kasia_root, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building Kasia (static)...");
+    let npm = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
+    let node_modules = kasia_root.join("node_modules");
+    let npm_cmd = |args: &[&str]| {
+        let mut cmd = Command::new(&npm);
+        cmd.current_dir(&kasia_root)
+            .env("HUSKY", "0")
+            .env("CI", "true")
+            .env("npm_config_audit", "false")
+            .env("npm_config_fund", "false")
+            .args(args);
+        cmd
+    };
+
+    if !node_modules.exists() {
+        let status = if lockfile.exists() {
+            npm_cmd(&["ci", "--no-audit", "--no-fund"]).status()
+        } else {
+            npm_cmd(&["install", "--no-audit", "--no-fund"]).status()
+        };
+        if status.map(|s| !s.success()).unwrap_or(true) {
+            println!("cargo:warning=Kasia npm install failed; skipping build");
+            return Ok(());
+        }
+    }
+
+    if !biometry_vendor_package.exists() {
+        println!(
+            "cargo:warning=Kasia biometry package is missing; creating no-op local plugin stub"
+        );
+        ensure_kasia_biometry_stub(&biometry_vendor_dir)?;
+    }
+
+    if !wasm_package_json.exists() {
+        ensure_kasia_wasm_package(&repo_root, &kasia_root, &wasm_dir, &wasm_package_json)?;
+    }
+
+    if !wasm_package_json.exists() {
+        println!(
+            "cargo:warning=Kasia wasm package missing at {}; skipping Kasia rebuild (see Kasia/README.md setup)",
+            wasm_package_json.display()
+        );
+        sync_kasia_build(&kasia_root, &repo_root)?;
+        return Ok(());
+    }
+
+    let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
+    if wasm_status.map(|s| !s.success()).unwrap_or(true) {
+        println!("cargo:warning=Kasia wasm:build failed; skipping build");
+        return Ok(());
+    }
+
+    let status = npm_cmd(&["run", "build:production"]).status();
+    if status.map(|s| !s.success()).unwrap_or(true) {
+        println!("cargo:warning=Kasia build:production failed; trying vite build fallback");
+        let fallback = npm_cmd(&["exec", "vite", "build"]).status();
+        if fallback.map(|s| !s.success()).unwrap_or(true) {
+            println!("cargo:warning=Kasia build failed; skipping");
+        }
+    }
+
+    sync_kasia_build(&kasia_root, &repo_root)?;
+    Ok(())
+}
+
 fn apply_k_runtime_patches(k_root: &Path) -> Result<(), Box<dyn Error>> {
     let enabled = std::env::var("KASPA_NG_ENABLE_K_PRIVATE_KEY_PATCH")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -391,6 +521,303 @@ fn apply_k_runtime_patches(k_root: &Path) -> Result<(), Box<dyn Error>> {
         )?;
     }
 
+    Ok(())
+}
+
+fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> {
+    let init_ts = kasia_root.join("src").join("init.ts");
+    if init_ts.exists() {
+        patch_file_replace_all(
+            &init_ts,
+            &[(
+                "  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
+                "  const runtimeConfig =\n    (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n      .__KASPA_NG_KASIA_CONFIG ?? {};\n\n  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
+            )],
+        )?;
+    }
+
+    let orchestrator = kasia_root.join("src").join("hooks").join("useOrchestrator.ts");
+    if orchestrator.exists() {
+        patch_file_replace_all(
+            &orchestrator,
+            &[(
+                "    // update indexer base url\n    indexerClient.setConfig({\n      baseUrl:\n        (opts?.networkType ?? baseNetwork) === \"mainnet\"\n          ? import.meta.env.VITE_INDEXER_MAINNET_URL\n          : import.meta.env.VITE_INDEXER_TESTNET_URL,\n    });",
+                "    const runtimeConfig =\n      (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n        .__KASPA_NG_KASIA_CONFIG ?? {};\n\n    // update indexer base url\n    indexerClient.setConfig({\n      baseUrl:\n        (opts?.networkType ?? baseNetwork) === \"mainnet\"\n          ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n          : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n    });",
+            )],
+        )?;
+    }
+
+    let network_store = kasia_root.join("src").join("store").join("network.store.ts");
+    if network_store.exists() {
+        patch_file_replace_all(
+            &network_store,
+            &[(
+                "      const kasiaNodeUrl =\n        rpc.networkId?.toString() === \"mainnet\"\n          ? import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL\n          : import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;",
+                "      const runtimeConfig =\n        (globalThis as {\n          __KASPA_NG_KASIA_CONFIG?: {\n            defaultMainnetNodeUrl?: string;\n            defaultTestnetNodeUrl?: string;\n          };\n        }).__KASPA_NG_KASIA_CONFIG ?? {};\n\n      const kasiaNodeUrl =\n        rpc.networkId?.toString() === \"mainnet\"\n          ? runtimeConfig.defaultMainnetNodeUrl ??\n            import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL\n          : runtimeConfig.defaultTestnetNodeUrl ??\n            import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;",
+            )],
+        )?;
+    }
+
+    let session_store = kasia_root.join("src").join("store").join("session.store.ts");
+    if session_store.exists() {
+        patch_file_replace_all(
+            &session_store,
+            &[
+                (
+                    "import {\n  hasData,\n  setData,\n  getData,\n  checkStatus,\n} from \"@tauri-apps/plugin-biometry\";\n",
+                    "",
+                ),
+                (
+                    "    async supportSecuredBiometry() {\n      try {\n        if (!core.isTauri()) {\n          return false;\n        }\n\n        // temporary disable for iOS\n        if (platform() === \"ios\") {\n          return false;\n        }\n\n        const status = await checkStatus();\n\n        return status.isAvailable;\n      } catch (error) {\n        console.error(error);\n        return false;\n      }\n    },",
+                    "    async supportSecuredBiometry() {\n      return false;\n    },",
+                ),
+                (
+                    "    async getSession(tenantId) {\n      // safeguard is case of mis-use in browser context\n      if (!core.isTauri()) {\n        return null;\n      }\n\n      // temporary disable for iOS\n      if (platform() === \"ios\") {\n        return null;\n      }\n\n      const data = await getData({\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n        reason: \"Access your messages\",\n        cancelTitle: \"Use Password\",\n      });\n\n      return data?.data ?? null;\n    },",
+                    "    async getSession(_tenantId) {\n      return null;\n    },",
+                ),
+                (
+                    "    async hasSession(tenantId) {\n      // temporary disable for iOS\n      if (!core.isTauri() || platform() === \"ios\") {\n        return false;\n      }\n\n      if (!(await get().supportSecuredBiometry())) {\n        return false;\n      }\n\n      return hasData({\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n      });\n    },",
+                    "    async hasSession(_tenantId) {\n      return false;\n    },",
+                ),
+                (
+                    "    async setSession(tenantId, password) {\n      // temporary disable for iOS\n      if (!core.isTauri() || platform() === \"ios\") {\n        return;\n      }\n\n      if (!(await get().supportSecuredBiometry())) {\n        return;\n      }\n\n      await setData({\n        data: password,\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n      });\n    },",
+                    "    async setSession(_tenantId, _password) {\n      return;\n    },",
+                ),
+            ],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_kasia_biometry_stub(vendor_dir: &Path) -> Result<(), Box<dyn Error>> {
+    std::fs::create_dir_all(vendor_dir)?;
+    let package_json = vendor_dir.join("package.json");
+    if !package_json.exists() {
+        std::fs::write(
+            &package_json,
+            "{\n  \"name\": \"@tauri-apps/plugin-biometry\",\n  \"version\": \"0.0.0-kaspa-ng-stub\",\n  \"type\": \"module\",\n  \"main\": \"index.js\",\n  \"types\": \"index.d.ts\"\n}\n",
+        )?;
+    }
+
+    let index_js = vendor_dir.join("index.js");
+    if !index_js.exists() {
+        std::fs::write(
+            &index_js,
+            "export async function checkStatus() { return { isAvailable: false }; }\nexport async function hasData() { return false; }\nexport async function getData() { return null; }\nexport async function setData() { return; }\n",
+        )?;
+    }
+
+    let index_d_ts = vendor_dir.join("index.d.ts");
+    if !index_d_ts.exists() {
+        std::fs::write(
+            &index_d_ts,
+            "export declare function checkStatus(): Promise<{ isAvailable: boolean }>;\nexport declare function hasData(_args: { domain: string; name: string }): Promise<boolean>;\nexport declare function getData(_args: { domain: string; name: string; reason?: string; cancelTitle?: string }): Promise<{ data: string } | null>;\nexport declare function setData(_args: { domain: string; name: string; data: string }): Promise<void>;\n",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_kasia_wasm_package(
+    repo_root: &Path,
+    _kasia_root: &Path,
+    wasm_dir: &Path,
+    wasm_package_json: &Path,
+) -> Result<(), Box<dyn Error>> {
+    if wasm_package_json.exists() {
+        return Ok(());
+    }
+
+    let auto_fetch = std::env::var("KASIA_WASM_AUTO_FETCH")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
+    if !auto_fetch {
+        println!("cargo:warning=Kasia wasm auto-fetch disabled (KASIA_WASM_AUTO_FETCH=0)");
+        return Ok(());
+    }
+
+    let urls = if let Ok(url) = std::env::var("KASIA_WASM_SDK_URL") {
+        vec![url]
+    } else {
+        vec![
+            "https://github.com/IzioDev/rusty-kaspa/releases/download/v1.0.1-beta1/kaspa-wasm32-sdk-v1.0.1-beta1.zip".to_string(),
+            "https://github.com/kaspanet/rusty-kaspa/releases/download/v1.0.0/kaspa-wasm32-sdk-v1.0.0.zip".to_string(),
+        ]
+    };
+
+    let tmp_root = repo_root.join("target").join("kasia-wasm-fetch");
+    if tmp_root.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_root);
+    }
+    std::fs::create_dir_all(&tmp_root)?;
+
+    for (idx, url) in urls.iter().enumerate() {
+        println!("cargo:warning=Attempting Kasia wasm SDK download ({}) from {url}", idx + 1);
+
+        let archive_path = tmp_root.join(format!("sdk-{idx}.zip"));
+        if !download_file(url, &archive_path) {
+            println!("cargo:warning=Kasia wasm download failed from {url}");
+            continue;
+        }
+
+        let extract_root = tmp_root.join(format!("extract-{idx}"));
+        let _ = std::fs::remove_dir_all(&extract_root);
+        std::fs::create_dir_all(&extract_root)?;
+        if !extract_zip(&archive_path, &extract_root) {
+            println!("cargo:warning=Failed to extract Kasia wasm archive from {url}");
+            continue;
+        }
+
+        let Some(source_wasm_dir) = find_kasia_wasm_source_dir(&extract_root) else {
+            println!(
+                "cargo:warning=Kasia wasm archive does not contain expected web/kaspa package ({url})"
+            );
+            continue;
+        };
+
+        if wasm_dir.exists() {
+            let _ = std::fs::remove_dir_all(wasm_dir);
+        }
+        std::fs::create_dir_all(wasm_dir)?;
+        copy_dir_all(&source_wasm_dir, wasm_dir)?;
+
+        if wasm_package_json.exists() {
+            println!(
+                "cargo:warning=Kasia wasm package restored from {url} into {}",
+                wasm_dir.display()
+            );
+            return Ok(());
+        }
+    }
+
+    println!(
+        "cargo:warning=Unable to auto-fetch Kasia wasm package. Set KASIA_WASM_SDK_URL to a valid sdk zip."
+    );
+    Ok(())
+}
+
+fn download_file(url: &str, destination: &Path) -> bool {
+    let status = Command::new("curl")
+        .args(["-fL", "--retry", "2", "-o"])
+        .arg(destination)
+        .arg(url)
+        .status();
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
+fn extract_zip(archive: &Path, destination: &Path) -> bool {
+    let status = Command::new("unzip")
+        .args(["-q"])
+        .arg(archive)
+        .args(["-d"])
+        .arg(destination)
+        .status();
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
+fn find_kasia_wasm_source_dir(root: &Path) -> Option<PathBuf> {
+    let direct = root.join("kaspa-wasm32-sdk").join("web").join("kaspa");
+    if direct.join("package.json").exists() {
+        return Some(direct);
+    }
+
+    fn walk(dir: &Path, depth: usize) -> Option<PathBuf> {
+        if depth > 6 {
+            return None;
+        }
+        let entries = std::fs::read_dir(dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if path.file_name().and_then(|n| n.to_str()) == Some("kaspa")
+                && path.join("package.json").exists()
+            {
+                return Some(path);
+            }
+            if let Some(found) = walk(&path, depth + 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    walk(root, 0)
+}
+
+fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
+    let host = std::env::var("HOST").unwrap_or_default();
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !host.is_empty() && !target.is_empty() && host != target {
+        println!(
+            "cargo:warning=Skipping kasia-indexer build (cross-compile: {host} -> {target})"
+        );
+        return Ok(());
+    }
+
+    if target.contains("wasm32") {
+        println!("cargo:warning=Skipping kasia-indexer build (wasm32 target)");
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let indexer_root = repo_root.join("kasia-indexer");
+    if !indexer_root.exists() {
+        return Ok(());
+    }
+
+    let indexer_toml = indexer_root.join("Cargo.toml");
+    let indexer_lock = indexer_root.join("Cargo.lock");
+    let indexer_src = indexer_root.join("indexer").join("src");
+    let actors_src = indexer_root.join("indexer-actors").join("src");
+    let db_src = indexer_root.join("indexer-db").join("src");
+    let protocol_src = indexer_root.join("protocol").join("src");
+
+    println!("cargo:rerun-if-changed={}", indexer_toml.display());
+    println!("cargo:rerun-if-changed={}", indexer_lock.display());
+    println!("cargo:rerun-if-changed={}", indexer_src.display());
+    println!("cargo:rerun-if-changed={}", actors_src.display());
+    println!("cargo:rerun-if-changed={}", db_src.display());
+    println!("cargo:rerun-if-changed={}", protocol_src.display());
+
+    let bin_name = if cfg!(windows) { "indexer.exe" } else { "indexer" };
+    let bin_path = indexer_root.join("target").join("release").join(bin_name);
+
+    let latest_src = newest_mtime(&indexer_toml)
+        .into_iter()
+        .chain(newest_mtime(&indexer_lock))
+        .chain(newest_mtime(&indexer_src))
+        .chain(newest_mtime(&actors_src))
+        .chain(newest_mtime(&db_src))
+        .chain(newest_mtime(&protocol_src))
+        .max();
+
+    if bin_path.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
+        && bin_time >= src_time
+    {
+        sync_kasia_indexer_binary(&bin_path, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building kasia-indexer (release)...");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = Command::new(cargo)
+        .current_dir(&indexer_root)
+        .args(["build", "-p", "indexer", "--release"])
+        .status()?;
+
+    if !status.success() {
+        return Err("failed to build kasia-indexer".into());
+    }
+
+    sync_kasia_indexer_binary(&bin_path, &repo_root)?;
     Ok(())
 }
 
@@ -858,6 +1285,26 @@ fn sync_k_social_build(k_root: &Path, repo_root: &Path) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn sync_kasia_build(kasia_root: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    let src_root = kasia_root.join("dist");
+    if !src_root.join("index.html").exists() {
+        return Ok(());
+    }
+
+    let dest_root = target_profile_dir(repo_root).join("Kasia").join("dist");
+    let src_time = newest_mtime(&src_root);
+    let dest_time = newest_mtime(&dest_root);
+    if dest_root.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    if dest_root.exists() {
+        std::fs::remove_dir_all(&dest_root)?;
+    }
+    copy_dir_all(&src_root, &dest_root)?;
+    Ok(())
+}
+
 fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
     if !bin_path.exists() {
         return Ok(());
@@ -982,6 +1429,31 @@ fn sync_k_indexer_binaries(
         std::fs::copy(bin_path, dest_path)?;
     }
 
+    Ok(())
+}
+
+fn sync_kasia_indexer_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    if !bin_path.exists() {
+        return Ok(());
+    }
+
+    let target_dir = target_profile_dir(repo_root);
+    std::fs::create_dir_all(&target_dir)?;
+
+    let dest_filename = if cfg!(windows) {
+        "kasia-indexer.exe"
+    } else {
+        "kasia-indexer"
+    };
+    let dest_path = target_dir.join(dest_filename);
+
+    let src_time = mtime(bin_path);
+    let dest_time = mtime(&dest_path);
+    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    std::fs::copy(bin_path, dest_path)?;
     Ok(())
 }
 

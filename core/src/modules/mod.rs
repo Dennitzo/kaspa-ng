@@ -36,6 +36,7 @@ kaspa_ng_macros::register_modules!(
         cpu_miner_logs,
         rothschild_logs,
         node,
+        kasia,
     ]
 );
 

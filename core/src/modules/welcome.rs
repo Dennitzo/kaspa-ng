@@ -218,6 +218,9 @@ impl Welcome {
                                 self.runtime
                                     .self_hosted_k_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
+                                self.runtime
+                                    .self_hosted_kasia_indexer_service()
+                                    .update_node_settings(core.settings.node.clone());
                             }
                             core.complete_startup_network_selection();
                             core.get_mut::<modules::Settings>().load(settings);
@@ -319,6 +322,9 @@ impl Welcome {
                     .update_node_settings(core.settings.node.clone());
                 self.runtime
                     .self_hosted_k_indexer_service()
+                    .update_node_settings(core.settings.node.clone());
+                self.runtime
+                    .self_hosted_kasia_indexer_service()
                     .update_node_settings(core.settings.node.clone());
             }
             self.runtime.kaspa_service().update_services(&settings.node, None);

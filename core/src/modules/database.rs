@@ -43,6 +43,7 @@ struct DatabaseState {
     logs_postgres: Vec<LogLine>,
     logs_indexer: Vec<LogLine>,
     logs_k_indexer: Vec<LogLine>,
+    logs_kasia_indexer: Vec<LogLine>,
     logs_rest: Vec<LogLine>,
     logs_socket: Vec<LogLine>,
     logs_last_error: Option<String>,
@@ -55,6 +56,7 @@ enum LogService {
     Postgres,
     Indexer,
     KIndexer,
+    KasiaIndexer,
     Rest,
     Socket,
 }
@@ -137,6 +139,7 @@ impl Database {
             LogService::Postgres => "postgres",
             LogService::Indexer => "indexer",
             LogService::KIndexer => "k-indexer",
+            LogService::KasiaIndexer => "kasia-indexer",
             LogService::Rest => "rest",
             LogService::Socket => "socket",
         };
@@ -252,6 +255,7 @@ impl Database {
                         LogService::Postgres => guard.logs_postgres = response.lines,
                         LogService::Indexer => guard.logs_indexer = response.lines,
                         LogService::KIndexer => guard.logs_k_indexer = response.lines,
+                        LogService::KasiaIndexer => guard.logs_kasia_indexer = response.lines,
                         LogService::Rest => guard.logs_rest = response.lines,
                         LogService::Socket => guard.logs_socket = response.lines,
                     }
@@ -464,6 +468,7 @@ impl ModuleT for Database {
                                 LogService::Postgres => i18n("Postgres"),
                                 LogService::Indexer => i18n("Indexer"),
                                 LogService::KIndexer => i18n("K-indexer"),
+                                LogService::KasiaIndexer => i18n("Kasia-indexer"),
                                 LogService::Rest => i18n("REST API"),
                                 LogService::Socket => i18n("Socket"),
                             })
@@ -485,6 +490,11 @@ impl ModuleT for Database {
                                 );
                                 ui.selectable_value(
                                     &mut self.log_service,
+                                    LogService::KasiaIndexer,
+                                    i18n("Kasia-indexer"),
+                                );
+                                ui.selectable_value(
+                                    &mut self.log_service,
                                     LogService::Rest,
                                     i18n("REST API"),
                                 );
@@ -501,6 +511,7 @@ impl ModuleT for Database {
                                 LogService::Postgres => &state.logs_postgres,
                                 LogService::Indexer => &state.logs_indexer,
                                 LogService::KIndexer => &state.logs_k_indexer,
+                                LogService::KasiaIndexer => &state.logs_kasia_indexer,
                                 LogService::Rest => &state.logs_rest,
                                 LogService::Socket => &state.logs_socket,
                             };
@@ -522,6 +533,7 @@ impl ModuleT for Database {
                             LogService::Postgres => state.logs_postgres.clone(),
                             LogService::Indexer => state.logs_indexer.clone(),
                             LogService::KIndexer => state.logs_k_indexer.clone(),
+                            LogService::KasiaIndexer => state.logs_kasia_indexer.clone(),
                             LogService::Rest => state.logs_rest.clone(),
                             LogService::Socket => state.logs_socket.clone(),
                         };

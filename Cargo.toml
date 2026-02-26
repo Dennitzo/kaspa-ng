@@ -6,7 +6,7 @@ members = [
     "macros",
     "extensions/chrome",
 ]
-exclude = ["cpuminer"]
+exclude = ["cpuminer", "Kasia", "Kasia/cipher", "Kasia/src-tauri", "kasia-indexer"]
 default-members = ["app", "core"]
 
 [workspace.package]

@@ -242,6 +242,7 @@ async fn logs_handler(
         "postgres" => state.logs.postgres.snapshot(limit),
         "indexer" => state.logs.indexer.snapshot(limit),
         "k-indexer" => state.logs.k_indexer.snapshot(limit),
+        "kasia-indexer" => state.logs.kasia_indexer.snapshot(limit),
         "rest" => state.logs.rest.snapshot(limit),
         "socket" => state.logs.socket.snapshot(limit),
         _ => {

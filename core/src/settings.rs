@@ -681,7 +681,7 @@ impl Default for UserInterfaceSettings {
             balance_padding: true,
             disable_frame: true,
             explorer_last_path: "/".to_string(),
-            explorer_port: 51963,
+            explorer_port: default_explorer_ui_port(),
             startup_network_selection_on_launch: true,
         }
     }
@@ -690,6 +690,10 @@ impl Default for UserInterfaceSettings {
 impl UserInterfaceSettings {
     pub fn effective_explorer_port(&self, network: Network) -> u16 {
         network_ports(network).explorer_ui_port
+    }
+
+    pub fn effective_kasia_port(&self, network: Network) -> u16 {
+        network_ports(network).kasia_ui_port
     }
 }
 
@@ -816,8 +820,12 @@ pub struct SelfHostedSettings {
     pub indexer_upgrade_db: bool,
     #[serde(default)]
     pub k_enabled: bool,
+    #[serde(default)]
+    pub kasia_enabled: bool,
     #[serde(default = "default_k_web_port")]
     pub k_web_port: u16,
+    #[serde(default = "default_kasia_indexer_port")]
+    pub kasia_indexer_port: u16,
     pub postgres_enabled: bool,
     pub postgres_data_dir: String,
 }
@@ -835,17 +843,31 @@ fn default_explorer_socket_port() -> u16 {
 }
 
 fn default_k_web_port() -> u16 {
-    3000
+    19116
+}
+
+fn default_kasia_indexer_port() -> u16 {
+    19117
+}
+
+fn default_explorer_ui_port() -> u16 {
+    19118
+}
+
+fn default_kasia_ui_port() -> u16 {
+    19119
 }
 
 #[derive(Clone, Copy)]
 struct NetworkPorts {
     explorer_ui_port: u16,
+    kasia_ui_port: u16,
     self_hosted_api_port: u16,
     self_hosted_rest_port: u16,
     self_hosted_socket_port: u16,
     self_hosted_db_port: u16,
     self_hosted_k_web_port: u16,
+    self_hosted_kasia_indexer_port: u16,
     self_hosted_indexer_port: u16,
     node_grpc_port: u16,
     node_wrpc_borsh_port: u16,
@@ -854,35 +876,41 @@ struct NetworkPorts {
 fn network_ports(network: Network) -> NetworkPorts {
     match network {
         Network::Mainnet => NetworkPorts {
-            explorer_ui_port: 51963,
+            explorer_ui_port: default_explorer_ui_port(),
+            kasia_ui_port: default_kasia_ui_port(),
             self_hosted_api_port: 19111,
             self_hosted_rest_port: 19112,
             self_hosted_socket_port: 19113,
-            self_hosted_db_port: 5432,
-            self_hosted_k_web_port: 3000,
-            self_hosted_indexer_port: 8500,
+            self_hosted_db_port: 19114,
+            self_hosted_indexer_port: 19115,
+            self_hosted_k_web_port: 19116,
+            self_hosted_kasia_indexer_port: 19117,
             node_grpc_port: 16110,
             node_wrpc_borsh_port: 17110,
         },
         Network::Testnet10 => NetworkPorts {
-            explorer_ui_port: 52063,
-            self_hosted_api_port: 19211,
-            self_hosted_rest_port: 19212,
-            self_hosted_socket_port: 19213,
-            self_hosted_db_port: 5532,
-            self_hosted_k_web_port: 3100,
-            self_hosted_indexer_port: 8600,
+            explorer_ui_port: default_explorer_ui_port(),
+            kasia_ui_port: default_kasia_ui_port(),
+            self_hosted_api_port: 19111,
+            self_hosted_rest_port: 19112,
+            self_hosted_socket_port: 19113,
+            self_hosted_db_port: 19114,
+            self_hosted_indexer_port: 19115,
+            self_hosted_k_web_port: 19116,
+            self_hosted_kasia_indexer_port: 19117,
             node_grpc_port: 16210,
             node_wrpc_borsh_port: 17210,
         },
         Network::Testnet12 => NetworkPorts {
-            explorer_ui_port: 52163,
-            self_hosted_api_port: 19311,
-            self_hosted_rest_port: 19312,
-            self_hosted_socket_port: 19313,
-            self_hosted_db_port: 5632,
-            self_hosted_k_web_port: 3200,
-            self_hosted_indexer_port: 8700,
+            explorer_ui_port: default_explorer_ui_port(),
+            kasia_ui_port: default_kasia_ui_port(),
+            self_hosted_api_port: 19111,
+            self_hosted_rest_port: 19112,
+            self_hosted_socket_port: 19113,
+            self_hosted_db_port: 19114,
+            self_hosted_indexer_port: 19115,
+            self_hosted_k_web_port: 19116,
+            self_hosted_kasia_indexer_port: 19117,
             node_grpc_port: 16310,
             node_wrpc_borsh_port: 17310,
         },
@@ -1177,19 +1205,21 @@ impl Default for SelfHostedSettings {
             explorer_rest_port: default_explorer_rest_port(),
             explorer_socket_port: default_explorer_socket_port(),
             db_host: "127.0.0.1".to_string(),
-            db_port: 5432,
+            db_port: 19114,
             db_user: "kaspadb".to_string(),
             db_password: "kaspadb".to_string(),
             db_name: "kaspa".to_string(),
             indexer_enabled: true,
             indexer_binary: String::new(),
             indexer_rpc_url: "ws://127.0.0.1:17110".to_string(),
-            indexer_listen: "127.0.0.1:8500".to_string(),
+            indexer_listen: "127.0.0.1:19115".to_string(),
             indexer_extra_args: "--prune-db --retention=7d --enable=transactions_inputs_resolve"
                 .to_string(),
             indexer_upgrade_db: true,
             k_enabled: false,
+            kasia_enabled: false,
             k_web_port: default_k_web_port(),
+            kasia_indexer_port: default_kasia_indexer_port(),
             postgres_enabled: true,
             postgres_data_dir: String::new(),
         }
@@ -1215,6 +1245,10 @@ impl SelfHostedSettings {
 
     pub fn effective_k_web_port(&self, network: Network) -> u16 {
         network_ports(network).self_hosted_k_web_port
+    }
+
+    pub fn effective_kasia_indexer_port(&self, network: Network) -> u16 {
+        network_ports(network).self_hosted_kasia_indexer_port
     }
 
     pub fn effective_indexer_listen(&self, network: Network) -> String {
@@ -1442,7 +1476,7 @@ impl Settings {
                     settings.node.network = network;
 
                     if settings.user_interface.explorer_port == 0 {
-                        settings.user_interface.explorer_port = 51963;
+                        settings.user_interface.explorer_port = default_explorer_ui_port();
                         migrated = true;
                     }
                     if settings.self_hosted.db_user != "kaspadb" {
@@ -1458,7 +1492,7 @@ impl Settings {
                         migrated = true;
                     }
                     if settings.self_hosted.db_port == 0 {
-                        settings.self_hosted.db_port = 5432;
+                        settings.self_hosted.db_port = network_ports(network).self_hosted_db_port;
                         migrated = true;
                     }
                     if !settings.self_hosted.postgres_enabled {
@@ -1483,6 +1517,11 @@ impl Settings {
                     }
                     if settings.self_hosted.k_web_port == 0 {
                         settings.self_hosted.k_web_port = default_k_web_port();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.kasia_indexer_port == 0 {
+                        settings.self_hosted.kasia_indexer_port =
+                            default_kasia_indexer_port();
                         migrated = true;
                     }
                     if should_auto_sync_self_hosted_explorer_profiles(
@@ -1669,7 +1708,7 @@ impl Settings {
                             }
                         }
                         if settings.user_interface.explorer_port == 0 {
-                            settings.user_interface.explorer_port = 51963;
+                            settings.user_interface.explorer_port = default_explorer_ui_port();
                             migrated = true;
                         }
                         if settings.self_hosted.db_user != "kaspadb" {
@@ -1685,7 +1724,8 @@ impl Settings {
                             migrated = true;
                         }
                         if settings.self_hosted.db_port == 0 {
-                            settings.self_hosted.db_port = 5432;
+                            settings.self_hosted.db_port =
+                                network_ports(settings.node.network).self_hosted_db_port;
                             migrated = true;
                         }
                         if !settings.self_hosted.postgres_enabled {
@@ -1716,6 +1756,11 @@ impl Settings {
                         }
                         if settings.self_hosted.k_web_port == 0 {
                             settings.self_hosted.k_web_port = default_k_web_port();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.kasia_indexer_port == 0 {
+                            settings.self_hosted.kasia_indexer_port =
+                                default_kasia_indexer_port();
                             migrated = true;
                         }
                         if should_auto_sync_self_hosted_explorer_profiles(

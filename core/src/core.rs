@@ -237,6 +237,7 @@ impl Core {
             this.runtime.self_hosted_db_service().enable(false);
             this.runtime.self_hosted_explorer_service().enable(false);
             this.runtime.self_hosted_k_indexer_service().enable(false);
+            this.runtime.self_hosted_kasia_indexer_service().enable(false);
         }
 
         this.wallet_update_list();
@@ -455,6 +456,9 @@ impl Core {
                 self.runtime
                     .self_hosted_k_indexer_service()
                     .update_node_settings(self.settings.node.clone());
+                self.runtime
+                    .self_hosted_kasia_indexer_service()
+                    .update_node_settings(self.settings.node.clone());
             }
             self.store_settings();
             self.runtime
@@ -560,6 +564,9 @@ impl Core {
         let k_enabled = self_hosted_enabled
             && self.settings.self_hosted.k_enabled
             && matches!(self.settings.node.network, Network::Mainnet);
+        let kasia_enabled = self_hosted_enabled
+            && self.settings.self_hosted.kasia_enabled
+            && matches!(self.settings.node.network, Network::Mainnet);
 
         self.runtime
             .self_hosted_postgres_service()
@@ -576,6 +583,9 @@ impl Core {
         self.runtime
             .self_hosted_k_indexer_service()
             .enable(k_enabled);
+        self.runtime
+            .self_hosted_kasia_indexer_service()
+            .enable(kasia_enabled);
     }
 
     pub fn complete_startup_network_selection(&mut self) {

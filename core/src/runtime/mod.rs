@@ -51,6 +51,8 @@ pub struct Inner {
     self_hosted_explorer_service: Arc<SelfHostedExplorerService>,
     #[cfg(not(target_arch = "wasm32"))]
     self_hosted_k_indexer_service: Arc<SelfHostedKIndexerService>,
+    #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_kasia_indexer_service: Arc<SelfHostedKasiaIndexerService>,
 
     // #[cfg(not(feature = "lean"))]
     metrics_service: Arc<MetricsService>,
@@ -110,6 +112,7 @@ impl Runtime {
             postgres: Arc::new(LogStore::new(1000)),
             indexer: Arc::new(LogStore::new(1000)),
             k_indexer: Arc::new(LogStore::new(1000)),
+            kasia_indexer: Arc::new(LogStore::new(1000)),
             rest: Arc::new(LogStore::new(1000)),
             socket: Arc::new(LogStore::new(1000)),
         };
@@ -139,6 +142,12 @@ impl Runtime {
         ));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_k_indexer_service = Arc::new(SelfHostedKIndexerService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_kasia_indexer_service = Arc::new(SelfHostedKasiaIndexerService::new(
             application_events.clone(),
             settings,
             self_hosted_logs.clone(),
@@ -183,6 +192,8 @@ impl Runtime {
             self_hosted_explorer_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             self_hosted_k_indexer_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_kasia_indexer_service.clone(),
             update_monitor_service.clone(),
             // #[cfg(not(feature = "lean"))]
             metrics_service.clone(),
@@ -212,6 +223,8 @@ impl Runtime {
                 self_hosted_explorer_service,
                 #[cfg(not(target_arch = "wasm32"))]
                 self_hosted_k_indexer_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_kasia_indexer_service,
                 update_monitor_service,
                 egui_ctx: egui_ctx.clone(),
                 is_running: Arc::new(AtomicBool::new(false)),
@@ -392,6 +405,11 @@ impl Runtime {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn self_hosted_k_indexer_service(&self) -> &Arc<SelfHostedKIndexerService> {
         &self.inner.self_hosted_k_indexer_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_kasia_indexer_service(&self) -> &Arc<SelfHostedKasiaIndexerService> {
+        &self.inner.self_hosted_kasia_indexer_service
     }
 
     pub fn update_monitor_service(&self) -> &Arc<UpdateMonitorService> {

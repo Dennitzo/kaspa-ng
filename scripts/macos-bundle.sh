@@ -89,6 +89,15 @@ elif [ -d "${ROOT}/target/${PROFILE}/K/dist" ]; then
   cp -r "${ROOT}/target/${PROFILE}/K/dist" "$MACOS_DIR/K/"
 fi
 
+# Bundle Kasia frontend assets if present.
+if [ -d "${ROOT}/Kasia/dist" ]; then
+  mkdir -p "$MACOS_DIR/Kasia"
+  cp -r "${ROOT}/Kasia/dist" "$MACOS_DIR/Kasia/"
+elif [ -d "${ROOT}/target/${PROFILE}/Kasia/dist" ]; then
+  mkdir -p "$MACOS_DIR/Kasia"
+  cp -r "${ROOT}/target/${PROFILE}/Kasia/dist" "$MACOS_DIR/Kasia/"
+fi
+
 # Bundle self-hosted indexer binaries in paths expected by runtime lookup.
 copy_file_if_exists \
   "${ROOT}/simply-kaspa-indexer/target/${PROFILE}/simply-kaspa-indexer" \
@@ -123,6 +132,19 @@ copy_file_if_exists \
 copy_file_if_exists \
   "${ROOT}/target/${PROFILE}/K-webserver" \
   "${MACOS_DIR}/K-webserver" || true
+
+copy_file_if_exists \
+  "${ROOT}/kasia-indexer/target/${PROFILE}/indexer" \
+  "${MACOS_DIR}/kasia-indexer/target/${PROFILE}/kasia-indexer" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/kasia-indexer" \
+  "${MACOS_DIR}/kasia-indexer/target/${PROFILE}/kasia-indexer" || true
+copy_file_if_exists \
+  "${ROOT}/kasia-indexer/target/${PROFILE}/indexer" \
+  "${MACOS_DIR}/kasia-indexer" || true
+copy_file_if_exists \
+  "${ROOT}/target/${PROFILE}/kasia-indexer" \
+  "${MACOS_DIR}/kasia-indexer" || true
 
 ICON_SRC="${ROOT}/core/resources/icons/icon-1024.png"
 ICONSET="${RES_DIR}/${APP_NAME}.iconset"

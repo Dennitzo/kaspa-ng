@@ -16,7 +16,7 @@ use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebV
 #[cfg(not(target_arch = "wasm32"))]
 const K_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
-const DEFAULT_K_PORT: u16 = 51964;
+const DEFAULT_K_PORT: u16 = 19120;
 #[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
 (() => {
@@ -158,7 +158,10 @@ impl ModuleT for KSocial {
             } else {
                 core.settings.self_hosted.api_bind.clone()
             };
-            let indexer_port = core.settings.self_hosted.k_web_port;
+            let indexer_port = core
+                .settings
+                .self_hosted
+                .effective_k_web_port(core.settings.node.network);
             self.status = None;
             self.ensure_local_server(&host, indexer_port);
 
@@ -217,7 +220,10 @@ impl ModuleT for KSocial {
             } else {
                 core.settings.self_hosted.api_bind.clone()
             };
-            let indexer_port = core.settings.self_hosted.k_web_port;
+            let indexer_port = core
+                .settings
+                .self_hosted
+                .effective_k_web_port(core.settings.node.network);
             let mut k_api_ready = false;
 
             if core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled {
@@ -1043,6 +1049,7 @@ fn k_runtime_config_script(
     const current = localStorage.getItem(key);
     const parsed = current ? JSON.parse(current) : {{}};
     parsed.indexerType = "custom";
+    parsed.apiBaseUrl = "/api";
     parsed.customIndexerUrl = "{local_proxy_api_url}";
     parsed.kaspaConnectionType = "custom-node";
     parsed.customKaspaNodeUrl = "{kaspa_node_url}";
