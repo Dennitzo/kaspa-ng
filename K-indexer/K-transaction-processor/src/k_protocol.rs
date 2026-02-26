@@ -1,8 +1,6 @@
 use crate::database::{DbPool, Transaction};
 use crate::hashtag_extractor::extract_hashtags_from_base64;
 use anyhow::Result;
-use hex;
-use serde_json;
 use tracing::{error, info, warn};
 
 // Kaspa message signature verification imports
@@ -87,6 +85,7 @@ pub struct KFollow {
 
 // Database record structures for PostgreSQL
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KPostRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -97,6 +96,7 @@ pub struct KPostRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KReplyRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -108,6 +108,7 @@ pub struct KReplyRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KBroadcastRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -119,6 +120,7 @@ pub struct KBroadcastRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KVoteRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -129,6 +131,7 @@ pub struct KVoteRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KBlockRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -139,6 +142,7 @@ pub struct KBlockRecord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct KFollowRecord {
     pub transaction_id: String,
     pub block_time: i64,
@@ -683,7 +687,7 @@ impl KProtocolProcessor {
             let mentioned_pubkeys_bytes: Result<Vec<Vec<u8>>, _> = k_post
                 .mentioned_pubkeys
                 .iter()
-                .map(|pk| hex::decode(pk))
+                .map(hex::decode)
                 .collect();
             let mentioned_pubkeys_bytes = mentioned_pubkeys_bytes?;
 
@@ -891,7 +895,7 @@ impl KProtocolProcessor {
             let mentioned_pubkeys_bytes: Result<Vec<Vec<u8>>, _> = k_reply
                 .mentioned_pubkeys
                 .iter()
-                .map(|pk| hex::decode(pk))
+                .map(hex::decode)
                 .collect();
             let mentioned_pubkeys_bytes = mentioned_pubkeys_bytes?;
 

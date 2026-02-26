@@ -4,7 +4,6 @@ use crate::models::{
     PaginatedPostsResponse, PaginatedRepliesResponse, PaginatedUsersResponse, PostDetailsResponse,
     ServerPost, ServerReply, ServerUserPost,
 };
-use serde_json;
 use std::sync::Arc;
 use tracing::error as log_error;
 
@@ -948,14 +947,14 @@ impl ApiHandlers {
             .map(|notification_record| match &notification_record.content {
                 ContentRecord::Post(post_record) => {
                     NotificationPost::from_k_post_record_with_mention_cursor(
-                        &post_record,
+                        post_record,
                         notification_record.mention_id,
                         notification_record.mention_block_time,
                     )
                 }
                 ContentRecord::Reply(reply_record) => {
                     NotificationPost::from_k_reply_record_with_mention_cursor(
-                        &reply_record,
+                        reply_record,
                         notification_record.mention_id,
                         notification_record.mention_block_time,
                     )
@@ -963,7 +962,7 @@ impl ApiHandlers {
                 ContentRecord::Vote(vote_record) => {
                     // For votes, we now have enriched vote record with all necessary data
                     NotificationPost::from_k_vote_record_with_mention_cursor(
-                        &vote_record,
+                        vote_record,
                         notification_record.mention_id,
                         notification_record.mention_block_time,
                         vote_record.voted_content.clone().unwrap_or_default(),
@@ -995,9 +994,6 @@ impl ApiHandlers {
             }
         }
     }
-
-    /// GET /get-post-details?id={postId}&requesterPubkey={requesterPubkey}
-    /// Fetch details for a specific post or reply by its ID with voting information for the requesting user
 
     /// GET /get-post-details?id={postId}&requesterPubkey={requesterPubkey}
     /// Fetch details for a specific post or reply by its ID with voting information and blocking status for the requesting user

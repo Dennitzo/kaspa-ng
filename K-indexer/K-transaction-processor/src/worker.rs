@@ -48,9 +48,9 @@ impl Worker {
         match self.fetch_and_process_transaction(&transaction_id).await {
             Ok(Some(transaction)) => {
                 // Process K protocol if payload starts with k:1:
-                if let Some(ref payload_hex) = transaction.payload {
-                    if let Ok(payload_bytes) = hex::decode(payload_hex) {
-                        if let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
+                if let Some(ref payload_hex) = transaction.payload
+                    && let Ok(payload_bytes) = hex::decode(payload_hex)
+                        && let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
                             if payload_str.starts_with("k:1:") {
                                 //info!("Worker {} - Processing K protocol transaction: {}", self.id, transaction_id);
                                 if let Err(k_err) =
@@ -68,8 +68,6 @@ impl Worker {
                                 );
                             }
                         }
-                    }
-                }
             }
             Ok(None) => {
                 warn!(
@@ -146,10 +144,10 @@ impl Worker {
                         self.id, transaction_id
                     );
                     // Process K protocol if payload starts with k:1:
-                    if let Some(ref payload_hex) = transaction.payload {
-                        if let Ok(payload_bytes) = hex::decode(payload_hex) {
-                            if let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
-                                if payload_str.starts_with("k:1:") {
+                    if let Some(ref payload_hex) = transaction.payload
+                        && let Ok(payload_bytes) = hex::decode(payload_hex)
+                            && let Ok(payload_str) = std::str::from_utf8(&payload_bytes)
+                                && payload_str.starts_with("k:1:") {
                                     //info!("Worker {} - Processing K protocol transaction on retry: {}", self.id, transaction_id);
                                     if let Err(k_err) =
                                         self.k_processor.process_k_transaction(&transaction).await
@@ -160,9 +158,6 @@ impl Worker {
                                         );
                                     }
                                 }
-                            }
-                        }
-                    }
                     return Ok(());
                 }
                 Ok(None) => {
