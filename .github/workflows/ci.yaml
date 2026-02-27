@@ -478,6 +478,13 @@ jobs:
             target/
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install wasm-pack
+        shell: bash
+        run: |
+          if ! command -v wasm-pack >/dev/null 2>&1; then
+            cargo install wasm-pack --locked
+          fi
+
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
 
