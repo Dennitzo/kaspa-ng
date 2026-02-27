@@ -325,9 +325,50 @@ impl SelfHostedIndexerService {
     }
 
     fn find_indexer_binary(settings: &SelfHostedSettings) -> Option<PathBuf> {
+        #[cfg(unix)]
+        fn is_executable(path: &PathBuf) -> bool {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(path)
+                .map(|meta| meta.is_file() && (meta.permissions().mode() & 0o111 != 0))
+                .unwrap_or(false)
+        }
+
+        #[cfg(not(unix))]
+        fn is_executable(path: &PathBuf) -> bool {
+            std::fs::metadata(path)
+                .map(|meta| meta.is_file())
+                .unwrap_or(false)
+        }
+
+        #[cfg(unix)]
+        fn ensure_executable(path: &PathBuf) {
+            use std::os::unix::fs::PermissionsExt;
+            if is_executable(path) {
+                return;
+            }
+            if let Ok(meta) = std::fs::metadata(path) {
+                let mut perms = meta.permissions();
+                let mode = perms.mode() | 0o755;
+                perms.set_mode(mode);
+                let _ = std::fs::set_permissions(path, perms);
+            }
+        }
+
+        #[cfg(not(unix))]
+        fn ensure_executable(_path: &PathBuf) {}
+
+        fn pick(path: PathBuf) -> Option<PathBuf> {
+            ensure_executable(&path);
+            if is_executable(&path) {
+                Some(path)
+            } else {
+                None
+            }
+        }
+
         if !settings.indexer_binary.trim().is_empty() {
             let custom = PathBuf::from(settings.indexer_binary.trim());
-            if custom.exists() {
+            if let Some(custom) = pick(custom) {
                 return Some(custom);
             }
         }
@@ -347,7 +388,7 @@ impl SelfHostedIndexerService {
 
         for candidate in &rel_candidates {
             let path = PathBuf::from(candidate);
-            if path.exists() {
+            if let Some(path) = pick(path) {
                 return Some(path);
             }
         }
@@ -356,7 +397,7 @@ impl SelfHostedIndexerService {
             if let Some(dir) = exe.parent() {
                 for candidate in &rel_candidates {
                     let path = dir.join(candidate);
-                    if path.exists() {
+                    if let Some(path) = pick(path) {
                         return Some(path);
                     }
                 }
