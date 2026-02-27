@@ -631,9 +631,7 @@ impl RpcConfig {
             return None;
         }
 
-        let mut parts = host_port.rsplitn(2, ':');
-        let port_part = parts.next()?;
-        let host = parts.next()?;
+        let (host, port_part) = host_port.rsplit_once(':')?;
         if !Self::is_local_host(host) {
             return None;
         }
