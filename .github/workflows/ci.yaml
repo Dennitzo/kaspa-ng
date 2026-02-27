@@ -488,6 +488,31 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-windows-x64 || true
           set -o pipefail
           cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
+          if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
+            echo "K dist missing after cargo build; running fallback build"
+            (
+              cd K
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
+          if [ ! -d target/release/Kasia/dist ] && [ ! -d Kasia/dist ] && [ -d Kasia ]; then
+            echo "Kasia dist missing after cargo build; running fallback build"
+            (
+              cd Kasia
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run wasm:build || true
+              npm run build:production || npm exec vite build
+            )
+          fi
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
           for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
@@ -555,6 +580,31 @@ jobs:
         run: |
           set -o pipefail
           cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
+          if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
+            echo "K dist missing after cargo build; running fallback build"
+            (
+              cd K
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
+          if [ ! -d target/release/Kasia/dist ] && [ ! -d Kasia/dist ] && [ -d Kasia ]; then
+            echo "Kasia dist missing after cargo build; running fallback build"
+            (
+              cd Kasia
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run wasm:build || true
+              npm run build:production || npm exec vite build
+            )
+          fi
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
@@ -627,6 +677,31 @@ jobs:
           source $HOME/.cargo/env
           set -o pipefail
           cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
+          if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
+            echo "K dist missing after cargo build; running fallback build"
+            (
+              cd K
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
+          if [ ! -d target/release/Kasia/dist ] && [ ! -d Kasia/dist ] && [ -d Kasia ]; then
+            echo "Kasia dist missing after cargo build; running fallback build"
+            (
+              cd Kasia
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run wasm:build || true
+              npm run build:production || npm exec vite build
+            )
+          fi
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
@@ -697,6 +772,31 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
           cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
+          if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
+            echo "K dist missing after cargo build; running fallback build"
+            (
+              cd K
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
+          if [ ! -d target/release/Kasia/dist ] && [ ! -d Kasia/dist ] && [ -d Kasia ]; then
+            echo "Kasia dist missing after cargo build; running fallback build"
+            (
+              cd Kasia
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run wasm:build || true
+              npm run build:production || npm exec vite build
+            )
+          fi
           cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
