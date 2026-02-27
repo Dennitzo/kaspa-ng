@@ -27,6 +27,44 @@ pub struct SelfHostedPostgresService {
 }
 
 impl SelfHostedPostgresService {
+    fn desired_enabled_from_settings(settings: &SelfHostedSettings) -> bool {
+        settings.enabled && settings.postgres_enabled
+    }
+
+    fn should_skip_restart_due_to_cooldown(
+        &self,
+        previous_port: u16,
+        next_port: u16,
+        reason: &str,
+    ) -> bool {
+        if let Some(last_restart_at) = *self.last_restart_at.lock().unwrap()
+            && last_restart_at.elapsed() < Duration::from_secs(8)
+        {
+            self.logs.push(
+                "INFO",
+                &format!(
+                    "ignoring transient postgres restart ({reason}, port {} -> {}) during restart cooldown",
+                    previous_port, next_port
+                ),
+            );
+            return true;
+        }
+        false
+    }
+
+    fn requires_restart_for_settings_change(
+        previous: &SelfHostedSettings,
+        next: &SelfHostedSettings,
+        network: Network,
+    ) -> bool {
+        previous.effective_db_port(network) != next.effective_db_port(network)
+            || previous.postgres_data_dir.trim() != next.postgres_data_dir.trim()
+            || previous.db_host.trim() != next.db_host.trim()
+            || previous.db_password != next.db_password
+            || previous.db_user.trim() != next.db_user.trim()
+            || Self::normalized_db_base_name(previous) != Self::normalized_db_base_name(next)
+    }
+
     fn postgres_auto_install_attempted() -> &'static OnceLock<()> {
         static ONCE: OnceLock<()> = OnceLock::new();
         &ONCE
@@ -1308,22 +1346,84 @@ impl Service for SelfHostedPostgresService {
                     msg = this.service_events.receiver.recv().fuse() => {
                         match msg {
                             Ok(SelfHostedPostgresEvents::Enable) => {
+                                let desired = {
+                                    let settings = this.settings.lock().unwrap();
+                                    Self::desired_enabled_from_settings(&settings)
+                                };
+                                if !desired {
+                                    this.logs.push(
+                                        "INFO",
+                                        "ignoring stale postgres enable request (settings currently disabled)",
+                                    );
+                                    continue;
+                                }
                                 let was_enabled = this.is_enabled.swap(true, Ordering::SeqCst);
                                 if !was_enabled {
                                     let _ = this.start_postgres().await;
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::Disable) => {
+                                let desired = {
+                                    let settings = this.settings.lock().unwrap();
+                                    Self::desired_enabled_from_settings(&settings)
+                                };
+                                if desired {
+                                    this.logs.push(
+                                        "INFO",
+                                        "ignoring stale postgres disable request (settings currently enabled)",
+                                    );
+                                    continue;
+                                }
                                 let was_enabled = this.is_enabled.swap(false, Ordering::SeqCst);
                                 if was_enabled {
                                     let _ = this.stop_postgres().await;
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::UpdateSettings(settings)) => {
-                                *this.settings.lock().unwrap() = settings;
+                                let previous_settings = this.settings.lock().unwrap().clone();
+                                *this.settings.lock().unwrap() = settings.clone();
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_postgres().await;
-                                    let _ = this.start_postgres().await;
+                                    let node_settings = this.node_settings.lock().unwrap().clone();
+                                    if Self::requires_restart_for_settings_change(
+                                        &previous_settings,
+                                        &settings,
+                                        node_settings.network,
+                                    ) {
+                                        let previous_port =
+                                            previous_settings.effective_db_port(node_settings.network);
+                                        let next_port = settings.effective_db_port(node_settings.network);
+                                        if this.should_skip_restart_due_to_cooldown(
+                                            previous_port,
+                                            next_port,
+                                            "settings change",
+                                        ) {
+                                            continue;
+                                        }
+                                        this.logs.push(
+                                            "INFO",
+                                            &format!(
+                                                "postgres settings change requires restart (port {} -> {})",
+                                                previous_port, next_port
+                                            ),
+                                        );
+                                        let _ = this.stop_postgres().await;
+                                        let _ = this.start_postgres().await;
+                                    } else if Self::wait_for_ready(&settings, &node_settings, 20)
+                                        .await
+                                        .is_ok()
+                                    {
+                                        Self::ensure_role_and_database(
+                                            &settings,
+                                            &node_settings,
+                                            &this.logs,
+                                        )
+                                        .await;
+                                    } else {
+                                        this.logs.push(
+                                            "INFO",
+                                            "postgres is restarting; role/database check deferred",
+                                        );
+                                    }
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
@@ -1340,19 +1440,13 @@ impl Service for SelfHostedPostgresService {
                                     // Postgres listens on a per-network effective port, so we must
                                     // restart when network switch changes the effective port.
                                     if previous_port != next_port {
-                                        if let Some(last_restart_at) =
-                                            *this.last_restart_at.lock().unwrap()
-                                            && last_restart_at.elapsed() < Duration::from_secs(8)
-                                        {
-                                            this.logs.push(
-                                                "INFO",
-                                                &format!(
-                                                    "ignoring transient network switch (port {} -> {}) during restart cooldown",
-                                                    previous_port, next_port
-                                                ),
-                                            );
+                                        if this.should_skip_restart_due_to_cooldown(
+                                            previous_port,
+                                            next_port,
+                                            "network switch",
+                                        ) {
                                             continue;
-                                        }
+                                        };
                                         this.logs.push(
                                             "INFO",
                                             &format!(

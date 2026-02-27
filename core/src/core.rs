@@ -438,6 +438,17 @@ impl Core {
             self.runtime
                 .cpu_miner_service()
                 .update_settings(&self.settings.node, &self.settings.node.cpu_miner);
+            let cpu_miner_can_run = self.settings.node.cpu_miner_enabled
+                && self.settings.node.node_kind.is_local()
+                && matches!(
+                    self.settings.node.network,
+                    Network::Testnet10 | Network::Testnet12
+                );
+            self.runtime.cpu_miner_service().enable(
+                cpu_miner_can_run,
+                &self.settings.node,
+                &self.settings.node.cpu_miner,
+            );
             self.runtime
                 .rothschild_service()
                 .update_settings(&self.settings.node, &self.settings.node.rothschild);

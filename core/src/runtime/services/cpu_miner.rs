@@ -15,6 +15,21 @@ cfg_if! {
             crate::settings::node_grpc_port_for_network(network)
         }
 
+        fn local_grpc_ports() -> [u16; 3] {
+            [
+                crate::settings::node_grpc_port_for_network(Network::Mainnet),
+                crate::settings::node_grpc_port_for_network(Network::Testnet10),
+                crate::settings::node_grpc_port_for_network(Network::Testnet12),
+            ]
+        }
+
+        fn is_local_host(host: &str) -> bool {
+            matches!(
+                host.trim().to_ascii_lowercase().as_str(),
+                "127.0.0.1" | "localhost" | "0.0.0.0" | "::1" | "::" | "[::1]" | "[::]"
+            )
+        }
+
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
             static FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
             FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)))
@@ -114,6 +129,14 @@ cfg_if! {
                 {
                     let host = host.trim_matches(|c| c == '[' || c == ']');
                     if !host.is_empty() {
+                        // If user pinned a localhost gRPC port from a different network profile,
+                        // rewrite it to the active network default to keep local miner startup stable.
+                        if is_local_host(host)
+                            && local_grpc_ports().contains(&port)
+                            && port != default_port
+                        {
+                            return Some((host.to_string(), default_port));
+                        }
                         return Some((host.to_string(), port));
                     }
                 }

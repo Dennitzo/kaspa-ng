@@ -200,6 +200,23 @@ impl Welcome {
                             let message = i18n("Unable to store settings");
                             settings.store_sync().expect(message);
                             self.runtime.kaspa_service().update_services(&self.settings.node, None);
+                            let is_testnet = matches!(
+                                core.settings.node.network,
+                                Network::Testnet10 | Network::Testnet12
+                            );
+                            let miner_can_run =
+                                core.settings.node.cpu_miner_enabled
+                                    && core.settings.node.node_kind.is_local()
+                                    && is_testnet;
+                            self.runtime.cpu_miner_service().update_settings(
+                                &core.settings.node,
+                                &core.settings.node.cpu_miner,
+                            );
+                            self.runtime.cpu_miner_service().enable(
+                                miner_can_run,
+                                &core.settings.node,
+                                &core.settings.node.cpu_miner,
+                            );
                             core.settings = settings.clone();
                             #[cfg(not(target_arch = "wasm32"))]
                             {
@@ -308,6 +325,22 @@ impl Welcome {
             core.settings = settings.clone();
             #[cfg(not(target_arch = "wasm32"))]
             {
+                let is_testnet = matches!(
+                    core.settings.node.network,
+                    Network::Testnet10 | Network::Testnet12
+                );
+                let miner_can_run = core.settings.node.cpu_miner_enabled
+                    && core.settings.node.node_kind.is_local()
+                    && is_testnet;
+                self.runtime.cpu_miner_service().update_settings(
+                    &core.settings.node,
+                    &core.settings.node.cpu_miner,
+                );
+                self.runtime.cpu_miner_service().enable(
+                    miner_can_run,
+                    &core.settings.node,
+                    &core.settings.node.cpu_miner,
+                );
                 self.runtime
                     .self_hosted_db_service()
                     .update_node_settings(core.settings.node.clone());

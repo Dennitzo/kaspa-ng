@@ -552,6 +552,17 @@ impl Settings {
                                     &core.settings.node,
                                     &core.settings.node.cpu_miner,
                                 );
+                                let cpu_miner_can_run = core.settings.node.cpu_miner_enabled
+                                    && core.settings.node.node_kind.is_local()
+                                    && matches!(
+                                        core.settings.node.network,
+                                        Network::Testnet10 | Network::Testnet12
+                                    );
+                                self.runtime.cpu_miner_service().enable(
+                                    cpu_miner_can_run,
+                                    &core.settings.node,
+                                    &core.settings.node.cpu_miner,
+                                );
                                 self.runtime.rothschild_service().update_settings(
                                     &core.settings.node,
                                     &core.settings.node.rothschild,
@@ -562,32 +573,76 @@ impl Settings {
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
+                                    .self_hosted_db_service()
+                                    .update_settings(core.settings.self_hosted.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
                                     .self_hosted_postgres_service()
                                     .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_postgres_service()
+                                    .update_settings(core.settings.self_hosted.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
                                     .self_hosted_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
+                                    .self_hosted_indexer_service()
+                                    .update_settings(core.settings.self_hosted.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
                                     .self_hosted_explorer_service()
                                     .update_node_settings(core.settings.node.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_explorer_service()
+                                    .update_settings(core.settings.self_hosted.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
                                     .self_hosted_k_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
+                                    .self_hosted_k_indexer_service()
+                                    .update_settings(core.settings.self_hosted.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
                                     .self_hosted_kasia_indexer_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_kasia_indexer_service()
+                                    .update_settings(core.settings.self_hosted.clone());
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime.self_hosted_postgres_service().enable(
+                                    core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.postgres_enabled,
+                                );
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime.self_hosted_indexer_service().enable(
+                                    core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.indexer_enabled,
+                                );
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_db_service()
+                                    .enable(core.settings.self_hosted.enabled);
+                                #[cfg(not(target_arch = "wasm32"))]
+                                self.runtime
+                                    .self_hosted_explorer_service()
+                                    .enable(core.settings.self_hosted.enabled);
+                                #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime.self_hosted_k_indexer_service().enable(
                                     core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.k_enabled
                                         && matches!(core.settings.node.network, Network::Mainnet),
                                 );
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime.self_hosted_kasia_indexer_service().enable(
                                     core.settings.self_hosted.enabled
+                                        && core.settings.self_hosted.kasia_enabled
                                         && matches!(core.settings.node.network, Network::Mainnet),
                                 );
 
