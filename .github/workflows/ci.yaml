@@ -437,13 +437,10 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: kaspa-explorer-ng/package-lock.json
-
-      - name: Build kaspa-explorer-ng
-        working-directory: kaspa-explorer-ng
-        run: |
-          npm ci --prefer-offline --no-audit
-          npm run build
+          cache-dependency-path: |
+            kaspa-explorer-ng/package-lock.json
+            K/package-lock.json
+            Kasia/package-lock.json
 
       - name: Setup Environment
         shell: bash
@@ -490,7 +487,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-windows-x64 || true
           set -o pipefail
-          cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
+          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
           for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
@@ -513,6 +510,12 @@ jobs:
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-explorer-ng/
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K
             cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K/
@@ -530,11 +533,11 @@ jobs:
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           for d in K Kasia; do
-            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
       - name: Upload Windows build to GitHub 
@@ -551,7 +554,7 @@ jobs:
           runner.arch == 'ARM64'
         run: |
           set -o pipefail
-          cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
+          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
@@ -576,6 +579,12 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server "$ROOT/"
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server "$ROOT/"
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -593,11 +602,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           for d in K Kasia; do
-            [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
       - name: Upload MacOS (arm64) build to GitHub
@@ -617,7 +626,7 @@ jobs:
         run: |
           source $HOME/.cargo/env
           set -o pipefail
-          cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
+          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
@@ -642,6 +651,12 @@ jobs:
             mkdir -p "$ROOT/kaspa-explorer-ng"
             cp -r kaspa-explorer-ng/build "$ROOT/kaspa-explorer-ng/"
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server "$ROOT/"
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server "$ROOT/"
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -659,11 +674,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           for d in K Kasia; do
-            [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
+            [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
       - name: Upload MacOS (x64) build to GitHub
@@ -681,7 +696,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
-          cargo build --bin kaspa-ng --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
+          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
           cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -703,6 +718,12 @@ jobs:
           elif [ -d kaspa-explorer-ng/build ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-explorer-ng/
+          fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           fi
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K
@@ -744,6 +765,12 @@ jobs:
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r kaspa-explorer-ng/build .debpkg/usr/bin/kaspa-explorer-ng/
           fi
+          if [ -d kaspa-rest-server ]; then
+            cp -r kaspa-rest-server .debpkg/usr/bin/
+          fi
+          if [ -d kaspa-socket-server ]; then
+            cp -r kaspa-socket-server .debpkg/usr/bin/
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p .debpkg/usr/bin/K
             cp -r target/release/K/dist .debpkg/usr/bin/K/
@@ -761,11 +788,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           for d in K Kasia; do
-            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png
