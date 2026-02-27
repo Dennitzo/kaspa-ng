@@ -44,6 +44,17 @@ fn external_builds_enabled() -> bool {
 }
 
 fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Error>> {
+    if std::env::var("CI")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+        && !std::env::var("KASPA_NG_FORCE_EXTERNAL_SYNC")
+            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    {
+        println!("cargo:warning=Skipping sync for {name} in CI");
+        return Ok(());
+    }
+
     if std::env::var("KASPA_NG_SKIP_EXTERNAL_SYNC")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
@@ -78,6 +89,11 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
             println!("cargo:warning=Skipping sync for {name} (not a git repository)");
             return Ok(());
         }
+        // Freshly bootstrapped metadata can report the current directory contents as local
+        // changes depending on checkout provenance. Defer pull/stash to the next build to
+        // avoid noisy stash/apply conflicts in CI and preserve local edits safely.
+        println!("cargo:warning=Skipping pull for {name} on first metadata bootstrap");
+        return Ok(());
     }
 
     let mut created_stash_ref: Option<String> = None;

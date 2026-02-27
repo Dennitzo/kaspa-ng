@@ -203,6 +203,7 @@ impl KaspaService {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn local_wrpc_host_with_port(network: Network) -> String {
         format!(
             "127.0.0.1:{}",

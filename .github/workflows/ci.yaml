@@ -309,8 +309,9 @@ jobs:
 
       - name: Cargo install wasm-pack and trunk
         run: |
-          cargo install wasm-pack
-          cargo install trunk
+          cargo install wasm-pack --locked
+          cargo install trunk --locked
+          cargo install wasm-bindgen-cli --version 0.2.100 --locked
 
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
@@ -323,6 +324,7 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cache/trunk/
             target/
           key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
@@ -335,9 +337,19 @@ jobs:
       - name: Build Web App
         env:
           RUSTFLAGS: --cfg=web_sys_unstable_apis --cfg=wasm_js --cfg=getrandom_backend="wasm_js"
+          CARGO_NET_RETRY: 10
+          CARGO_HTTP_MULTIPLEXING: "false"
         run: |
           set -o pipefail
-          trunk build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/trunk-build.log"
+          for attempt in 1 2 3; do
+            trunk build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/trunk-build.log" && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "trunk build failed after ${attempt} attempts"
+              exit 1
+            fi
+            echo "trunk build failed (attempt ${attempt}), retrying in 10s..."
+            sleep 10
+          done
 
       - name: Build Chrome Browser Extension
         env:

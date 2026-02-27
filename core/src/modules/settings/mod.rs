@@ -8,6 +8,7 @@ pub struct Settings {
     wrpc_json_network_interface : NetworkInterfaceEditor,
     grpc_network_interface : NetworkInterfaceEditor,
     reset_settings : bool,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     reset_database : bool,
 }
 
@@ -1968,11 +1969,7 @@ fn local_ip_for_stratum() -> String {
         .clone()
 }
 
-#[cfg(target_arch = "wasm32")]
-fn local_ip_for_stratum() -> String {
-    "127.0.0.1".to_string()
-}
-
+#[cfg(not(target_arch = "wasm32"))]
 fn stratum_port_for_display(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

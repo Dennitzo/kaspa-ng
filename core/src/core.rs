@@ -337,6 +337,7 @@ impl Core {
             .unwrap();
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn flush_pending_settings_now(&mut self) {
         if self.settings_storage_requested {
             self.settings_storage_requested = false;

@@ -3,9 +3,14 @@ use kaspa_metrics_core::Metric;
 use kaspa_utils::networking::ContextualNetAddress;
 use kaspa_wallet_core::storage::local::storage::Storage;
 use kaspa_wrpc_client::WrpcEncoding;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::OpenOptions;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Mutex, OnceLock};
 use workflow_core::{runtime, task::spawn};
 
@@ -1061,7 +1066,7 @@ fn process_is_running(pid: u32) -> bool {
     }
 }
 
-#[cfg(any(target_arch = "wasm32", not(unix)))]
+#[cfg(all(not(target_arch = "wasm32"), not(unix)))]
 fn process_is_running(_pid: u32) -> bool {
     false
 }
