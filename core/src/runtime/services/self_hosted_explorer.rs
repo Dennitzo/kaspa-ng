@@ -425,8 +425,10 @@ impl SelfHostedExplorerService {
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 candidates.push(dir.join(name));
+                candidates.push(dir.join("Resources").join(name));
                 for ancestor in dir.ancestors().skip(1).take(4) {
                     candidates.push(ancestor.join(name));
+                    candidates.push(ancestor.join("Resources").join(name));
                 }
             }
         }
@@ -585,11 +587,17 @@ impl SelfHostedExplorerService {
         let node_settings = self.node_settings.lock().unwrap().clone();
 
         if !settings.enabled {
+            self.rest_logs.push(
+                "INFO",
+                "self-hosted explorer disabled; REST server not started",
+            );
             return Ok(());
         }
 
         if Self::grpc_address_from_settings(&node_settings).is_none() {
             log_warn!("self-hosted-explorer: gRPC is disabled; REST server not started");
+            self.rest_logs
+                .push("WARN", "gRPC is disabled; REST server not started");
             return Ok(());
         }
 
@@ -608,9 +616,12 @@ impl SelfHostedExplorerService {
             Some(root) => root,
             None => {
                 log_warn!("self-hosted-explorer: kaspa-rest-server not found");
+                self.rest_logs.push("ERROR", "kaspa-rest-server not found");
                 return Ok(());
             }
         };
+        self.rest_logs
+            .push("INFO", &format!("REST server root: {}", root.display()));
 
         let mut cmd = match Self::build_command(&root, &settings.api_bind, rest_port) {
             Some(cmd) => cmd,
@@ -618,6 +629,8 @@ impl SelfHostedExplorerService {
                 log_warn!(
                     "self-hosted-explorer: python runtime not found; REST server not started"
                 );
+                self.rest_logs
+                    .push("ERROR", "python runtime not found; REST server not started");
                 return Ok(());
             }
         };
@@ -715,11 +728,17 @@ impl SelfHostedExplorerService {
         let node_settings = self.node_settings.lock().unwrap().clone();
 
         if !settings.enabled {
+            self.socket_logs.push(
+                "INFO",
+                "self-hosted explorer disabled; socket server not started",
+            );
             return Ok(());
         }
 
         if Self::grpc_address_from_settings(&node_settings).is_none() {
             log_warn!("self-hosted-explorer: gRPC is disabled; socket server not started");
+            self.socket_logs
+                .push("WARN", "gRPC is disabled; socket server not started");
             return Ok(());
         }
 
@@ -738,15 +757,23 @@ impl SelfHostedExplorerService {
             Some(root) => root,
             None => {
                 log_warn!("self-hosted-explorer: kaspa-socket-server not found");
+                self.socket_logs
+                    .push("ERROR", "kaspa-socket-server not found");
                 return Ok(());
             }
         };
+        self.socket_logs
+            .push("INFO", &format!("Socket server root: {}", root.display()));
 
         let mut cmd = match Self::build_command(&root, &settings.api_bind, socket_port) {
             Some(cmd) => cmd,
             None => {
                 log_warn!(
                     "self-hosted-explorer: python runtime not found; socket server not started"
+                );
+                self.socket_logs.push(
+                    "ERROR",
+                    "python runtime not found; socket server not started",
                 );
                 return Ok(());
             }

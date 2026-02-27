@@ -586,8 +586,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
 
     let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
     if wasm_status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=Kasia wasm:build failed; skipping build");
-        return Ok(());
+        println!("cargo:warning=Kasia wasm:build failed; continuing with production build");
     }
 
     let status = npm_cmd(&["run", "build:production"]).status();

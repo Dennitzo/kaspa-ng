@@ -332,12 +332,20 @@ impl SelfHostedIndexerService {
             }
         }
 
+        let bin = if cfg!(windows) {
+            "simply-kaspa-indexer.exe"
+        } else {
+            "simply-kaspa-indexer"
+        };
         let rel_candidates = [
-            "simply-kaspa-indexer/target/release/simply-kaspa-indexer",
-            "simply-kaspa-indexer/target/debug/simply-kaspa-indexer",
+            bin.to_string(),
+            format!("target/release/{bin}"),
+            format!("target/debug/{bin}"),
+            format!("simply-kaspa-indexer/target/release/{bin}"),
+            format!("simply-kaspa-indexer/target/debug/{bin}"),
         ];
 
-        for candidate in rel_candidates {
+        for candidate in &rel_candidates {
             let path = PathBuf::from(candidate);
             if path.exists() {
                 return Some(path);
@@ -346,7 +354,7 @@ impl SelfHostedIndexerService {
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
-                for candidate in rel_candidates {
+                for candidate in &rel_candidates {
                     let path = dir.join(candidate);
                     if path.exists() {
                         return Some(path);

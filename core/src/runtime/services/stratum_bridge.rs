@@ -13,8 +13,26 @@ cfg_if! {
         const LOG_BUFFER_MARGIN: usize = 128;
         const BLOCK_BUFFER_LINES: usize = 256;
         const BLOCK_BUFFER_MARGIN: usize = 32;
-        const DEFAULT_GRPC_PORT: u16 = 16110;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
+
+        fn default_grpc_port_for_network(network: Network) -> u16 {
+            crate::settings::node_grpc_port_for_network(network)
+        }
+
+        fn local_grpc_ports() -> [u16; 3] {
+            [
+                crate::settings::node_grpc_port_for_network(Network::Mainnet),
+                crate::settings::node_grpc_port_for_network(Network::Testnet10),
+                crate::settings::node_grpc_port_for_network(Network::Testnet12),
+            ]
+        }
+
+        fn is_local_host(host: &str) -> bool {
+            matches!(
+                host.trim().to_ascii_lowercase().as_str(),
+                "127.0.0.1" | "localhost" | "0.0.0.0" | "::1" | "::" | "[::1]" | "[::]"
+            )
+        }
 
         fn is_bridge_table_line(line: &str) -> bool {
             let trimmed = line.trim_start();
@@ -307,6 +325,7 @@ cfg_if! {
                 if !settings.enable_grpc {
                     return None;
                 }
+                let default_port = default_grpc_port_for_network(settings.network);
 
                 let addr = match settings.grpc_network_interface.kind {
                     NetworkInterfaceKind::Local => "127.0.0.1".to_string(),
@@ -314,10 +333,17 @@ cfg_if! {
                     NetworkInterfaceKind::Custom => settings.grpc_network_interface.custom.to_string(),
                 };
 
-                if addr.contains(':') {
+                if let Some((host, port)) = addr.rsplit_once(':')
+                    && let Ok(port) = port.parse::<u16>()
+                    && is_local_host(host)
+                    && local_grpc_ports().contains(&port)
+                    && port != default_port
+                {
+                    Some(format!("{host}:{default_port}"))
+                } else if addr.contains(':') {
                     Some(addr)
                 } else {
-                    Some(format!("{addr}:{DEFAULT_GRPC_PORT}"))
+                    Some(format!("{addr}:{default_port}"))
                 }
             }
 

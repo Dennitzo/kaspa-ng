@@ -278,8 +278,22 @@ jobs:
         id: install_llvm
         continue-on-error: true
         run: |
+          set -euo pipefail
           wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          sudo apt-get install -y clang-15 lldb-15 lld-15 clangd-15 clang-tidy-15 clang-format-15 clang-tools-15 llvm-15-dev lld-15 lldb-15 llvm-15-tools libomp-15-dev libc++-15-dev libc++abi-15-dev libclang-common-15-dev libclang-15-dev libclang-cpp15-dev libunwind-15-dev
+          # Refresh mirrors right before install to avoid transient 404s on package rotations.
+          for attempt in 1 2 3; do
+            sudo apt-get update && break
+            if [ "$attempt" -eq 3 ]; then
+              echo "apt-get update failed after ${attempt} attempts"
+              exit 1
+            fi
+            sleep 5
+          done
+          sudo apt-get install -y --fix-missing \
+            clang-15 lldb-15 lld-15 clangd-15 clang-tidy-15 clang-format-15 clang-tools-15 \
+            llvm-15-dev lld-15 lldb-15 llvm-15-tools libomp-15-dev libc++-15-dev \
+            libc++abi-15-dev libclang-common-15-dev libclang-15-dev libclang-cpp15-dev \
+            libunwind-15-dev
           # Make Clang 15 default
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/lib/llvm-15/bin/clang++ 100
           sudo update-alternatives --install /usr/bin/clang clang /usr/lib/llvm-15/bin/clang 100
