@@ -57,10 +57,10 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, PartialEq, Eq)]
 struct KasiaRuntimeConfig {
-    indexer_mainnet_url: String,
-    indexer_testnet_url: String,
-    default_mainnet_node_url: String,
-    default_testnet_node_url: String,
+    indexer_mainnet_url: Option<String>,
+    indexer_testnet_url: Option<String>,
+    default_mainnet_node_url: Option<String>,
+    default_testnet_node_url: Option<String>,
 }
 
 pub struct Kasia {
@@ -151,7 +151,16 @@ impl Kasia {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn runtime_config(core: &Core) -> KasiaRuntimeConfig {
+    fn runtime_config(core: &Core, use_self_hosted: bool) -> KasiaRuntimeConfig {
+        if !use_self_hosted {
+            return KasiaRuntimeConfig {
+                indexer_mainnet_url: None,
+                indexer_testnet_url: None,
+                default_mainnet_node_url: None,
+                default_testnet_node_url: None,
+            };
+        }
+
         let network = core.settings.node.network;
         let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
             || core.settings.self_hosted.api_bind == "::"
@@ -171,10 +180,10 @@ impl Kasia {
         let node_url = Self::normalized_node_url_from_runtime(network);
 
         KasiaRuntimeConfig {
-            indexer_mainnet_url: indexer_url.clone(),
-            indexer_testnet_url: indexer_url,
-            default_mainnet_node_url: node_url.clone(),
-            default_testnet_node_url: node_url,
+            indexer_mainnet_url: Some(indexer_url.clone()),
+            indexer_testnet_url: Some(indexer_url),
+            default_mainnet_node_url: Some(node_url.clone()),
+            default_testnet_node_url: Some(node_url),
         }
     }
 }
@@ -223,10 +232,7 @@ impl ModuleT for Kasia {
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let kasia_active = core.settings.self_hosted.enabled
-                && core.settings.self_hosted.kasia_enabled
-                && matches!(core.settings.node.network, Network::Mainnet);
-            if !kasia_active {
+            if !matches!(core.settings.node.network, Network::Mainnet) {
                 if let Some(webview) = &self.webview {
                     let _ = webview.set_visible(false);
                 }
@@ -238,11 +244,12 @@ impl ModuleT for Kasia {
                 self.last_probe_status = None;
                 self.last_probe_at = None;
                 self.last_indexer_restart_attempt = None;
-                ui.label(i18n("Kasia is available only when self-hosted Kasia services are enabled on Mainnet."));
+                ui.label(i18n("Kasia is available only on Mainnet."));
                 return;
             }
 
-            let use_self_hosted = true;
+            let use_self_hosted =
+                core.settings.self_hosted.enabled && core.settings.self_hosted.kasia_enabled;
             let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
                 || core.settings.self_hosted.api_bind == "::"
                 || core.settings.self_hosted.api_bind == "[::]"
@@ -256,15 +263,22 @@ impl ModuleT for Kasia {
                 .self_hosted
                 .effective_kasia_indexer_port(core.settings.node.network);
 
-            let should_probe = self
-                .last_probe_at
-                .map(|last| last.elapsed() >= Duration::from_secs(2))
-                .unwrap_or(true);
-            if should_probe {
-                let probe = kasia_indexer_health(&host, port);
-                self.last_probe_ok = Some(probe.ready);
-                self.last_probe_status = Some(probe.status);
-                self.last_probe_at = Some(std::time::Instant::now());
+            if use_self_hosted {
+                let should_probe = self
+                    .last_probe_at
+                    .map(|last| last.elapsed() >= Duration::from_secs(2))
+                    .unwrap_or(true);
+                if should_probe {
+                    let probe = kasia_indexer_health(&host, port);
+                    self.last_probe_ok = Some(probe.ready);
+                    self.last_probe_status = Some(probe.status);
+                    self.last_probe_at = Some(std::time::Instant::now());
+                }
+            } else {
+                self.last_probe_ok = None;
+                self.last_probe_status = None;
+                self.last_probe_at = None;
+                self.last_indexer_restart_attempt = None;
             }
 
             let kasia_ui_port = core
@@ -285,7 +299,7 @@ impl ModuleT for Kasia {
             if let Some(status) = &self.status {
                 ui.colored_label(theme_color().warning_color, status);
             }
-            if !matches!(self.last_probe_ok, Some(true)) {
+            if use_self_hosted && !matches!(self.last_probe_ok, Some(true)) {
                 let should_restart_kasia_indexer = self
                     .last_indexer_restart_attempt
                     .map(|last| last.elapsed() >= Duration::from_secs(6))
@@ -320,7 +334,7 @@ impl ModuleT for Kasia {
                     .into(),
             };
 
-            let runtime_config = Self::runtime_config(core);
+            let runtime_config = Self::runtime_config(core, use_self_hosted);
             let signature = Some((core.settings.node.network, use_self_hosted, runtime_config.clone()));
             if self.webview.is_some() && self.last_signature != signature {
                 self.webview.take();
@@ -335,10 +349,7 @@ impl ModuleT for Kasia {
                     .unwrap_or_else(|| format!("http://{KASIA_HOST}:{kasia_ui_port}/"));
 
                 let config_script = kasia_runtime_config_script(
-                    runtime_config.indexer_mainnet_url.as_str(),
-                    runtime_config.indexer_testnet_url.as_str(),
-                    runtime_config.default_mainnet_node_url.as_str(),
-                    runtime_config.default_testnet_node_url.as_str(),
+                    &runtime_config,
                 );
 
                 match WebViewBuilder::new()
@@ -614,26 +625,39 @@ fn strip_integrity_attributes(html: &str) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn kasia_runtime_config_script(
-    indexer_mainnet_url: &str,
-    indexer_testnet_url: &str,
-    default_mainnet_node_url: &str,
-    default_testnet_node_url: &str,
-) -> String {
+fn kasia_runtime_config_script(config: &KasiaRuntimeConfig) -> String {
+    let indexer_mainnet_url = js_string_or_undefined(&config.indexer_mainnet_url);
+    let indexer_testnet_url = js_string_or_undefined(&config.indexer_testnet_url);
+    let default_mainnet_node_url = js_string_or_undefined(&config.default_mainnet_node_url);
+    let default_testnet_node_url = js_string_or_undefined(&config.default_testnet_node_url);
+
     format!(
         r#"
 (() => {{
   try {{
     window.__KASPA_NG_KASIA_CONFIG = {{
-      indexerMainnetUrl: "{indexer_mainnet_url}",
-      indexerTestnetUrl: "{indexer_testnet_url}",
-      defaultMainnetNodeUrl: "{default_mainnet_node_url}",
-      defaultTestnetNodeUrl: "{default_testnet_node_url}"
+      indexerMainnetUrl: {indexer_mainnet_url},
+      indexerTestnetUrl: {indexer_testnet_url},
+      defaultMainnetNodeUrl: {default_mainnet_node_url},
+      defaultTestnetNodeUrl: {default_testnet_node_url}
     }};
   }} catch (_) {{}}
 }})();
 "#
     )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn js_string_or_undefined(value: &Option<String>) -> String {
+    match value {
+        Some(value) => format!("\"{}\"", escape_js_string(value)),
+        None => "undefined".to_string(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn escape_js_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(not(target_arch = "wasm32"))]

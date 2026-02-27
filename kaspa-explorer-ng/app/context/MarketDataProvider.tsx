@@ -1,4 +1,5 @@
 import { getMarketData } from "../api/kaspa-api-client";
+import { getNetworkId } from "../api/config";
 import numeral from "numeral";
 import { createContext, useEffect, useState } from "react";
 
@@ -17,7 +18,8 @@ export const MarketDataProvider = ({ children }: { children: React.ReactNode }) 
 
   const updateMarketData = async () => {
     try {
-      const marketDataResp = await getMarketData();
+      const preferMainnetSource = getNetworkId() !== "mainnet";
+      const marketDataResp = await getMarketData({ preferMainnetSource });
       const price = marketDataResp?.current_price?.usd;
       const change24hRaw = marketDataResp?.price_change_percentage_24h;
       setMarketData({

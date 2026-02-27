@@ -29,6 +29,10 @@ pub struct SelfHostedKasiaIndexerService {
 }
 
 impl SelfHostedKasiaIndexerService {
+    fn should_run(settings: &SelfHostedSettings, node: &NodeSettings) -> bool {
+        settings.enabled && settings.kasia_enabled && matches!(node.network, Network::Mainnet)
+    }
+
     #[cfg(unix)]
     async fn terminate_process_tree(child: &mut Child) {
         use nix::sys::signal::{Signal, killpg};
@@ -442,10 +446,15 @@ impl Service for SelfHostedKasiaIndexerService {
                     msg = this.service_events.receiver.recv().fuse() => {
                         match msg {
                             Ok(SelfHostedKasiaIndexerEvents::Enable) => {
-                                let was_enabled = this.is_enabled.swap(true, Ordering::SeqCst);
-                                if !was_enabled {
+                                let settings = this.settings.lock().unwrap().clone();
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run && !was_enabled {
                                     this.logs.push("INFO", "enable requested");
                                     let _ = this.start_indexer().await;
+                                } else if !should_run {
+                                    let _ = this.stop_indexer().await;
                                 }
                             }
                             Ok(SelfHostedKasiaIndexerEvents::Disable) => {
@@ -457,16 +466,32 @@ impl Service for SelfHostedKasiaIndexerService {
                             }
                             Ok(SelfHostedKasiaIndexerEvents::UpdateSettings(settings)) => {
                                 *this.settings.lock().unwrap() = settings;
-                                if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_indexer().await;
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let settings = this.settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run {
+                                    if was_enabled {
+                                        let _ = this.stop_indexer().await;
+                                    }
                                     let _ = this.start_indexer().await;
+                                } else if was_enabled {
+                                    let _ = this.stop_indexer().await;
                                 }
                             }
                             Ok(SelfHostedKasiaIndexerEvents::UpdateNodeSettings(settings)) => {
                                 *this.node_settings.lock().unwrap() = settings;
-                                if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_indexer().await;
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let settings = this.settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run {
+                                    if was_enabled {
+                                        let _ = this.stop_indexer().await;
+                                    }
                                     let _ = this.start_indexer().await;
+                                } else if was_enabled {
+                                    let _ = this.stop_indexer().await;
                                 }
                             }
                             Ok(SelfHostedKasiaIndexerEvents::Exit) | Err(_) => {

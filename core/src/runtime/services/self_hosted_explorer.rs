@@ -2,10 +2,11 @@ use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
 use std::net::TcpListener;
 use std::process::Stdio;
+use std::time::{Duration as StdDuration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 #[cfg(unix)]
-use tokio::time::{Duration, sleep, timeout};
+use tokio::time::{sleep, timeout};
 
 pub enum SelfHostedExplorerEvents {
     Enable,
@@ -26,6 +27,8 @@ pub struct SelfHostedExplorerService {
     socket_logs: Arc<LogStore>,
     rest_child: Mutex<Option<Child>>,
     socket_child: Mutex<Option<Child>>,
+    rest_start_cooldown_until: Mutex<Option<Instant>>,
+    socket_start_cooldown_until: Mutex<Option<Instant>>,
 }
 
 impl SelfHostedExplorerService {
@@ -76,7 +79,33 @@ impl SelfHostedExplorerService {
             socket_logs: logs.socket,
             rest_child: Mutex::new(None),
             socket_child: Mutex::new(None),
+            rest_start_cooldown_until: Mutex::new(None),
+            socket_start_cooldown_until: Mutex::new(None),
         }
+    }
+
+    fn explorer_settings_changed(
+        prev: &SelfHostedSettings,
+        next: &SelfHostedSettings,
+        node: &NodeSettings,
+    ) -> bool {
+        prev.enabled != next.enabled
+            || prev.api_bind != next.api_bind
+            || prev.db_host != next.db_host
+            || prev.db_name != next.db_name
+            || prev.db_user != next.db_user
+            || prev.db_password != next.db_password
+            || prev.effective_explorer_rest_port(node.network)
+                != next.effective_explorer_rest_port(node.network)
+            || prev.effective_explorer_socket_port(node.network)
+                != next.effective_explorer_socket_port(node.network)
+            || prev.effective_db_port(node.network) != next.effective_db_port(node.network)
+    }
+
+    fn explorer_node_settings_changed(prev: &NodeSettings, next: &NodeSettings) -> bool {
+        prev.network != next.network
+            || prev.enable_grpc != next.enable_grpc
+            || prev.grpc_network_interface != next.grpc_network_interface
     }
 
     pub fn enable(&self, enable: bool) {
@@ -545,6 +574,13 @@ impl SelfHostedExplorerService {
             return Ok(());
         }
 
+        if let Some(until) = *self.rest_start_cooldown_until.lock().unwrap() {
+            if Instant::now() < until {
+                return Ok(());
+            }
+            *self.rest_start_cooldown_until.lock().unwrap() = None;
+        }
+
         let settings = self.settings.lock().unwrap().clone();
         let node_settings = self.node_settings.lock().unwrap().clone();
 
@@ -606,10 +642,21 @@ impl SelfHostedExplorerService {
             Ok(child) => child,
             Err(err) => {
                 let err = Error::NodeStartupError(err);
+                let cooldown = StdDuration::from_secs(30);
+                *self.rest_start_cooldown_until.lock().unwrap() = Some(Instant::now() + cooldown);
                 log_warn!("self-hosted-explorer: failed to start rest server ({err})");
+                self.rest_logs.push(
+                    "WARN",
+                    &format!(
+                        "REST server start failed; suppressing restart attempts for {}s",
+                        cooldown.as_secs()
+                    ),
+                );
                 return Err(err);
             }
         };
+
+        *self.rest_start_cooldown_until.lock().unwrap() = None;
 
         self.rest_logs.push(
             "INFO",
@@ -655,6 +702,13 @@ impl SelfHostedExplorerService {
     async fn start_socket(self: &Arc<Self>) -> Result<()> {
         if self.socket_child.lock().unwrap().is_some() {
             return Ok(());
+        }
+
+        if let Some(until) = *self.socket_start_cooldown_until.lock().unwrap() {
+            if Instant::now() < until {
+                return Ok(());
+            }
+            *self.socket_start_cooldown_until.lock().unwrap() = None;
         }
 
         let settings = self.settings.lock().unwrap().clone();
@@ -718,10 +772,21 @@ impl SelfHostedExplorerService {
             Ok(child) => child,
             Err(err) => {
                 let err = Error::NodeStartupError(err);
+                let cooldown = StdDuration::from_secs(30);
+                *self.socket_start_cooldown_until.lock().unwrap() = Some(Instant::now() + cooldown);
                 log_warn!("self-hosted-explorer: failed to start socket server ({err})");
+                self.socket_logs.push(
+                    "WARN",
+                    &format!(
+                        "Socket server start failed; suppressing restart attempts for {}s",
+                        cooldown.as_secs()
+                    ),
+                );
                 return Err(err);
             }
         };
+
+        *self.socket_start_cooldown_until.lock().unwrap() = None;
 
         self.socket_logs.push(
             "INFO",
@@ -807,12 +872,15 @@ impl SelfHostedExplorerService {
         if let Some(pid) = child.id() {
             let pgid = Pid::from_raw(pid as i32);
             let _ = killpg(pgid, Signal::SIGTERM);
-            if timeout(Duration::from_secs(2), child.wait()).await.is_ok() {
+            if timeout(StdDuration::from_secs(2), child.wait())
+                .await
+                .is_ok()
+            {
                 return;
             }
             let _ = killpg(pgid, Signal::SIGKILL);
-            let _ = timeout(Duration::from_secs(2), child.wait()).await;
-            sleep(Duration::from_millis(100)).await;
+            let _ = timeout(StdDuration::from_secs(2), child.wait()).await;
+            sleep(StdDuration::from_millis(100)).await;
         } else {
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -862,17 +930,37 @@ impl Service for SelfHostedExplorerService {
                                 }
                             }
                             Ok(SelfHostedExplorerEvents::UpdateSettings(settings)) => {
-                                *this.settings.lock().unwrap() = settings;
+                                let restart_needed = {
+                                    let mut stored = this.settings.lock().unwrap();
+                                    let current_node = this.node_settings.lock().unwrap().clone();
+                                    let changed = Self::explorer_settings_changed(
+                                        &stored,
+                                        &settings,
+                                        &current_node,
+                                    );
+                                    *stored = settings;
+                                    changed
+                                };
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_all().await;
-                                    let _ = this.start_all().await;
+                                    if restart_needed {
+                                        let _ = this.stop_all().await;
+                                        let _ = this.start_all().await;
+                                    }
                                 }
                             }
                             Ok(SelfHostedExplorerEvents::UpdateNodeSettings(settings)) => {
-                                *this.node_settings.lock().unwrap() = settings;
+                                let restart_needed = {
+                                    let mut stored = this.node_settings.lock().unwrap();
+                                    let changed =
+                                        Self::explorer_node_settings_changed(&stored, &settings);
+                                    *stored = settings;
+                                    changed
+                                };
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_all().await;
-                                    let _ = this.start_all().await;
+                                    if restart_needed {
+                                        let _ = this.stop_all().await;
+                                        let _ = this.start_all().await;
+                                    }
                                 }
                             }
                             Ok(SelfHostedExplorerEvents::Exit) | Err(_) => {

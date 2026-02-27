@@ -203,6 +203,13 @@ impl KaspaService {
         }
     }
 
+    fn local_wrpc_host_with_port(network: Network) -> String {
+        format!(
+            "127.0.0.1:{}",
+            crate::settings::node_wrpc_borsh_port_for_network(network)
+        )
+    }
+
     pub async fn connect_rpc_client(&self) -> Result<()> {
         if let Some(wallet) = self.core_wallet() {
             if let Ok(wrpc_client) = wallet.rpc_api().clone().downcast_arc::<KaspaRpcClient>() {
@@ -504,7 +511,7 @@ impl KaspaService {
                 kaspad.clone().start(config).await.unwrap();
 
                 let rpc_config = RpcConfig::Wrpc {
-                    url: Some("127.0.0.1".to_string()),
+                    url: Some(Self::local_wrpc_host_with_port(network)),
                     encoding: WrpcEncoding::Borsh,
                     resolver_urls: None,
                 };
@@ -527,7 +534,7 @@ impl KaspaService {
                 kaspad.clone().start(config).await.unwrap();
 
                 let rpc_config = RpcConfig::Wrpc {
-                    url: None,
+                    url: Some(Self::local_wrpc_host_with_port(network)),
                     encoding: WrpcEncoding::Borsh,
                     resolver_urls: None,
                 };
@@ -555,7 +562,7 @@ impl KaspaService {
                 kaspad.clone().start(config).await.unwrap();
 
                 let rpc_config = RpcConfig::Wrpc {
-                    url: None,
+                    url: Some(Self::local_wrpc_host_with_port(network)),
                     encoding: WrpcEncoding::Borsh,
                     resolver_urls: None,
                 };

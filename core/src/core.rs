@@ -995,7 +995,7 @@ impl Core {
                     }
                     #[allow(unused_variables)]
                     CoreWallet::Connect { url, network_id } => {
-                        // log_info!("Connected to {url:?} on network {network_id}");
+                        log_info!("wallet connect: url={url:?}, network_id={network_id}");
                         self.state.is_connected = true;
                         self.state.url = url;
                         self.state.network_id = Some(network_id);
@@ -1009,6 +1009,7 @@ impl Core {
                         url: _,
                         network_id: _,
                     } => {
+                        log_warn!("wallet disconnect");
                         self.state.is_connected = false;
                         self.state.sync_state = None;
                         self.state.is_synced = None;
@@ -1030,6 +1031,7 @@ impl Core {
                         self.exception = Some(Exception::UtxoIndexNotEnabled { url });
                     }
                     CoreWallet::SyncState { sync_state } => {
+                        log_info!("wallet sync_state: {sync_state:?}");
                         self.state.sync_state = Some(sync_state);
                     }
                     CoreWallet::ServerStatus {
@@ -1038,6 +1040,9 @@ impl Core {
                         url,
                         network_id,
                     } => {
+                        log_info!(
+                            "wallet server_status: is_synced={is_synced}, network_id={network_id}, url={url:?}"
+                        );
                         self.state.is_synced = Some(is_synced);
                         self.state.server_version = Some(server_version);
                         self.state.url = url;

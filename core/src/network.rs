@@ -66,8 +66,8 @@ impl From<Network> for NetworkId {
         match network {
             Network::Mainnet => NetworkId::new(network.into()),
             Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
-            // Temporary compatibility mapping:
-            // until full native TN12 consensus params are integrated, TN12 runs on TN10 node id.
+            // Compatibility mode: wallet/rpc network id stays on testnet-10
+            // while Testnet12 uses its dedicated ports and UI profile.
             Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
         }
     }
@@ -90,8 +90,8 @@ impl From<&Network> for NetworkId {
         match network {
             Network::Mainnet => NetworkId::new(network.into()),
             Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
-            // Temporary compatibility mapping:
-            // until full native TN12 consensus params are integrated, TN12 runs on TN10 node id.
+            // Compatibility mode: wallet/rpc network id stays on testnet-10
+            // while Testnet12 uses its dedicated ports and UI profile.
             Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
         }
     }

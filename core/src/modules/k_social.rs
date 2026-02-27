@@ -18,6 +18,8 @@ const K_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_K_PORT: u16 = 19120;
 #[cfg(not(target_arch = "wasm32"))]
+const K_OFFICIAL_MAINNET_API: &str = "https://mainnet.kaspatalk.net";
+#[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
 (() => {
   if (window.__kaspaNgClipboardShortcuts) return;
@@ -142,28 +144,27 @@ impl ModuleT for KSocial {
                 return;
             }
 
-            if !core.settings.self_hosted.enabled || !core.settings.self_hosted.k_enabled {
-                self.status = Some(i18n("K-Social is disabled in Settings.").to_string());
-                self.last_probe_status = None;
-                self.waiting_since = None;
-                self.push_log("K-Social: blocked (disabled in Settings)");
-                return;
-            }
-
-            let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
-                || core.settings.self_hosted.api_bind == "::"
-                || core.settings.self_hosted.api_bind == "[::]"
-            {
-                "127.0.0.1".to_string()
+            let use_self_hosted =
+                core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled;
+            let (api_host, api_port) = if use_self_hosted {
+                let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
+                    || core.settings.self_hosted.api_bind == "::"
+                    || core.settings.self_hosted.api_bind == "[::]"
+                {
+                    "127.0.0.1".to_string()
+                } else {
+                    core.settings.self_hosted.api_bind.clone()
+                };
+                let port = core
+                    .settings
+                    .self_hosted
+                    .effective_k_web_port(core.settings.node.network);
+                (host, port)
             } else {
-                core.settings.self_hosted.api_bind.clone()
+                ("127.0.0.1".to_string(), 0)
             };
-            let indexer_port = core
-                .settings
-                .self_hosted
-                .effective_k_web_port(core.settings.node.network);
             self.status = None;
-            self.ensure_local_server(&host, indexer_port);
+            self.ensure_local_server(&api_host, api_port);
 
             if let Some(webview) = &self.webview {
                 let _ = webview.set_visible(true);
@@ -212,50 +213,57 @@ impl ModuleT for KSocial {
                 ui.colored_label(theme_color().error_color, status);
             }
 
-            let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
-                || core.settings.self_hosted.api_bind == "::"
-                || core.settings.self_hosted.api_bind == "[::]"
-            {
-                "127.0.0.1".to_string()
+            let use_self_hosted =
+                core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled;
+            let (api_host, api_port) = if use_self_hosted {
+                let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
+                    || core.settings.self_hosted.api_bind == "::"
+                    || core.settings.self_hosted.api_bind == "[::]"
+                {
+                    "127.0.0.1".to_string()
+                } else {
+                    core.settings.self_hosted.api_bind.clone()
+                };
+                let port = core
+                    .settings
+                    .self_hosted
+                    .effective_k_web_port(core.settings.node.network);
+                (host, port)
             } else {
-                core.settings.self_hosted.api_bind.clone()
+                ("127.0.0.1".to_string(), 0)
             };
-            let indexer_port = core
-                .settings
-                .self_hosted
-                .effective_k_web_port(core.settings.node.network);
-            let mut k_api_ready = false;
+            let mut k_api_ready = !use_self_hosted;
 
-            if core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled {
+            if use_self_hosted {
                 let should_probe = self
                     .last_probe_at
                     .map(|last| last.elapsed() >= Duration::from_secs(2))
                     .unwrap_or(true);
                 if should_probe {
-                    let probe = k_indexer_health(&host, indexer_port);
+                    let probe = k_indexer_health(&api_host, api_port);
                     let probe_ok = probe.ready;
                     let probe_status = probe.status;
                     if self.last_probe_ok != Some(probe_ok) {
                         if probe_ok {
                             log_info!(
                                 "K-Social: K-indexer API reachable at http://{}:{}/health",
-                                host,
-                                indexer_port
+                                api_host,
+                                api_port
                             );
                             self.push_log(format!(
                                 "K-Social: K-indexer API reachable at http://{}:{}/health",
-                                host, indexer_port
+                                api_host, api_port
                             ));
                             self.waiting_since = None;
                         } else {
                             log_warn!(
                                 "K-Social: K-indexer API is not reachable at http://{}:{}/health",
-                                host,
-                                indexer_port
+                                api_host,
+                                api_port
                             );
                             self.push_log(format!(
                                 "K-Social: waiting for K-indexer API at http://{}:{}/health",
-                                host, indexer_port
+                                api_host, api_port
                             ));
                             self.waiting_since.get_or_insert_with(Instant::now);
                         }
@@ -275,9 +283,7 @@ impl ModuleT for KSocial {
                 self.waiting_since = None;
             }
 
-            if !core.settings.self_hosted.enabled || !core.settings.self_hosted.k_enabled {
-                ui.label(i18n("Enable K-Social services in Settings."));
-            } else if !k_api_ready {
+            if use_self_hosted && !k_api_ready {
                 let waited = self
                     .waiting_since
                     .map(|since| since.elapsed().as_secs())
@@ -285,8 +291,8 @@ impl ModuleT for KSocial {
                 ui.label(format!(
                     "{} http://{}:{}/health ({}s)",
                     i18n("Waiting for K-indexer API:"),
-                    host,
-                    indexer_port,
+                    api_host,
+                    api_port,
                     waited
                 ));
                 if waited >= 30 {
@@ -297,11 +303,11 @@ impl ModuleT for KSocial {
                 }
             }
 
-            if !core.settings.self_hosted.enabled || !core.settings.self_hosted.k_enabled || !k_api_ready {
+            if use_self_hosted && !k_api_ready {
                 return;
             }
 
-            self.ensure_local_server(&host, indexer_port);
+            self.ensure_local_server(&api_host, api_port);
             if self.server.is_none() {
                 ui.colored_label(
                     theme_color().error_color,
@@ -329,7 +335,7 @@ impl ModuleT for KSocial {
                     .into(),
                 };
 
-                let signature = Some((core.settings.node.network, host.clone(), indexer_port));
+                let signature = Some((core.settings.node.network, api_host.clone(), api_port));
                 if self.webview.is_some() && self.last_signature != signature {
                     self.webview.take();
                     self.last_bounds = None;
@@ -343,21 +349,34 @@ impl ModuleT for KSocial {
                         .map(normalize_k_node_url)
                         .unwrap_or_else(|| "ws://127.0.0.1:17110".to_string());
                     let config_script = k_runtime_config_script(
-                        &host,
-                        indexer_port,
+                        use_self_hosted,
+                        &api_host,
+                        api_port,
                         core.settings.node.network,
                         &kaspa_node_url,
                     );
-                    log_info!(
-                        "K-Social: loading web app from {} with K-indexer API http://{}:{}",
-                        start_url,
-                        host,
-                        indexer_port
-                    );
-                    self.push_log(format!(
-                        "K-Social: loading web app with API http://{}:{}",
-                        host, indexer_port
-                    ));
+                    if use_self_hosted {
+                        log_info!(
+                            "K-Social: loading web app from {} with K-indexer API http://{}:{}",
+                            start_url,
+                            api_host,
+                            api_port
+                        );
+                        self.push_log(format!(
+                            "K-Social: loading web app with self-hosted API http://{}:{}",
+                            api_host, api_port
+                        ));
+                    } else {
+                        log_info!(
+                            "K-Social: loading web app from {} with official API {}",
+                            start_url,
+                            K_OFFICIAL_MAINNET_API
+                        );
+                        self.push_log(format!(
+                            "K-Social: loading web app with official API {}",
+                            K_OFFICIAL_MAINNET_API
+                        ));
+                    }
 
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
@@ -1028,6 +1047,7 @@ fn proxy_k_api_request(
 
 #[cfg(not(target_arch = "wasm32"))]
 fn k_runtime_config_script(
+    use_self_hosted: bool,
     indexer_host: &str,
     indexer_port: u16,
     network: Network,
@@ -1038,11 +1058,12 @@ fn k_runtime_config_script(
         Network::Testnet10 => "testnet-10",
         Network::Testnet12 => "testnet-10",
     };
-    let _api_url = format!("http://{indexer_host}:{indexer_port}");
+    let self_hosted_api_url = format!("http://{indexer_host}:{indexer_port}");
     let local_proxy_api_url = format!("http://{K_HOST}:{DEFAULT_K_PORT}/api");
 
-    format!(
-        r#"
+    if use_self_hosted {
+        return format!(
+            r#"
 (() => {{
   try {{
     const key = "kaspa_user_settings";
@@ -1062,7 +1083,32 @@ fn k_runtime_config_script(
     }};
   }} catch (_) {{}}
 }})();
-"# 
+"#
+        );
+    }
+
+    format!(
+        r#"
+(() => {{
+  try {{
+    const key = "kaspa_user_settings";
+    const current = localStorage.getItem(key);
+    const parsed = current ? JSON.parse(current) : {{}};
+    parsed.indexerType = "public";
+    parsed.apiBaseUrl = "{K_OFFICIAL_MAINNET_API}";
+    parsed.customIndexerUrl = "{self_hosted_api_url}";
+    parsed.kaspaConnectionType = "custom-node";
+    parsed.customKaspaNodeUrl = "{kaspa_node_url}";
+    parsed.selectedNetwork = "{network}";
+    localStorage.setItem(key, JSON.stringify(parsed));
+    window.__KASPA_NG_K_CONFIG = {{
+      apiBaseUrl: "{K_OFFICIAL_MAINNET_API}",
+      kaspaNodeUrl: "{kaspa_node_url}",
+      network: "{network}"
+    }};
+  }} catch (_) {{}}
+}})();
+"#
     )
 }
 

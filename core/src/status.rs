@@ -193,32 +193,6 @@ impl<'core> Status<'core> {
         }
     }
 
-    fn render_explorer_api_status(&self, ui: &mut Ui) {
-        let network = self.settings().node.network;
-        let endpoint = match self.settings().explorer.source {
-            ExplorerDataSource::Official => self
-                .settings()
-                .explorer
-                .official
-                .for_network(network)
-                .clone(),
-            ExplorerDataSource::SelfHosted => {
-                crate::settings::self_hosted_explorer_profiles_from_settings(
-                    &self.settings().self_hosted,
-                )
-                .for_network(network)
-                .clone()
-            }
-        };
-        let source = match self.settings().explorer.source {
-            ExplorerDataSource::Official => "official",
-            ExplorerDataSource::SelfHosted => "self-hosted",
-        };
-
-        ui.label(format!("Explorer API ({source}): {}", endpoint.api_base))
-            .on_hover_text(endpoint.socket_url);
-    }
-
     fn render_connected_state(&mut self, ui: &mut egui::Ui, state: ConnectionStatus) {
         let status_area_width = ui.available_width() - 24.;
         let status_icon_size = theme_style().status_icon_size;
@@ -354,8 +328,6 @@ impl<'core> Status<'core> {
 
                 if !self.device().single_pane() {
                     self.render_separator(ui);
-                    self.render_explorer_api_status(ui);
-                    self.render_separator(ui);
                     module.status_bar(self.core, ui);
                 }
             }
@@ -394,8 +366,6 @@ impl<'core> Status<'core> {
                 self.render_connection_selector(ui);
                 self.render_separator(ui);
                 self.render_network_selector(ui);
-                self.render_separator(ui);
-                self.render_explorer_api_status(ui);
 
                 if !self.device().mobile() {
                     self.render_separator(ui);
@@ -429,8 +399,6 @@ impl<'core> Status<'core> {
                         self.render_connection_selector(ui);
                         ui.separator();
                         self.render_network_selector(ui);
-                        ui.separator();
-                        self.render_explorer_api_status(ui);
 
                         if !self.device().single_pane() {
                             ui.separator();

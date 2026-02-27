@@ -380,8 +380,11 @@ impl ModuleT for Explorer {
                         &endpoint,
                         core.settings.node.network,
                     );
-                    let config_script =
-                        explorer_runtime_config_script(&endpoint, core.settings.node.network);
+                    let config_script = explorer_runtime_config_script(
+                        &endpoint,
+                        core.settings.node.network,
+                        core.settings.explorer.source,
+                    );
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
                         .with_bounds(bounds)
@@ -820,12 +823,21 @@ fn js_quote(value: &str) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn explorer_runtime_config_script(endpoint: &ExplorerEndpoint, network: Network) -> String {
+fn explorer_runtime_config_script(
+    endpoint: &ExplorerEndpoint,
+    network: Network,
+    source: ExplorerDataSource,
+) -> String {
+    let source = match source {
+        ExplorerDataSource::Official => "official",
+        ExplorerDataSource::SelfHosted => "self-hosted",
+    };
     format!(
-        "window.__KASPA_EXPLORER_CONFIG__={{apiBase:{},socketUrl:{},socketPath:{},networkId:{}}};",
+        "window.__KASPA_EXPLORER_CONFIG__={{apiBase:{},socketUrl:{},socketPath:{},networkId:{},apiSource:{}}};",
         js_quote(endpoint.api_base.as_str()),
         js_quote(endpoint.socket_url.as_str()),
         js_quote(endpoint.socket_path.as_str()),
-        js_quote(network.to_string().as_str())
+        js_quote(network.to_string().as_str()),
+        js_quote(source)
     )
 }

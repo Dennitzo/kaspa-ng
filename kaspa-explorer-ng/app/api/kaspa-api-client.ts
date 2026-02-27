@@ -5,14 +5,32 @@ const DEFAULT_HEADERS = {
   "Cache-Control": "no-cache",
 };
 
-export async function getMarketData() {
-  const response = await fetch(`${getApiBase()}/info/market-data`, {
-    headers: DEFAULT_HEADERS,
-  });
-  if (!response.ok) {
-    throw new Error(`market-data request failed (${response.status})`);
+const MAINNET_MARKET_API_BASE = "https://api.kaspa.org";
+
+type MarketDataOptions = {
+  // In testnet mode we intentionally display the mainnet market feed.
+  preferMainnetSource?: boolean;
+};
+
+export async function getMarketData(options?: MarketDataOptions) {
+  const currentBase = getApiBase();
+  const orderedBases = options?.preferMainnetSource
+    ? [MAINNET_MARKET_API_BASE, currentBase]
+    : [currentBase, MAINNET_MARKET_API_BASE];
+  const bases = [...new Set(orderedBases)];
+
+  let lastStatus: number | null = null;
+  for (const base of bases) {
+    const response = await fetch(`${base}/info/market-data`, {
+      headers: DEFAULT_HEADERS,
+    });
+    if (response.ok) {
+      return response.json();
+    }
+    lastStatus = response.status;
   }
-  return response.json();
+
+  throw new Error(`market-data request failed (${lastStatus ?? "unknown"})`);
 }
 
 //   const res = await fetch(`${getApiBase()}blocks/${hash}?includeColor=true`, {

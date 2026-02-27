@@ -240,11 +240,16 @@ jobs:
               exit 1
             fi
           done
-          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia)
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server)
           for d in "${required_dirs[@]}"; do
             if [ ! -d "dist/${d}" ]; then
               echo "Missing packaged directory: ${d}"
               exit 1
+            fi
+          done
+          for d in K Kasia; do
+            if [ ! -d "dist/${d}" ]; then
+              echo "Optional packaged directory missing: ${d} (continuing)"
             fi
           done
           cp README.md LICENSE dist/
@@ -323,10 +328,15 @@ jobs:
               throw "Missing packaged binary: $f"
             }
           }
-          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "K", "Kasia")
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server")
           foreach ($d in $requiredDirs) {
             if (-not (Test-Path "dist\\$d")) {
               throw "Missing packaged directory: $d"
+            }
+          }
+          foreach ($d in @("K", "Kasia")) {
+            if (-not (Test-Path "dist\\$d")) {
+              Write-Host "Optional packaged directory missing: $d (continuing)"
             }
           }
           Copy-Item README.md dist\

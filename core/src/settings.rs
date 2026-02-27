@@ -497,7 +497,7 @@ pub struct NodeSettings {
 }
 
 fn default_stratum_bridge_enabled() -> bool {
-    true
+    false
 }
 
 impl Default for NodeSettings {
@@ -601,11 +601,106 @@ impl NodeSettings {
 }
 
 impl RpcConfig {
+    fn is_local_host(host: &str) -> bool {
+        let normalized = host.trim_matches(['[', ']']);
+        matches!(normalized, "127.0.0.1" | "localhost" | "::1")
+    }
+
+    fn local_wrpc_ports() -> [u16; 3] {
+        [
+            node_wrpc_borsh_port_for_network(Network::Mainnet),
+            node_wrpc_borsh_port_for_network(Network::Testnet10),
+            node_wrpc_borsh_port_for_network(Network::Testnet12),
+        ]
+    }
+
+    fn rewrite_local_port_if_needed(host_port: &str, network: Network) -> Option<String> {
+        let desired = node_wrpc_borsh_port_for_network(network);
+
+        if host_port.starts_with('[') {
+            let end = host_port.find(']')?;
+            let host = &host_port[1..end];
+            let tail = host_port.get(end + 1..)?;
+            if !tail.starts_with(':') || !Self::is_local_host(host) {
+                return None;
+            }
+            let port = tail.trim_start_matches(':').parse::<u16>().ok()?;
+            if Self::local_wrpc_ports().contains(&port) && port != desired {
+                return Some(format!("[{host}]:{desired}"));
+            }
+            return None;
+        }
+
+        let mut parts = host_port.rsplitn(2, ':');
+        let port_part = parts.next()?;
+        let host = parts.next()?;
+        if !Self::is_local_host(host) {
+            return None;
+        }
+        let port = port_part.parse::<u16>().ok()?;
+        if Self::local_wrpc_ports().contains(&port) && port != desired {
+            return Some(format!("{host}:{desired}"));
+        }
+        None
+    }
+
+    fn wrpc_url_with_network_default_port(url: &str, network: Network) -> String {
+        let default_port = node_wrpc_borsh_port_for_network(network);
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            return format!("127.0.0.1:{default_port}");
+        }
+
+        if let Some((scheme, rest)) = trimmed.split_once("://") {
+            let split_at = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+            let host_port = &rest[..split_at];
+            let suffix = &rest[split_at..];
+
+            if let Some(rewritten) = Self::rewrite_local_port_if_needed(host_port, network) {
+                return format!("{scheme}://{rewritten}{suffix}");
+            }
+
+            // Keep scheme/path/query/fragment URLs untouched if no local port rewrite was needed.
+            if !suffix.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+
+        if trimmed.starts_with('[') {
+            if let Some(end) = trimmed.find(']') {
+                let tail = &trimmed[end + 1..];
+                if tail.starts_with(':') {
+                    if let Some(rewritten) = Self::rewrite_local_port_if_needed(trimmed, network) {
+                        return rewritten;
+                    }
+                    return trimmed.to_string();
+                }
+            }
+            return format!("{trimmed}:{default_port}");
+        }
+
+        if trimmed.matches(':').count() == 1 {
+            if let Some(rewritten) = Self::rewrite_local_port_if_needed(trimmed, network) {
+                return rewritten;
+            }
+            return trimmed.to_string();
+        }
+
+        if trimmed.contains(':') {
+            return format!("[{trimmed}]:{default_port}");
+        }
+
+        format!("{trimmed}:{default_port}")
+    }
+
     pub fn from_node_settings(settings: &NodeSettings, _options: Option<RpcOptions>) -> Self {
         match settings.connection_config_kind {
             NodeConnectionConfigKind::Custom => match settings.rpc_kind {
                 RpcKind::Wrpc => RpcConfig::Wrpc {
-                    url: Some(settings.wrpc_url.clone()),
+                    url: Some(Self::wrpc_url_with_network_default_port(
+                        settings.wrpc_url.as_str(),
+                        settings.network,
+                    )),
                     encoding: settings.wrpc_encoding,
                     resolver_urls: None,
                 },

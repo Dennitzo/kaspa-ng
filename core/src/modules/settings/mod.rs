@@ -98,6 +98,36 @@ impl Settings {
         false
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_database_folder_for_network(
+        settings: &SelfHostedSettings,
+        network: Network,
+    ) -> std::result::Result<(), String> {
+        let target = if !settings.postgres_data_dir.trim().is_empty() {
+            let base = PathBuf::from(settings.postgres_data_dir.trim());
+            let network_dir = base.join(crate::settings::network_profile_slug(network));
+            if network_dir.exists() { network_dir } else { base }
+        } else {
+            let home = workflow_core::dirs::home_dir()
+                .ok_or_else(|| "Unable to resolve home directory".to_string())?;
+            let self_hosted_root = home.join(".kaspa").join("self-hosted");
+            let postgres_network_dir = self_hosted_root
+                .join("postgres")
+                .join(crate::settings::network_profile_slug(network));
+
+            if postgres_network_dir.exists() {
+                postgres_network_dir
+            } else if self_hosted_root.exists() {
+                self_hosted_root
+            } else {
+                home.join(".kaspa")
+            }
+        };
+
+        open::that(&target)
+            .map_err(|err| format!("Unable to open database folder '{}': {err}", target.display()))
+    }
+
     pub fn render_remote_settings(_core: &mut Core, ui: &mut Ui, settings : &mut NodeSettings) -> Option<&'static str> {
 
         let mut node_settings_error = None;
@@ -553,13 +583,11 @@ impl Settings {
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime.self_hosted_k_indexer_service().enable(
                                     core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.k_enabled
                                         && matches!(core.settings.node.network, Network::Mainnet),
                                 );
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime.self_hosted_kasia_indexer_service().enable(
                                     core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.kasia_enabled
                                         && matches!(core.settings.node.network, Network::Mainnet),
                                 );
 
@@ -1009,6 +1037,16 @@ impl Settings {
                                 ui.end_row();
                             });
 
+                        ui.add_space(8.0);
+                        if ui.medium_button(i18n("Open Database Folder")).clicked() {
+                            if let Err(err) =
+                                Self::open_database_folder_for_network(&settings, core.settings.node.network)
+                            {
+                                runtime().error(err.clone());
+                                self.runtime.toast(UserNotification::error(err));
+                            }
+                        }
+
                         if changed {
                             settings.db_user = "kaspadb".to_string();
                             settings.db_password = "kaspadb".to_string();
@@ -1083,31 +1121,23 @@ impl Settings {
                                     .enable(settings.enabled);
                                 self.runtime
                                     .self_hosted_k_indexer_service()
-                                    .enable(
-                                        settings.enabled
-                                            && core.settings.self_hosted.k_enabled
-                                            && is_mainnet,
-                                    );
+                                    .enable(settings.enabled && settings.k_enabled && is_mainnet);
                                 self.runtime
                                     .self_hosted_kasia_indexer_service()
                                     .enable(
                                         settings.enabled
-                                            && core.settings.self_hosted.kasia_enabled
+                                            && settings.kasia_enabled
                                             && is_kasia_network,
                                     );
                             } else {
                                 self.runtime
                                     .self_hosted_k_indexer_service()
-                                    .enable(
-                                        settings.enabled
-                                            && core.settings.self_hosted.k_enabled
-                                            && is_mainnet,
-                                    );
+                                    .enable(settings.enabled && settings.k_enabled && is_mainnet);
                                 self.runtime
                                     .self_hosted_kasia_indexer_service()
                                     .enable(
                                         settings.enabled
-                                            && core.settings.self_hosted.kasia_enabled
+                                            && settings.kasia_enabled
                                             && is_kasia_network,
                                     );
                             }

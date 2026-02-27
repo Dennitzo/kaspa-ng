@@ -29,6 +29,10 @@ pub struct SelfHostedKIndexerService {
 }
 
 impl SelfHostedKIndexerService {
+    fn should_run(settings: &SelfHostedSettings, node: &NodeSettings) -> bool {
+        settings.enabled && settings.k_enabled && matches!(node.network, Network::Mainnet)
+    }
+
     #[cfg(unix)]
     async fn terminate_process_tree(child: &mut Child) {
         use nix::sys::signal::{Signal, killpg};
@@ -555,11 +559,16 @@ impl Service for SelfHostedKIndexerService {
                     msg = this.service_events.receiver.recv().fuse() => {
                         match msg {
                             Ok(SelfHostedKIndexerEvents::Enable) => {
-                                let was_enabled = this.is_enabled.swap(true, Ordering::SeqCst);
-                                if !was_enabled {
+                                let settings = this.settings.lock().unwrap().clone();
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run && !was_enabled {
                                     this.logs.push("INFO", "enable requested");
                                     log_info!("self-hosted-k-indexer: enable requested");
                                     let _ = this.start_all().await;
+                                } else if !should_run {
+                                    let _ = this.stop_all().await;
                                 }
                             }
                             Ok(SelfHostedKIndexerEvents::Disable) => {
@@ -572,16 +581,32 @@ impl Service for SelfHostedKIndexerService {
                             }
                             Ok(SelfHostedKIndexerEvents::UpdateSettings(settings)) => {
                                 *this.settings.lock().unwrap() = settings;
-                                if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_all().await;
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let settings = this.settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run {
+                                    if was_enabled {
+                                        let _ = this.stop_all().await;
+                                    }
                                     let _ = this.start_all().await;
+                                } else if was_enabled {
+                                    let _ = this.stop_all().await;
                                 }
                             }
                             Ok(SelfHostedKIndexerEvents::UpdateNodeSettings(settings)) => {
                                 *this.node_settings.lock().unwrap() = settings;
-                                if this.is_enabled.load(Ordering::SeqCst) {
-                                    let _ = this.stop_all().await;
+                                let node = this.node_settings.lock().unwrap().clone();
+                                let settings = this.settings.lock().unwrap().clone();
+                                let should_run = Self::should_run(&settings, &node);
+                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                if should_run {
+                                    if was_enabled {
+                                        let _ = this.stop_all().await;
+                                    }
                                     let _ = this.start_all().await;
+                                } else if was_enabled {
+                                    let _ = this.stop_all().await;
                                 }
                             }
                             Ok(SelfHostedKIndexerEvents::Exit) | Err(_) => {

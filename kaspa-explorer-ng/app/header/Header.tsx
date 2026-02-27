@@ -1,3 +1,4 @@
+import { getApiDisplay, getApiSource, getApiSourceLabel } from "../api/config";
 import Close from "../assets/close.svg";
 import LogoIcon from "../assets/logo.svg";
 import Menu from "../assets/menu.svg";
@@ -18,6 +19,10 @@ const Header = ({
 }) => {
   const [searchValue, setSearchValue] = useState("");
   const location = useLocation();
+  const apiSource = getApiSource();
+  const apiSourceLabel = getApiSourceLabel();
+  const apiDisplay = getApiDisplay();
+  const apiDotClass = apiSource === "self-hosted" ? "bg-emerald-500" : "bg-sky-500";
 
   return (
     <div
@@ -28,6 +33,11 @@ const Header = ({
         <Link to={"/"}>
           <LogoIcon className="ms-4 h-10 w-48 md:h-10 md:w-50" />
         </Link>
+        <div className="ms-4 hidden items-center gap-2 rounded-3xl border border-gray-200 bg-gray-50 px-3 py-1 md:flex">
+          <span className={`h-2 w-2 rounded-full ${apiDotClass}`} />
+          <span className="text-xs font-medium text-gray-800">API {apiSourceLabel}</span>
+          <span className="font-mono text-[11px] text-gray-500">{apiDisplay}</span>
+        </div>
         <Price />
 
         {location.pathname !== "/" && (
@@ -46,6 +56,13 @@ const Header = ({
       {!expanded && location.pathname !== "/" && (
         <div className="mx-6 mt-4 lg:hidden">
           <SearchBox value={searchValue} className="w-full" onChange={setSearchValue} />
+        </div>
+      )}
+      {!expanded && (
+        <div className="mx-6 mt-3 flex items-center gap-2 rounded-3xl border border-gray-200 bg-gray-50 px-3 py-1 md:hidden">
+          <span className={`h-2 w-2 rounded-full ${apiDotClass}`} />
+          <span className="text-xs font-medium text-gray-800">API {apiSourceLabel}</span>
+          <span className="font-mono text-[11px] text-gray-500">{apiDisplay}</span>
         </div>
       )}
 

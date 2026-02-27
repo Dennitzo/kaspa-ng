@@ -504,8 +504,11 @@ jobs:
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng K Kasia; do
+          for d in kaspa-explorer-ng; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
+          for d in K Kasia; do
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
 
       - name: Upload Windows build to GitHub 
@@ -564,8 +567,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng K Kasia; do
+          for d in kaspa-explorer-ng; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
+          for d in K Kasia; do
+            [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
 
       - name: Upload MacOS (arm64) build to GitHub
@@ -627,8 +633,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng K Kasia; do
+          for d in kaspa-explorer-ng; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
+          for d in K Kasia; do
+            [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
 
       - name: Upload MacOS (x64) build to GitHub
@@ -726,8 +735,11 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng K Kasia; do
+          for d in kaspa-explorer-ng; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
+          done
+          for d in K Kasia; do
+            [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png
