@@ -10,6 +10,7 @@ DEBUG="${DEBUG:-1}"
 SKIP_KASIA="${SKIP_KASIA:-0}"
 SKIP_CARGO="${SKIP_CARGO:-0}"
 SKIP_PACKAGE="${SKIP_PACKAGE:-0}"
+BUILD_APPIMAGE="${BUILD_APPIMAGE:-auto}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/ci-local-logs}"
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-}"
 
@@ -26,12 +27,15 @@ Options:
   --skip-kasia          Skip Kasia npm/wasm build
   --skip-cargo          Skip cargo build --release
   --skip-package        Skip packaging and verification
+  --build-appimage      Build AppImage too (Linux only)
+  --no-appimage         Do not build AppImage
   --debug               Enable shell trace (default)
   --no-debug            Disable shell trace
   -h, --help            Show this help
 
 Environment equivalents:
-  LOG_DIR, ARTIFACT_ROOT, SKIP_KASIA=1, SKIP_CARGO=1, SKIP_PACKAGE=1, DEBUG=0|1
+  LOG_DIR, ARTIFACT_ROOT, SKIP_KASIA=1, SKIP_CARGO=1, SKIP_PACKAGE=1,
+  BUILD_APPIMAGE=auto|0|1, DEBUG=0|1
 EOF
 }
 
@@ -59,6 +63,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --debug)
       DEBUG=1
+      shift
+      ;;
+    --build-appimage)
+      BUILD_APPIMAGE=1
+      shift
+      ;;
+    --no-appimage)
+      BUILD_APPIMAGE=0
       shift
       ;;
     --no-debug)
@@ -203,6 +215,24 @@ build_kasia() {
   )
 }
 
+build_explorer_if_missing() {
+  [[ -d kaspa-explorer-ng ]] || return 0
+  if [[ -d target/release/kaspa-explorer-ng || -d kaspa-explorer-ng/build ]]; then
+    return 0
+  fi
+
+  echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
+  (
+    cd kaspa-explorer-ng
+    if [[ -f package-lock.json ]]; then
+      npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+    else
+      npm install --no-audit --no-fund
+    fi
+    npm run build
+  )
+}
+
 build_release() {
   KASIA_WASM_AUTO_FETCH=0 cargo build --release
 }
@@ -247,13 +277,25 @@ copy_binary_if_exists() {
 }
 
 package_and_verify() {
-  local short_sha platform root
+  local short_sha platform root os
   short_sha="$(git rev-parse --short HEAD 2>/dev/null || echo "local")"
   platform="$(detect_platform_suffix)"
   root="${ARTIFACT_ROOT:-kaspa-ng-${short_sha}-${platform}-local-sim}"
+  os="$(uname -s)"
 
   rm -rf "$root"
   mkdir -p "$root"
+
+  build_explorer_if_missing
+
+  if [[ "$os" == "Darwin" ]]; then
+    "$ROOT_DIR/scripts/macos-bundle.sh" release
+    [[ -d "$ROOT_DIR/target/release/Kaspa-NG.app" ]] || {
+      echo "Missing macOS app bundle: target/release/Kaspa-NG.app" >&2
+      exit 1
+    }
+    cp -R "$ROOT_DIR/target/release/Kaspa-NG.app" "$root/"
+  fi
 
   cp target/release/kaspa-ng "$root/"
 
@@ -302,8 +344,33 @@ package_and_verify() {
   for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia KasVault; do
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
+  if [[ "$os" == "Darwin" ]]; then
+    [[ -d "$root/Kaspa-NG.app" ]] || { echo "Missing packaged app bundle: Kaspa-NG.app" >&2; exit 1; }
+    [[ -f "$root/Kaspa-NG.app/Contents/Info.plist" ]] || { echo "Missing app Info.plist" >&2; exit 1; }
+    [[ -f "$root/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ]] || { echo "Missing app executable" >&2; exit 1; }
+  fi
 
   echo "LOCAL_ARTIFACT_SIM_OK root=$root"
+
+  local appimage_should_build
+  appimage_should_build=0
+  if [[ "$BUILD_APPIMAGE" == "1" ]]; then
+    appimage_should_build=1
+  elif [[ "$BUILD_APPIMAGE" == "auto" && "$os" == "Linux" ]]; then
+    appimage_should_build=1
+  fi
+
+  if [[ "$appimage_should_build" == "1" ]]; then
+    local appimage_out
+    appimage_out="${root}.AppImage"
+    if [[ -x "$ROOT_DIR/scripts/build-linux-appimage.sh" ]]; then
+      "$ROOT_DIR/scripts/build-linux-appimage.sh" --input "$root" --output "$appimage_out"
+      echo "LOCAL_APPIMAGE_OK file=$appimage_out"
+    else
+      echo "AppImage script missing or not executable: scripts/build-linux-appimage.sh" >&2
+      exit 1
+    fi
+  fi
 }
 
 echo "==> [1/4] Prepare Kasia wasm package"

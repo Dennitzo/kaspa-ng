@@ -513,6 +513,21 @@ impl SelfHostedExplorerService {
 
         if root.join("Pipfile").exists() {
             if let Some(pipenv) = Self::find_pipenv() {
+                // Ensure runtime deps are available in the pipenv environment.
+                if !Self::python_module_available(root, &pipenv, &["run", "python"], "uvicorn") {
+                    let install_status = std::process::Command::new(&pipenv)
+                        .current_dir(root)
+                        .arg("install")
+                        .arg("--deploy")
+                        .status();
+                    if !matches!(install_status, Ok(status) if status.success()) {
+                        let _ = std::process::Command::new(&pipenv)
+                            .current_dir(root)
+                            .arg("install")
+                            .status();
+                    }
+                }
+
                 let mut cmd = Command::new(pipenv);
                 cmd.arg("run")
                     .arg("python")

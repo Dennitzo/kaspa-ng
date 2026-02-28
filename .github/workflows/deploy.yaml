@@ -131,6 +131,18 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-windows-x64 || true
           cargo build --bin kaspa-ng --release
+          if [ ! -d target/release/kaspa-explorer-ng ] && [ ! -d kaspa-explorer-ng/build ] && [ -d kaspa-explorer-ng ]; then
+            echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
+            (
+              cd kaspa-explorer-ng
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
           cp target/release/kaspa-ng.exe kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
           for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
@@ -194,8 +206,10 @@ jobs:
           runner.arch == 'ARM64'
         run: |
           cargo build --bin kaspa-ng --release
+          ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64"
           mkdir -p "$ROOT"
+          cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -247,6 +261,8 @@ jobs:
           for d in K Kasia; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
+          [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
+          [ -f "$ROOT/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ] || { echo "Missing app executable in bundle"; exit 1; }
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64/*
@@ -259,8 +275,10 @@ jobs:
           runner.arch == 'x64'
         run: |
           cargo build --bin kaspa-ng --release
+          ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64"
           mkdir -p "$ROOT"
+          cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -312,6 +330,8 @@ jobs:
           for d in K Kasia; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
+          [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
+          [ -f "$ROOT/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ] || { echo "Missing app executable in bundle"; exit 1; }
           archive="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-macos-x64/*
@@ -403,8 +423,13 @@ jobs:
           archive="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/*
+          appimage_archive="kaspa-ng-${{ github.event.release.tag_name }}-linux-x86_64.AppImage"
+          ./scripts/build-linux-appimage.sh \
+            --input "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64" \
+            --output "${appimage_archive}"
           echo "archive=${archive}" >> $GITHUB_ENV
           echo "asset_name=${asset_name}" >> $GITHUB_ENV
+          echo "appimage_archive=${appimage_archive}" >> $GITHUB_ENV
 
       - name: Create Linux Debian Package
         if: runner.os == 'Linux'
@@ -466,3 +491,14 @@ jobs:
           asset_path: "./${{ steps.package_debian.outputs.file_name }}"
           asset_name: "${{ steps.package_debian.outputs.file_name }}"
           asset_content_type: application/vnd.debian.binary-package
+
+      - name: Upload Linux AppImage
+        if: runner.os == 'Linux'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: "./${{ env.appimage_archive }}"
+          asset_name: "${{ env.appimage_archive }}"
+          asset_content_type: application/vnd.appimage

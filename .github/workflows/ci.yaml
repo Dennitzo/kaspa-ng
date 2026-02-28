@@ -414,7 +414,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        os: [ ubuntu-22.04, windows-latest, macos-latest ]
     name: Building, ${{ matrix.os }}
     steps:
 
@@ -653,6 +653,18 @@ jobs:
               npm run build
             )
           fi
+          if [ ! -d target/release/kaspa-explorer-ng ] && [ ! -d kaspa-explorer-ng/build ] && [ -d kaspa-explorer-ng ]; then
+            echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
+            (
+              cd kaspa-explorer-ng
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
           for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
@@ -764,8 +776,10 @@ jobs:
               npm run build
             )
           fi
+          ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
           mkdir -p "$ROOT"
+          cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -824,6 +838,8 @@ jobs:
           for d in K Kasia KasVault; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
+          [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
+          [ -f "$ROOT/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ] || { echo "Missing app executable in bundle"; exit 1; }
 
       - name: Upload MacOS (arm64) build to GitHub
         if: |
@@ -880,8 +896,10 @@ jobs:
               npm run build
             )
           fi
+          ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
           mkdir -p "$ROOT"
+          cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -940,6 +958,8 @@ jobs:
           for d in K Kasia KasVault; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
+          [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
+          [ -f "$ROOT/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ] || { echo "Missing app executable in bundle"; exit 1; }
 
       - name: Upload MacOS (x64) build to GitHub
         if: |
@@ -1109,6 +1129,9 @@ jobs:
           cp core/resources/icons/icon-256.png .debpkg/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png
           mkdir -p .debpkg/usr/share/applications
           cp core/resources/packaging/kaspa-ng.desktop .debpkg/usr/share/applications/
+          ./scripts/build-linux-appimage.sh \
+            --input "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64" \
+            --output "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64.AppImage"
 
       - name: Upload Linux build to GitHub 
         if: runner.os == 'Linux'
@@ -1116,6 +1139,14 @@ jobs:
         with: 
           name: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
           path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
+          overwrite: true
+
+      - name: Upload Linux AppImage to GitHub
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64-appimage
+          path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64.AppImage
           overwrite: true
 
       - name: Package Debian Release
