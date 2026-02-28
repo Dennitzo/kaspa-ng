@@ -32,7 +32,8 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
-    const REQUIRED_PY_MODULES: [&'static str; 3] = ["uvicorn", "fastapi_utils", "typing_inspect"];
+    const REQUIRED_PY_MODULES: [&'static str; 4] =
+        ["uvicorn", "fastapi_utils", "typing_inspect", "sqlalchemy"];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)
     }
@@ -176,9 +177,45 @@ impl SelfHostedExplorerService {
 
     fn find_in_path(bin_name: &str) -> Option<PathBuf> {
         let path_var = std::env::var_os("PATH")?;
-        std::env::split_paths(&path_var)
-            .map(|dir| dir.join(bin_name))
-            .find(|candidate| candidate.exists())
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(bin_name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+
+            #[cfg(windows)]
+            {
+                if Path::new(bin_name).extension().is_none() {
+                    let pathext = std::env::var_os("PATHEXT")
+                        .map(|value| {
+                            value
+                                .to_string_lossy()
+                                .split(';')
+                                .map(|s| s.trim().to_ascii_lowercase())
+                                .filter(|s| !s.is_empty())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|| {
+                            vec![
+                                ".exe".to_string(),
+                                ".cmd".to_string(),
+                                ".bat".to_string(),
+                                ".com".to_string(),
+                            ]
+                        });
+
+                    for ext in pathext {
+                        let ext = ext.trim_start_matches('.');
+                        let candidate = dir.join(format!("{bin_name}.{ext}"));
+                        if candidate.exists() {
+                            return Some(candidate);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn find_executable(bin_name: &str, extra_dirs: &[PathBuf]) -> Option<PathBuf> {
@@ -302,11 +339,48 @@ impl SelfHostedExplorerService {
 
         #[cfg(target_os = "windows")]
         {
+            if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                let base = PathBuf::from(local_app_data).join("Programs").join("Python");
+                candidates.extend(
+                    [
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]
+                    .into_iter(),
+                );
+            }
+
+            if let Some(program_files) = std::env::var_os("ProgramFiles") {
+                let base = PathBuf::from(program_files).join("Python");
+                candidates.extend(
+                    [
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]
+                    .into_iter(),
+                );
+            }
+
+            if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+                let base = PathBuf::from(program_files_x86).join("Python");
+                candidates.extend(
+                    [
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]
+                    .into_iter(),
+                );
+            }
+
             candidates.extend(
                 [
                     "C:\\Python312\\python.exe",
                     "C:\\Python311\\python.exe",
                     "C:\\Python310\\python.exe",
+                    "C:\\Windows\\py.exe",
                 ]
                 .into_iter()
                 .map(PathBuf::from),
@@ -388,7 +462,10 @@ impl SelfHostedExplorerService {
     }
 
     fn find_poetry_compatible_python() -> Option<PathBuf> {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         let mut candidates: Vec<PathBuf> = Vec::new();
+        #[cfg(target_os = "windows")]
+        let candidates: Vec<PathBuf> = Vec::new();
 
         #[cfg(target_os = "macos")]
         {
@@ -511,23 +588,37 @@ impl SelfHostedExplorerService {
     }
 
     fn build_command(root: &Path, bind: &str, port: u16) -> Option<Command> {
-        let bind_arg = format!("{bind}:{port}");
         if let Some(venv_python) = Self::find_venv_python(root) {
             Self::ensure_python_modules_for_python(
                 &venv_python,
                 &Self::REQUIRED_PY_MODULES,
-                &["typing-inspect"],
+                &["typing-inspect", "sqlalchemy"],
             );
             let mut cmd = Command::new(venv_python);
-            cmd.arg("-m")
-                .arg("gunicorn")
-                .arg("-w")
-                .arg("1")
-                .arg("-k")
-                .arg("uvicorn.workers.UvicornWorker")
-                .arg("main:app")
-                .arg("-b")
-                .arg(&bind_arg);
+            #[cfg(windows)]
+            {
+                // gunicorn depends on fcntl and is not supported on Windows.
+                cmd.arg("-m")
+                    .arg("uvicorn")
+                    .arg("main:app")
+                    .arg("--host")
+                    .arg(bind)
+                    .arg("--port")
+                    .arg(port.to_string());
+            }
+            #[cfg(not(windows))]
+            {
+                let bind_arg = format!("{bind}:{port}");
+                cmd.arg("-m")
+                    .arg("gunicorn")
+                    .arg("-w")
+                    .arg("1")
+                    .arg("-k")
+                    .arg("uvicorn.workers.UvicornWorker")
+                    .arg("main:app")
+                    .arg("-b")
+                    .arg(&bind_arg);
+            }
             return Some(cmd);
         }
         if root.join("pyproject.toml").exists() {
@@ -586,6 +677,7 @@ impl SelfHostedExplorerService {
                         .arg("pip")
                         .arg("install")
                         .arg("typing-inspect")
+                        .arg("sqlalchemy")
                         .status();
                 }
                 if Self::python_modules_available(
@@ -653,6 +745,7 @@ impl SelfHostedExplorerService {
                         .arg("pip")
                         .arg("install")
                         .arg("typing-inspect")
+                        .arg("sqlalchemy")
                         .status();
                 }
 
@@ -845,7 +938,6 @@ impl SelfHostedExplorerService {
 
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
@@ -989,7 +1081,6 @@ impl SelfHostedExplorerService {
 
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }

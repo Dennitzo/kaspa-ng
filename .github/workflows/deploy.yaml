@@ -197,8 +197,13 @@ jobs:
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
           powershell "Compress-Archive kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/* \"${archive}\""
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-windows-msi.ps1 -PackageDir "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64" -SkipBuild -Version "${{ github.event.release.tag_name }}"
+          msi_path=$(ls -1t kaspa-ng-windows-x64-*.msi | head -n1)
+          msi_name=$(basename "$msi_path")
           echo "asset_path=${archive}" >> $GITHUB_ENV
           echo "asset_name=${asset_name}" >> $GITHUB_ENV
+          echo "msi_asset_path=${msi_path}" >> $GITHUB_ENV
+          echo "msi_asset_name=${msi_name}" >> $GITHUB_ENV
 
       - name: Build on MacOS (arm64)
         if: |
@@ -454,6 +459,17 @@ jobs:
           asset_path: "./${{ env.asset_path }}"
           asset_name: "${{ env.asset_name }}"
           asset_content_type: application/zip
+
+      - name: Upload Windows MSI asset
+        if: runner.os == 'Windows'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: "./${{ env.msi_asset_path }}"
+          asset_name: "${{ env.msi_asset_name }}"
+          asset_content_type: application/x-msi
 
       - name: Build on MacOS (arm64)
         if: |

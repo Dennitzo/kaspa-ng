@@ -87,25 +87,17 @@ cp -a "$INPUT_DIR"/. "$APPDIR/usr/bin/"
 cp "$INPUT_DIR/kaspa-ng.desktop" "$APPDIR/usr/share/applications/kaspa-ng.desktop"
 cp "$INPUT_DIR/kaspa-ng.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png"
 
-# Ensure desktop entry launches through wrapper that sets cwd to bundled directory.
-sed -i 's|^Exec=.*|Exec=kaspa-ng-launch|g' "$APPDIR/usr/share/applications/kaspa-ng.desktop"
+# Ensure desktop entry launches the main binary.
+sed -i 's|^Exec=.*|Exec=kaspa-ng|g' "$APPDIR/usr/share/applications/kaspa-ng.desktop"
 sed -i 's|^Icon=.*|Icon=kaspa-ng|g' "$APPDIR/usr/share/applications/kaspa-ng.desktop"
-
-cat > "$APPDIR/usr/bin/kaspa-ng-launch" <<'EOF'
-#!/bin/sh
-set -eu
-SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-cd "$SELF_DIR"
-exec "$SELF_DIR/kaspa-ng" "$@"
-EOF
-chmod +x "$APPDIR/usr/bin/kaspa-ng-launch"
 
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
 set -eu
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 export PATH="$HERE/usr/bin:$PATH"
-exec "$HERE/usr/bin/kaspa-ng-launch" "$@"
+cd "$HERE/usr/bin"
+exec "$HERE/usr/bin/kaspa-ng" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
@@ -132,7 +124,7 @@ export APPIMAGE_EXTRACT_AND_RUN=1
   --plugin gtk \
   --desktop-file "$APPDIR/usr/share/applications/kaspa-ng.desktop" \
   --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png" \
-  --executable "$APPDIR/usr/bin/kaspa-ng-launch" \
+  --executable "$APPDIR/usr/bin/kaspa-ng" \
   --output appimage
 
 APPIMAGE_FILE="$(find "$WORK_DIR" -maxdepth 1 -type f -name '*.AppImage' | head -n 1 || true)"

@@ -675,7 +675,7 @@ impl SelfHostedPostgresService {
         Ok(true)
     }
 
-    fn stop_external_cluster(data_dir: &Path) {
+    fn stop_external_cluster(_data_dir: &Path) {
         #[cfg(unix)]
         {
             let pid_file = data_dir.join("postmaster.pid");
@@ -1189,7 +1189,6 @@ impl SelfHostedPostgresService {
 
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }

@@ -76,6 +76,7 @@ cfg_if! {
 
         enum Args {
             I18n { op : I18n },
+            Build,
             Cli,
             Kng {
                 reset_settings : bool,
@@ -130,6 +131,10 @@ cfg_if! {
                                 .about("reset i18n data file")
                         )
                     )
+                    .subcommand(
+                        Command::new("build")
+                            .about("Build release artifacts; on Windows also creates an MSI package")
+                    )
                     ;
 
                     let matches = cmd.get_matches();
@@ -139,6 +144,8 @@ cfg_if! {
                         std::process::exit(0);
                     } else if matches.get_one::<bool>("cli").cloned().unwrap_or(false) {
                         Args::Cli
+                    } else if matches.subcommand_matches("build").is_some() {
+                        Args::Build
                     } else if let Some(matches) = matches.subcommand_matches("i18n") {
                         if let Some(_matches) = matches.subcommand_matches("import") {
                             Args::I18n { op : I18n::Import }
@@ -158,6 +165,48 @@ cfg_if! {
                         Args::Kng { reset_settings, disable }
                     }
             }
+        }
+
+        fn run_build_command() -> Result<()> {
+            let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+            let status = std::process::Command::new(&cargo)
+                .arg("build")
+                .arg("--release")
+                .env("KASIA_WASM_AUTO_FETCH", "0")
+                .env("KASPA_NG_SKIP_EXTERNAL_SYNC", "1")
+                .status()?;
+            if !status.success() {
+                return Err(crate::error::Error::custom(format!(
+                    "cargo build --release failed with status {status}"
+                )));
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                let script = std::path::PathBuf::from("scripts").join("build-windows-msi.ps1");
+                if !script.exists() {
+                    return Err(crate::error::Error::custom(format!(
+                        "MSI script not found: {}",
+                        script.display()
+                    )));
+                }
+
+                let msi_status = std::process::Command::new("powershell")
+                    .arg("-NoProfile")
+                    .arg("-ExecutionPolicy")
+                    .arg("Bypass")
+                    .arg("-File")
+                    .arg(script)
+                    .arg("-SkipBuild")
+                    .status()?;
+                if !msi_status.success() {
+                    return Err(crate::error::Error::custom(format!(
+                        "MSI build script failed with status {msi_status}"
+                    )));
+                }
+            }
+
+            Ok(())
         }
 
         // pub async fn kaspa_ng_main(wallet_api : Option<Arc<dyn WalletApi>>, application_events : Option<ApplicationEventsChannel>, _adaptor: Option<Arc<Adaptor>>) -> Result<()> {
@@ -194,6 +243,10 @@ cfg_if! {
                     if let Err(err) = result {
                         println!("{err}");
                     }
+                }
+                Args::Build => {
+                    init_ungraceful_panic_handler();
+                    run_build_command()?;
                 }
                 Args::Kaspad{ args } => {
                     init_ungraceful_panic_handler();

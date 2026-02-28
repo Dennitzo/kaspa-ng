@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .emit()?;
 
     export_rusty_kaspa_workspace_version()?;
+    prepare_self_hosted_python_if_needed()?;
     sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
     sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
     sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
@@ -37,6 +38,225 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     build_stratum_bridge_if_needed()?;
     Ok(())
+}
+
+fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
+    if std::env::var("KASPA_NG_SKIP_PYTHON_SETUP")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+
+    let launcher = match find_python_launcher() {
+        Some(launcher) => launcher,
+        None => {
+            println!(
+                "cargo:warning=Python launcher not found during build; skipping self-hosted python setup"
+            );
+            return Ok(());
+        }
+    };
+
+    let rest_root = repo_root.join("kaspa-rest-server");
+    prepare_python_server_env(
+        &launcher,
+        &rest_root,
+        &rest_root.join("pyproject.toml"),
+        &[
+            "uvicorn",
+            "fastapi_utils",
+            "typing_inspect",
+            "sqlalchemy",
+            "gunicorn",
+            "asyncpg",
+            "grpc",
+        ],
+        &[
+            "gunicorn",
+            "uvicorn",
+            "fastapi",
+            "fastapi-utils",
+            "typing-inspect",
+            "sqlalchemy",
+            "grpcio",
+            "grpcio-tools",
+            "requests",
+            "websockets",
+            "asyncpg",
+            "cachetools",
+            "aiohttp",
+            "aiocache",
+            "psycopg2-binary",
+            "waitress",
+            "starlette",
+            "greenlet",
+            "kaspa-script-address",
+            "kaspa",
+        ],
+    )?;
+
+    let socket_root = repo_root.join("kaspa-socket-server");
+    prepare_python_server_env(
+        &launcher,
+        &socket_root,
+        &socket_root.join("Pipfile"),
+        &[
+            "uvicorn",
+            "fastapi_utils",
+            "typing_inspect",
+            "sqlalchemy",
+            "gunicorn",
+            "socketio",
+            "asyncpg",
+            "grpc",
+        ],
+        &[
+            "gunicorn",
+            "uvicorn",
+            "fastapi",
+            "fastapi-utils",
+            "typing-inspect",
+            "sqlalchemy",
+            "python-socketio",
+            "grpcio",
+            "grpcio-tools",
+            "requests",
+            "websockets",
+            "asyncpg",
+            "cachetools",
+            "psycopg2-binary",
+        ],
+    )?;
+
+    Ok(())
+}
+
+fn find_python_launcher() -> Option<String> {
+    #[cfg(windows)]
+    let candidates = ["py", "python", "python3"];
+    #[cfg(not(windows))]
+    let candidates = ["python3", "python"];
+
+    for candidate in candidates {
+        let mut cmd = Command::new(candidate);
+        if cfg!(windows) && candidate.eq_ignore_ascii_case("py") {
+            cmd.arg("-3");
+        }
+        let ok = cmd
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if ok {
+            return Some(candidate.to_string());
+        }
+    }
+
+    None
+}
+
+fn prepare_python_server_env(
+    launcher: &str,
+    root: &Path,
+    manifest: &Path,
+    modules: &[&str],
+    pip_packages: &[&str],
+) -> Result<(), Box<dyn Error>> {
+    if !root.exists() {
+        return Ok(());
+    }
+
+    println!("cargo:rerun-if-changed={}", root.join("main.py").display());
+    println!("cargo:rerun-if-changed={}", manifest.display());
+
+    let venv_dir = root.join(".venv");
+    let venv_python = if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python3")
+    };
+
+    if !venv_python.exists() {
+        println!(
+            "cargo:warning=Creating python virtualenv for {}",
+            root.display()
+        );
+        let mut cmd = Command::new(launcher);
+        if cfg!(windows) && launcher.eq_ignore_ascii_case("py") {
+            cmd.arg("-3");
+        }
+        let status = cmd
+            .arg("-m")
+            .arg("venv")
+            .arg(&venv_dir)
+            .current_dir(root)
+            .status()?;
+        if !status.success() {
+            println!(
+                "cargo:warning=Failed to create python virtualenv for {}; skipping setup",
+                root.display()
+            );
+            return Ok(());
+        }
+    }
+
+    if python_modules_available_for_python(&venv_python, modules) {
+        return Ok(());
+    }
+
+    let _ = Command::new(&venv_python)
+        .arg("-m")
+        .arg("pip")
+        .arg("install")
+        .arg("--upgrade")
+        .arg("pip")
+        .current_dir(root)
+        .status();
+
+    println!(
+        "cargo:warning=Installing python runtime packages for {}",
+        root.display()
+    );
+    let mut cmd = Command::new(&venv_python);
+    cmd.arg("-m").arg("pip").arg("install");
+    for package in pip_packages {
+        cmd.arg(package);
+    }
+    let status = cmd.current_dir(root).status()?;
+    if !status.success() {
+        println!(
+            "cargo:warning=Python dependency install failed for {}; runtime may be unavailable",
+            root.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn python_modules_available_for_python(python: &Path, modules: &[&str]) -> bool {
+    modules
+        .iter()
+        .all(|module| python_module_available_for_python(python, module))
+}
+
+fn python_module_available_for_python(python: &Path, module: &str) -> bool {
+    Command::new(python)
+        .arg("-c")
+        .arg(format!("import {module}"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn external_builds_enabled() -> bool {
@@ -98,37 +318,9 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         return Ok(());
     }
 
-    let mut created_stash_ref: Option<String> = None;
     if has_local_git_changes(&target)? {
-        println!("cargo:warning={name} has local changes; stashing before pull");
-        let before_stash = stash_head_oid(&target)?;
-        let status = Command::new("git")
-            .current_dir(&target)
-            .args([
-                "stash",
-                "push",
-                "--include-untracked",
-                "-m",
-                "kaspa-ng build auto-stash",
-            ])
-            .status();
-        if status.map(|s| s.success()).unwrap_or(false) {
-            let after_stash = stash_head_oid(&target)?;
-            if after_stash != before_stash {
-                created_stash_ref = Some("stash@{0}".to_string());
-            } else {
-                println!(
-                    "cargo:warning={name} stash command succeeded but no stash entry was created"
-                );
-                println!(
-                    "cargo:warning=Skipping pull for {name} to avoid overwriting unstashed local changes"
-                );
-                return Ok(());
-            }
-        } else {
-            println!("cargo:warning=Failed to stash local changes for {name}; skipping pull");
-            return Ok(());
-        }
+        println!("cargo:warning={name} has local changes; skipping git pull");
+        return Ok(());
     }
 
     let status = Command::new("git")
@@ -137,47 +329,6 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
         println!("cargo:warning=Failed to update {name} via git pull --ff-only");
-    }
-
-    if let Some(stash_ref) = created_stash_ref {
-        let apply_with_index = Command::new("git")
-            .current_dir(&target)
-            .args(["stash", "apply", "--index", &stash_ref])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
-        let reapplied = if apply_with_index {
-            true
-        } else {
-            println!(
-                "cargo:warning=Failed to re-apply stashed local changes with --index for {name}; retrying without index"
-            );
-            Command::new("git")
-                .current_dir(&target)
-                .args(["stash", "apply", &stash_ref])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        };
-
-        if reapplied {
-            let dropped = Command::new("git")
-                .current_dir(&target)
-                .args(["stash", "drop", &stash_ref])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !dropped {
-                println!(
-                    "cargo:warning=Re-applied local stash for {name}, but failed to drop {stash_ref}"
-                );
-            }
-        } else {
-            println!(
-                "cargo:warning=Failed to re-apply stashed local changes for {name}; stash kept as {stash_ref}"
-            );
-        }
     }
 
     Ok(())
@@ -249,22 +400,6 @@ fn has_local_git_changes(repo_dir: &Path) -> Result<bool, Box<dyn Error>> {
         .args(["status", "--porcelain"])
         .output()?;
     Ok(!output.stdout.is_empty())
-}
-
-fn stash_head_oid(repo_dir: &Path) -> Result<Option<String>, Box<dyn Error>> {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["rev-parse", "-q", "--verify", "refs/stash"])
-        .output()?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    let line = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if line.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(line))
-    }
 }
 
 fn export_rusty_kaspa_workspace_version() -> Result<(), Box<dyn Error>> {
@@ -1765,7 +1900,7 @@ fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), B
         return Ok(());
     }
 
-    std::fs::copy(bin_path, dest_path)?;
+    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     Ok(())
 }
 
@@ -1788,7 +1923,7 @@ fn sync_cpu_miner_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dy
         return Ok(());
     }
 
-    std::fs::copy(bin_path, dest_path)?;
+    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     Ok(())
 }
 
@@ -1811,7 +1946,7 @@ fn sync_rothschild_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<d
         return Ok(());
     }
 
-    std::fs::copy(bin_path, dest_path)?;
+    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     Ok(())
 }
 
@@ -1837,7 +1972,7 @@ fn sync_simply_kaspa_indexer_binary(
         return Ok(());
     }
 
-    std::fs::copy(bin_path, dest_path)?;
+    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     Ok(())
 }
 
@@ -1867,7 +2002,7 @@ fn sync_k_indexer_binaries(
             continue;
         }
 
-        std::fs::copy(bin_path, dest_path)?;
+        copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     }
 
     Ok(())
@@ -1894,7 +2029,7 @@ fn sync_kasia_indexer_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Bo
         return Ok(());
     }
 
-    std::fs::copy(bin_path, dest_path)?;
+    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
     Ok(())
 }
 
@@ -1937,6 +2072,29 @@ fn target_profile_dir(repo_root: &Path) -> PathBuf {
     target_dir.join(profile)
 }
 
+fn copy_file_with_windows_lock_tolerance(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    match std::fs::copy(src, dst) {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            #[cfg(windows)]
+            {
+                if err.raw_os_error() == Some(32) {
+                    println!(
+                        "cargo:warning=Skipping copy to locked destination {}",
+                        dst.display()
+                    );
+                    return Ok(());
+                }
+            }
+            Err(err.into())
+        }
+    }
+}
+
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
@@ -1949,7 +2107,8 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(&path, &target)?;
+            copy_file_with_windows_lock_tolerance(&path, &target)
+                .map_err(|err| std::io::Error::other(err.to_string()))?;
         }
     }
     Ok(())
