@@ -688,8 +688,7 @@ impl SelfHostedExplorerService {
                     for pkg in Self::REQUIRED_PIP_PACKAGES {
                         cmd.arg(pkg);
                     }
-                    let _ = cmd
-                        .status();
+                    let _ = cmd.status();
                 }
                 if Self::python_modules_available(
                     root,
@@ -757,8 +756,7 @@ impl SelfHostedExplorerService {
                     for pkg in Self::REQUIRED_PIP_PACKAGES {
                         cmd.arg(pkg);
                     }
-                    let _ = cmd
-                        .status();
+                    let _ = cmd.status();
                 }
 
                 let mut cmd = Command::new(pipenv);
