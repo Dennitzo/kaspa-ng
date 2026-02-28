@@ -34,6 +34,14 @@ pub struct SelfHostedExplorerService {
 impl SelfHostedExplorerService {
     const REQUIRED_PY_MODULES: [&'static str; 4] =
         ["uvicorn", "fastapi_utils", "typing_inspect", "sqlalchemy"];
+    const REQUIRED_PIP_PACKAGES: [&'static str; 6] = [
+        "uvicorn",
+        "fastapi",
+        "fastapi-utils",
+        "typing-inspect",
+        "sqlalchemy",
+        "python-socketio",
+    ];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)
     }
@@ -594,7 +602,7 @@ impl SelfHostedExplorerService {
             Self::ensure_python_modules_for_python(
                 &venv_python,
                 &Self::REQUIRED_PY_MODULES,
-                &["typing-inspect", "sqlalchemy"],
+                &Self::REQUIRED_PIP_PACKAGES,
             );
             let mut cmd = Command::new(venv_python);
             #[cfg(windows)]
@@ -671,15 +679,16 @@ impl SelfHostedExplorerService {
                 ) {
                     let mut cmd = std::process::Command::new(&poetry);
                     Self::apply_no_window_for_std_command(&mut cmd);
-                    let _ = cmd
-                        .current_dir(root)
+                    cmd.current_dir(root)
                         .arg("run")
                         .arg("python")
                         .arg("-m")
                         .arg("pip")
-                        .arg("install")
-                        .arg("typing-inspect")
-                        .arg("sqlalchemy")
+                        .arg("install");
+                    for pkg in Self::REQUIRED_PIP_PACKAGES {
+                        cmd.arg(pkg);
+                    }
+                    let _ = cmd
                         .status();
                 }
                 if Self::python_modules_available(
@@ -739,15 +748,16 @@ impl SelfHostedExplorerService {
                 ) {
                     let mut cmd = std::process::Command::new(&pipenv);
                     Self::apply_no_window_for_std_command(&mut cmd);
-                    let _ = cmd
-                        .current_dir(root)
+                    cmd.current_dir(root)
                         .arg("run")
                         .arg("python")
                         .arg("-m")
                         .arg("pip")
-                        .arg("install")
-                        .arg("typing-inspect")
-                        .arg("sqlalchemy")
+                        .arg("install");
+                    for pkg in Self::REQUIRED_PIP_PACKAGES {
+                        cmd.arg(pkg);
+                    }
+                    let _ = cmd
                         .status();
                 }
 
@@ -766,6 +776,11 @@ impl SelfHostedExplorerService {
         }
 
         let python = Self::find_python()?;
+        Self::ensure_python_modules_for_python(
+            &python,
+            &Self::REQUIRED_PY_MODULES,
+            &Self::REQUIRED_PIP_PACKAGES,
+        );
         let mut cmd = Command::new(python);
         cmd.arg("-m")
             .arg("uvicorn")
@@ -782,6 +797,16 @@ impl SelfHostedExplorerService {
             return;
         }
         if !pip_packages.is_empty() {
+            let mut ensurepip_cmd = std::process::Command::new(python);
+            Self::apply_no_window_for_std_command(&mut ensurepip_cmd);
+            let _ = ensurepip_cmd
+                .arg("-m")
+                .arg("ensurepip")
+                .arg("--upgrade")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+
             let mut cmd = std::process::Command::new(python);
             Self::apply_no_window_for_std_command(&mut cmd);
             cmd.arg("-m").arg("pip").arg("install");
