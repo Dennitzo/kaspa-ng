@@ -34,7 +34,20 @@ copy_dir_if_exists() {
   if [ -d "$src" ]; then
     mkdir -p "$(dirname "$dst")"
     rm -rf "$dst"
-    cp -R "$src" "$dst"
+    mkdir -p "$dst"
+    (
+      cd "$src"
+      tar \
+        --exclude='.git' \
+        --exclude='.github' \
+        --exclude='.venv' \
+        --exclude='__pycache__' \
+        --exclude='.DS_Store' \
+        -cf - .
+    ) | (
+      cd "$dst"
+      tar -xf -
+    )
     return 0
   fi
   return 1
