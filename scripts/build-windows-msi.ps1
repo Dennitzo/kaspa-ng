@@ -59,20 +59,24 @@ function Normalize-MsiVersion {
 }
 
 function Ensure-Wix {
-    if (Get-Command wix -ErrorAction SilentlyContinue) {
-        return
-    }
-
-    Write-Info "WiX CLI not found. Installing dotnet tool 'wix'..."
-    dotnet tool install --global wix --version 4.*
-
-    $dotnetTools = Join-Path $env:USERPROFILE ".dotnet\tools"
-    if (Test-Path -LiteralPath $dotnetTools -and -not (($env:PATH -split ';') -contains $dotnetTools)) {
-        $env:PATH = "$dotnetTools;$env:PATH"
-    }
-
     if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
-        throw "WiX CLI could not be resolved after installation."
+        Write-Info "WiX CLI not found. Installing dotnet tool 'wix'..."
+        dotnet tool install --global wix --version 4.*
+
+        $dotnetTools = Join-Path $env:USERPROFILE ".dotnet\tools"
+        if (Test-Path -LiteralPath $dotnetTools -and -not (($env:PATH -split ';') -contains $dotnetTools)) {
+            $env:PATH = "$dotnetTools;$env:PATH"
+        }
+
+        if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
+            throw "WiX CLI could not be resolved after installation."
+        }
+    }
+
+    & wix extension add --global WixToolset.UI.wixext/4.0.6 *> $null
+    $uiExtDll = Join-Path $env:USERPROFILE ".wix\extensions\WixToolset.UI.wixext\4.0.6\wixext4\WixToolset.UI.wixext.dll"
+    if (-not (Test-Path -LiteralPath $uiExtDll)) {
+        throw "WiX UI extension is required but could not be installed (WixToolset.UI.wixext/4.0.6)."
     }
 }
 
@@ -111,6 +115,171 @@ function Copy-IfExists {
         return $true
     }
     return $false
+}
+
+function Write-PostInstallFiles {
+    param(
+        [string]$OutDir
+    )
+
+    $ps1Path = Join-Path $OutDir "post-install-options.ps1"
+    $cmdPath = Join-Path $OutDir "post-install-options.cmd"
+
+    $ps1Content = @'
+param(
+    [string]$InstallDir = ""
+)
+
+$ErrorActionPreference = "SilentlyContinue"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+if (-not $InstallDir) {
+    $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
+$InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+$ExePath = Join-Path $InstallDir "kaspa-ng.exe"
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Kaspa NG Setup"
+$form.StartPosition = "CenterScreen"
+$form.FormBorderStyle = "FixedDialog"
+$form.MaximizeBox = $false
+$form.MinimizeBox = $false
+$form.ClientSize = New-Object System.Drawing.Size(420, 220)
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "Select post-install actions:"
+$label.AutoSize = $true
+$label.Location = New-Object System.Drawing.Point(20, 20)
+$form.Controls.Add($label)
+
+$cbLaunch = New-Object System.Windows.Forms.CheckBox
+$cbLaunch.Text = "Launch Kaspa-NG"
+$cbLaunch.Checked = $true
+$cbLaunch.AutoSize = $true
+$cbLaunch.Location = New-Object System.Drawing.Point(20, 55)
+$form.Controls.Add($cbLaunch)
+
+$cbOpenFolder = New-Object System.Windows.Forms.CheckBox
+$cbOpenFolder.Text = "Open installation folder"
+$cbOpenFolder.Checked = $true
+$cbOpenFolder.AutoSize = $true
+$cbOpenFolder.Location = New-Object System.Drawing.Point(20, 82)
+$form.Controls.Add($cbOpenFolder)
+
+$cbDesktop = New-Object System.Windows.Forms.CheckBox
+$cbDesktop.Text = "Create desktop shortcut"
+$cbDesktop.Checked = $true
+$cbDesktop.AutoSize = $true
+$cbDesktop.Location = New-Object System.Drawing.Point(20, 109)
+$form.Controls.Add($cbDesktop)
+
+$okButton = New-Object System.Windows.Forms.Button
+$okButton.Text = "Finish"
+$okButton.Location = New-Object System.Drawing.Point(230, 165)
+$okButton.Size = New-Object System.Drawing.Size(80, 28)
+$okButton.Add_Click({
+    if ($cbDesktop.Checked -and (Test-Path -LiteralPath $ExePath)) {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktopPath "Kaspa NG.lnk"
+        $wsh = New-Object -ComObject WScript.Shell
+        $shortcut = $wsh.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $ExePath
+        $shortcut.WorkingDirectory = $InstallDir
+        $shortcut.IconLocation = "$ExePath,0"
+        $shortcut.Save()
+    }
+
+    if ($cbOpenFolder.Checked -and (Test-Path -LiteralPath $InstallDir)) {
+        Start-Process -FilePath "explorer.exe" -ArgumentList $InstallDir
+    }
+
+    if ($cbLaunch.Checked -and (Test-Path -LiteralPath $ExePath)) {
+        Start-Process -FilePath $ExePath -WorkingDirectory $InstallDir
+    }
+
+    $form.Close()
+})
+$form.Controls.Add($okButton)
+
+$cancelButton = New-Object System.Windows.Forms.Button
+$cancelButton.Text = "Skip"
+$cancelButton.Location = New-Object System.Drawing.Point(320, 165)
+$cancelButton.Size = New-Object System.Drawing.Size(80, 28)
+$cancelButton.Add_Click({ $form.Close() })
+$form.Controls.Add($cancelButton)
+
+$form.Topmost = $true
+[void]$form.ShowDialog()
+'@
+
+    $cmdContent = @'
+@echo off
+setlocal
+set "SCRIPT_DIR=%~dp0"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%post-install-options.ps1" -InstallDir "%SCRIPT_DIR%"
+exit /b 0
+'@
+
+    [System.IO.File]::WriteAllText($ps1Path, $ps1Content, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($cmdPath, $cmdContent, [System.Text.Encoding]::ASCII)
+}
+
+function Ensure-Postgres-Runtime {
+    param([string]$Root)
+
+    $runtimeCandidates = @(
+        (Join-Path $Root "target\release\postgres\bin\postgres.exe"),
+        (Join-Path $Root "postgres\bin\postgres.exe")
+    )
+    foreach ($candidate in $runtimeCandidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return
+        }
+    }
+
+    $stageScript = Join-Path $Root "scripts\stage-postgres-runtime.ps1"
+    if (-not (Test-Path -LiteralPath $stageScript)) {
+        throw "PostgreSQL runtime missing and stage script not found: $stageScript"
+    }
+
+    Write-Info "PostgreSQL runtime missing. Staging internal PostgreSQL runtime ..."
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $stageScript -RepoRoot $Root -OutDir (Join-Path $Root "target\release\postgres")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to stage PostgreSQL runtime."
+    }
+
+    if (-not (Test-Path -LiteralPath (Join-Path $Root "target\release\postgres\bin\postgres.exe"))) {
+        throw "PostgreSQL runtime staging failed (postgres.exe missing)."
+    }
+}
+
+function Ensure-Postgres-In-Package {
+    param(
+        [string]$Root,
+        [string]$PackagePath
+    )
+
+    Ensure-Postgres-Runtime -Root $Root
+
+    $packagePostgres = Join-Path $PackagePath "postgres"
+    if (Test-Path -LiteralPath $packagePostgres) {
+        Remove-Item -LiteralPath $packagePostgres -Recurse -Force
+    }
+
+    $runtimeSource = if (Test-Path -LiteralPath (Join-Path $Root "target\release\postgres\bin\postgres.exe")) {
+        Join-Path $Root "target\release\postgres"
+    } else {
+        Join-Path $Root "postgres"
+    }
+
+    Copy-Item -LiteralPath $runtimeSource -Destination $packagePostgres -Recurse -Force
+
+    if (-not (Test-Path -LiteralPath (Join-Path $packagePostgres "bin\postgres.exe"))) {
+        throw "Packaged PostgreSQL runtime is invalid (postgres/bin/postgres.exe missing)."
+    }
 }
 
 function Get-NewestWriteTime {
@@ -252,6 +421,7 @@ function Build-PackageLayout {
         Remove-Item -LiteralPath $OutDir -Recurse -Force
     }
     New-Item -ItemType Directory -Path $OutDir | Out-Null
+    Write-PostInstallFiles -OutDir $OutDir
 
     $requiredBins = @(
         "kaspa-ng.exe",
@@ -291,6 +461,8 @@ function Build-PackageLayout {
         }
         Copy-Item -LiteralPath $src -Destination (Join-Path $OutDir $dir) -Recurse -Force
     }
+
+    Ensure-Postgres-In-Package -Root $Root -PackagePath $OutDir
 
     $kTarget = Join-Path $OutDir "K"
     if (-not (Copy-IfExists -Source (Join-Path $Root "target\release\K\dist") -Destination (Join-Path $kTarget "dist"))) {
@@ -735,7 +907,7 @@ function Build-Msi {
     }
 
     $builder = New-Object System.Text.StringBuilder
-    [void]$builder.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
+    [void]$builder.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">')
     [void]$builder.AppendLine("  <Package")
     [void]$builder.AppendLine('    Name="Kaspa NG"')
     [void]$builder.AppendLine('    Manufacturer="ASPECTRON Inc."')
@@ -746,6 +918,7 @@ function Build-Msi {
     [void]$builder.AppendLine('    <SummaryInformation Description="Kaspa NG desktop application" />')
     [void]$builder.AppendLine('    <MajorUpgrade DowngradeErrorMessage="A newer version of Kaspa NG is already installed." />')
     [void]$builder.AppendLine('    <MediaTemplate EmbedCab="yes" />')
+    [void]$builder.AppendLine('    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />')
     [void]$builder.AppendLine('    <StandardDirectory Id="ProgramFiles64Folder">')
     [void]$builder.AppendLine('      <Directory Id="INSTALLFOLDER" Name="Kaspa NG">')
 
@@ -756,6 +929,11 @@ function Build-Msi {
     [void]$builder.AppendLine('    <Feature Id="MainFeature" Title="Kaspa NG" Level="1">')
     [void]$builder.AppendLine('      <ComponentGroupRef Id="AppFiles" />')
     [void]$builder.AppendLine('    </Feature>')
+    $postInstallCmdFileId = Get-HashId "FIL" "post-install-options.cmd"
+    [void]$builder.AppendLine("    <CustomAction Id=""RunPostInstallOptions"" FileRef=""$postInstallCmdFileId"" ExeCommand="""" Return=""asyncNoWait"" Impersonate=""yes"" />")
+    [void]$builder.AppendLine('    <InstallExecuteSequence>')
+    [void]$builder.AppendLine('      <Custom Action="RunPostInstallOptions" After="InstallFinalize" Condition="NOT Installed" />')
+    [void]$builder.AppendLine('    </InstallExecuteSequence>')
     [void]$builder.AppendLine('  </Package>')
     [void]$builder.AppendLine('  <Fragment>')
     [void]$builder.AppendLine('    <ComponentGroup Id="AppFiles">')
@@ -770,7 +948,7 @@ function Build-Msi {
 
     [System.IO.File]::WriteAllText($wxsFile, $builder.ToString(), [System.Text.Encoding]::UTF8)
 
-    & wix build $wxsFile -arch x64 -o $outputFile
+    & wix build $wxsFile -arch x64 -ext WixToolset.UI.wixext -o $outputFile
     if ($LASTEXITCODE -ne 0) {
         throw "WiX build failed with exit code $LASTEXITCODE"
     }
@@ -817,6 +995,7 @@ Ensure-K-In-Package -Root $resolvedRoot -PackagePath $resolvedPackageDir
 Ensure-Kasia-In-Package -Root $resolvedRoot -PackagePath $resolvedPackageDir
 Ensure-KasVault-In-Package -Root $resolvedRoot -PackagePath $resolvedPackageDir
 Ensure-Explorer-In-Package -Root $resolvedRoot -PackagePath $resolvedPackageDir
+Ensure-Postgres-In-Package -Root $resolvedRoot -PackagePath $resolvedPackageDir
 
 $msiFile = Build-Msi -Root $resolvedRoot -SourceDir $resolvedPackageDir -RawVersion $resolvedVersion
 Write-Info "MSI package created: $msiFile"

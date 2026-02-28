@@ -77,12 +77,24 @@ WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 APPDIR="$WORK_DIR/AppDir"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$APPDIR/usr/bin"
 mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 # Keep kaspa-ng runtime layout identical to existing package by copying all files into usr/bin.
 cp -a "$INPUT_DIR"/. "$APPDIR/usr/bin/"
+
+# Ensure internal PostgreSQL runtime is present in the AppImage payload.
+if [[ ! -x "$APPDIR/usr/bin/postgres/bin/postgres" ]]; then
+  STAGED_PG="$WORK_DIR/postgres"
+  if [[ -f "$SCRIPT_DIR/stage-postgres-runtime.sh" ]]; then
+    if bash "$SCRIPT_DIR/stage-postgres-runtime.sh" "$STAGED_PG"; then
+      mkdir -p "$APPDIR/usr/bin/postgres"
+      cp -a "$STAGED_PG"/. "$APPDIR/usr/bin/postgres/"
+    fi
+  fi
+fi
 
 cp "$INPUT_DIR/kaspa-ng.desktop" "$APPDIR/usr/share/applications/kaspa-ng.desktop"
 cp "$INPUT_DIR/kaspa-ng.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/kaspa-ng.png"

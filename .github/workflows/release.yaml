@@ -158,6 +158,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           OUT="kaspa-ng-${{ runner.os }}-${RELEASE_TAG}.tar.gz"
           rm -rf dist
           mkdir -p dist
@@ -269,6 +270,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server dist/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres dist/postgres
+          elif [ -d postgres ]; then
+            cp -r postgres dist/postgres
+          fi
           required_files=(kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
           for f in "${required_files[@]}"; do
             if [ ! -f "dist/${f}" ]; then
@@ -283,7 +289,7 @@ jobs:
               exit 1
             fi
           done
-          for d in K Kasia KasVault; do
+          for d in K Kasia KasVault postgres; do
             if [ ! -d "dist/${d}" ]; then
               echo "Optional packaged directory missing: ${d} (continuing)"
             fi
@@ -302,6 +308,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target\release\postgres"
           $out = "kaspa-ng-Windows-$env:RELEASE_TAG.zip"
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path dist | Out-Null
@@ -383,6 +390,11 @@ jobs:
           if (Test-Path kaspa-socket-server) {
             Copy-Item -Recurse -Force kaspa-socket-server dist\
           }
+          if (Test-Path target\release\postgres) {
+            Copy-Item -Recurse -Force target\release\postgres dist\postgres
+          } elseif (Test-Path postgres) {
+            Copy-Item -Recurse -Force postgres dist\postgres
+          }
           $requiredFiles = @(
             "kaspa-ng.exe",
             "stratum-bridge.exe",
@@ -404,7 +416,7 @@ jobs:
               throw "Missing packaged directory: $d"
             }
           }
-          foreach ($d in @("K", "Kasia", "KasVault")) {
+          foreach ($d in @("K", "Kasia", "KasVault", "postgres")) {
             if (-not (Test-Path "dist\\$d")) {
               Write-Host "Optional packaged directory missing: $d (continuing)"
             }

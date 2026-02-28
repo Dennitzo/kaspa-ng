@@ -237,6 +237,14 @@ build_release() {
   KASIA_WASM_AUTO_FETCH=0 cargo build --release
 }
 
+stage_postgres_runtime() {
+  local stage_script out_dir
+  stage_script="$ROOT_DIR/scripts/stage-postgres-runtime.sh"
+  out_dir="$ROOT_DIR/target/release/postgres"
+  [[ -f "$stage_script" ]] || return 0
+  bash "$stage_script" "$out_dir"
+}
+
 detect_platform_suffix() {
   local os arch
   os="$(uname -s)"
@@ -337,6 +345,12 @@ package_and_verify() {
   copy_dir_filtered "kaspa-rest-server" "$root/kaspa-rest-server"
   copy_dir_filtered "kaspa-socket-server" "$root/kaspa-socket-server"
 
+  if [[ -d target/release/postgres ]]; then
+    cp -r target/release/postgres "$root/postgres"
+  elif [[ -d postgres ]]; then
+    cp -r postgres "$root/postgres"
+  fi
+
   if [[ -d target/release/K/dist ]]; then
     mkdir -p "$root/K"
     cp -r target/release/K/dist "$root/K/"
@@ -364,9 +378,13 @@ package_and_verify() {
   for bin in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
     [[ -f "$root/$bin" ]] || { echo "Missing packaged binary: $bin" >&2; exit 1; }
   done
-  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia KasVault; do
+  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia KasVault postgres; do
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
+  if [[ ! -x "$root/postgres/bin/postgres" && ! -x "$root/postgres/bin/postgres.exe" ]]; then
+    echo "Missing PostgreSQL runtime binary in packaged layout" >&2
+    exit 1
+  fi
   if [[ "$os" == "Darwin" ]]; then
     [[ -d "$root/Kaspa-NG.app" ]] || { echo "Missing packaged app bundle: Kaspa-NG.app" >&2; exit 1; }
     [[ -f "$root/Kaspa-NG.app/Contents/Info.plist" ]] || { echo "Missing app Info.plist" >&2; exit 1; }
@@ -386,11 +404,11 @@ package_and_verify() {
   if [[ "$appimage_should_build" == "1" ]]; then
     local appimage_out
     appimage_out="${root}.AppImage"
-    if [[ -x "$ROOT_DIR/scripts/build-linux-appimage.sh" ]]; then
-      "$ROOT_DIR/scripts/build-linux-appimage.sh" --input "$root" --output "$appimage_out"
+    if [[ -f "$ROOT_DIR/scripts/build-linux-appimage.sh" ]]; then
+      bash "$ROOT_DIR/scripts/build-linux-appimage.sh" --input "$root" --output "$appimage_out"
       echo "LOCAL_APPIMAGE_OK file=$appimage_out"
     else
-      echo "AppImage script missing or not executable: scripts/build-linux-appimage.sh" >&2
+      echo "AppImage script missing: scripts/build-linux-appimage.sh" >&2
       exit 1
     fi
   fi
@@ -409,6 +427,8 @@ fi
 if [[ "$SKIP_CARGO" != "1" ]]; then
   echo "==> [3/4] Cargo release build"
   build_release 2>&1 | tee "$LOG_DIR/cargo-build-release.log"
+  echo "==> [3b/4] Stage internal PostgreSQL runtime"
+  stage_postgres_runtime 2>&1 | tee "$LOG_DIR/postgres-runtime-stage.log"
 else
   echo "==> [3/4] Skipped cargo build"
 fi

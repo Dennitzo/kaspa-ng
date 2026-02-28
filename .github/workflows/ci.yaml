@@ -613,6 +613,7 @@ jobs:
         shell: bash
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-windows-x64 || true
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/postgres"
           set -o pipefail
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
@@ -692,6 +693,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          elif [ -d postgres ]; then
+            cp -r postgres kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K
             cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K/
@@ -719,7 +725,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia KasVault; do
+          for d in K Kasia KasVault postgres; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
@@ -759,6 +765,7 @@ jobs:
           runner.arch == 'ARM64'
         run: |
           set -o pipefail
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -829,6 +836,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres "$ROOT/"
+          elif [ -d postgres ]; then
+            cp -r postgres "$ROOT/"
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -856,7 +868,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia KasVault; do
+          for d in K Kasia KasVault postgres; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -892,6 +904,7 @@ jobs:
         run: |
           source $HOME/.cargo/env
           set -o pipefail
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -962,6 +975,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres "$ROOT/"
+          elif [ -d postgres ]; then
+            cp -r postgres "$ROOT/"
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -989,7 +1007,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia KasVault; do
+          for d in K Kasia KasVault postgres; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -1023,6 +1041,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -1089,6 +1108,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          elif [ -d postgres ]; then
+            cp -r postgres kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K
             cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K/
@@ -1142,6 +1166,11 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server .debpkg/usr/bin/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres .debpkg/usr/bin/
+          elif [ -d postgres ]; then
+            cp -r postgres .debpkg/usr/bin/
+          fi
           if [ -d target/release/K/dist ]; then
             mkdir -p .debpkg/usr/bin/K
             cp -r target/release/K/dist .debpkg/usr/bin/K/
@@ -1169,7 +1198,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia KasVault; do
+          for d in K Kasia KasVault postgres; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps

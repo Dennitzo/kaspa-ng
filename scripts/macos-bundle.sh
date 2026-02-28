@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${1:-release}"
 APP_NAME="Kaspa-NG"
+POSTGRES_STAGE_SCRIPT="${ROOT}/scripts/stage-postgres-runtime.sh"
 
 BIN="${ROOT}/target/${PROFILE}/kaspa-ng"
 if [ ! -f "$BIN" ]; then
@@ -167,6 +168,18 @@ copy_file_if_exists \
 copy_file_if_exists \
   "${ROOT}/target/${PROFILE}/kasia-indexer" \
   "${MACOS_DIR}/kasia-indexer" || true
+
+# Bundle internal PostgreSQL runtime used by self-hosted services.
+if [ ! -x "${ROOT}/target/${PROFILE}/postgres/bin/postgres" ] && [ -f "$POSTGRES_STAGE_SCRIPT" ]; then
+  bash "$POSTGRES_STAGE_SCRIPT" "${ROOT}/target/${PROFILE}/postgres" || true
+fi
+if [ -d "${ROOT}/target/${PROFILE}/postgres" ]; then
+  mkdir -p "${RES_DIR}/postgres"
+  cp -R "${ROOT}/target/${PROFILE}/postgres"/. "${RES_DIR}/postgres/"
+elif [ -d "${ROOT}/postgres" ]; then
+  mkdir -p "${RES_DIR}/postgres"
+  cp -R "${ROOT}/postgres"/. "${RES_DIR}/postgres/"
+fi
 
 ICON_SRC="${ROOT}/core/resources/icons/icon-1024.png"
 ICONSET="${RES_DIR}/${APP_NAME}.iconset"

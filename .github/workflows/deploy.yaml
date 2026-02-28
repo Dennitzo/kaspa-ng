@@ -130,6 +130,7 @@ jobs:
         shell: bash
         run: |
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-windows-x64 || true
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/postgres"
           cargo build --bin kaspa-ng --release
           if [ ! -d target/release/kaspa-explorer-ng ] && [ ! -d kaspa-explorer-ng/build ] && [ -d kaspa-explorer-ng ]; then
             echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
@@ -185,13 +186,18 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          elif [ -d postgres ]; then
+            cp -r postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          fi
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia postgres; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
@@ -210,6 +216,7 @@ jobs:
           runner.os == 'macOS' &&
           runner.arch == 'ARM64'
         run: |
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           cargo build --bin kaspa-ng --release
           ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64"
@@ -257,13 +264,18 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres "$ROOT/"
+          elif [ -d postgres ]; then
+            cp -r postgres "$ROOT/"
+          fi
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia postgres; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -279,6 +291,7 @@ jobs:
           runner.os == 'macOS' &&
           runner.arch == 'x64'
         run: |
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           cargo build --bin kaspa-ng --release
           ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64"
@@ -326,13 +339,18 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres "$ROOT/"
+          elif [ -d postgres ]; then
+            cp -r postgres "$ROOT/"
+          fi
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia postgres; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -346,6 +364,7 @@ jobs:
       - name: Build on Linux
         if: runner.os == 'Linux'
         run: |
+          bash ./scripts/stage-postgres-runtime.sh target/release/postgres
           cargo build --bin kaspa-ng --release
           mkdir -p .debpkg/usr/bin
           cp target/release/kaspa-ng .debpkg/usr/bin/
@@ -410,6 +429,13 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
           fi
+          if [ -d target/release/postgres ]; then
+            cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp -r target/release/postgres .debpkg/usr/bin/
+          elif [ -d postgres ]; then
+            cp -r postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+            cp -r postgres .debpkg/usr/bin/
+          fi
           cp core/resources/icons/icon-256.png kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
@@ -418,7 +444,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia postgres; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps
