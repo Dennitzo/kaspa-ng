@@ -340,7 +340,9 @@ impl SelfHostedExplorerService {
         #[cfg(target_os = "windows")]
         {
             if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-                let base = PathBuf::from(local_app_data).join("Programs").join("Python");
+                let base = PathBuf::from(local_app_data)
+                    .join("Programs")
+                    .join("Python");
                 candidates.extend(
                     [
                         base.join("Python312").join("python.exe"),
