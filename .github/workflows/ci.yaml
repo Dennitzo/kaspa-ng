@@ -457,6 +457,17 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
+      - name: Install LLVM for wasm on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install llvm
+          LLVM_BIN="$(brew --prefix llvm)/bin"
+          echo "${LLVM_BIN}" >> "${GITHUB_PATH}"
+          echo "CC_wasm32_unknown_unknown=${LLVM_BIN}/clang" >> "${GITHUB_ENV}"
+          echo "AR_wasm32_unknown_unknown=${LLVM_BIN}/llvm-ar" >> "${GITHUB_ENV}"
+
       - name: Install Protoc (Windows)
         if: runner.os == 'Windows'
         uses: arduino/setup-protoc@v3
@@ -485,6 +496,35 @@ jobs:
             cargo install wasm-pack --locked
           fi
 
+      - name: Prepare Kasia wasm package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d Kasia ]; then
+            exit 0
+          fi
+          if [ -f Kasia/wasm/package.json ] && [ -f Kasia/wasm/kaspa.js ] && [ -f Kasia/wasm/kaspa.d.ts ]; then
+            echo "Kasia wasm package already present"
+            exit 0
+          fi
+
+          echo "Preparing Kasia wasm package from rusty-kaspa..."
+          TMP_ROOT="$(mktemp -d 2>/dev/null || mktemp -d -t kasiawasm)"
+          trap 'rm -rf "$TMP_ROOT"' EXIT
+          git clone --depth 1 https://github.com/kaspanet/rusty-kaspa.git "$TMP_ROOT/rusty-kaspa"
+          PKG_JSON="$(find "$TMP_ROOT/rusty-kaspa" -type f -path '*/web/kaspa/package.json' | head -n1)"
+          if [ -z "$PKG_JSON" ]; then
+            echo "Unable to locate kaspa wasm package in rusty-kaspa clone"
+            exit 1
+          fi
+          SRC_DIR="$(dirname "$PKG_JSON")"
+          mkdir -p Kasia/wasm
+          rm -rf Kasia/wasm/*
+          cp -R "$SRC_DIR"/. Kasia/wasm/
+          test -f Kasia/wasm/package.json
+          test -f Kasia/wasm/kaspa.js
+          test -f Kasia/wasm/kaspa.d.ts
+
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
 
@@ -494,7 +534,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-windows-x64 || true
           set -o pipefail
-          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
+          KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
             (
@@ -586,7 +626,7 @@ jobs:
           runner.arch == 'ARM64'
         run: |
           set -o pipefail
-          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
+          KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
             (
@@ -683,7 +723,7 @@ jobs:
         run: |
           source $HOME/.cargo/env
           set -o pipefail
-          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
+          KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
             (
@@ -778,7 +818,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
-          cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
+          KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
             (
