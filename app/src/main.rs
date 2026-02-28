@@ -1,7 +1,7 @@
 #![warn(clippy::all, rust_2018_idioms)]
 // hide console window on Windows in release mode
 #![cfg_attr(
-    all(not(debug_assertions), not(feature = "console")),
+    all(target_os = "windows", not(feature = "console")),
     windows_subsystem = "windows"
 )]
 

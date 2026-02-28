@@ -322,6 +322,71 @@ impl SelfHostedExplorerService {
         Self::find_in_path("python3").or_else(|| Self::find_in_path("python"))
     }
 
+    fn find_pipenv_python() -> Option<PathBuf> {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            candidates.extend(
+                [
+                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
+                    "/usr/local/opt/python@3.10/bin/python3.10",
+                    "/opt/homebrew/bin/python3.10",
+                    "/usr/local/bin/python3.10",
+                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
+                    "/usr/local/opt/python@3.11/bin/python3.11",
+                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
+                    "/usr/local/opt/python@3.12/bin/python3.12",
+                    "/opt/homebrew/opt/python/bin/python3",
+                    "/usr/local/opt/python/bin/python3",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            candidates.extend(
+                [
+                    "/usr/bin/python3.10",
+                    "/usr/local/bin/python3.10",
+                    "/usr/bin/python3.11",
+                    "/usr/local/bin/python3.11",
+                    "/usr/bin/python3.12",
+                    "/usr/local/bin/python3.12",
+                    "/usr/bin/python3",
+                    "/usr/local/bin/python3",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            candidates.extend(
+                [
+                    "C:\\Python310\\python.exe",
+                    "C:\\Python311\\python.exe",
+                    "C:\\Python312\\python.exe",
+                ]
+                .into_iter()
+                .map(PathBuf::from),
+            );
+        }
+
+        for candidate in candidates {
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        Self::find_in_path("python3.10")
+            .or_else(|| Self::find_in_path("python3"))
+            .or_else(|| Self::find_in_path("python"))
+    }
+
     fn find_poetry_compatible_python() -> Option<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -482,12 +547,9 @@ impl SelfHostedExplorerService {
 
             if let Some(poetry) = Self::find_poetry() {
                 if let Some(py) = Self::find_poetry_compatible_python() {
-                    let _ = std::process::Command::new(&poetry)
-                        .current_dir(root)
-                        .arg("env")
-                        .arg("use")
-                        .arg(py)
-                        .status();
+                    let mut cmd = std::process::Command::new(&poetry);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let _ = cmd.current_dir(root).arg("env").arg("use").arg(py).status();
                 }
 
                 // Ensure runtime deps exist in the selected poetry env.
@@ -497,7 +559,9 @@ impl SelfHostedExplorerService {
                     &["run", "python"],
                     &Self::REQUIRED_PY_MODULES,
                 ) {
-                    let _ = std::process::Command::new(&poetry)
+                    let mut cmd = std::process::Command::new(&poetry);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let _ = cmd
                         .current_dir(root)
                         .arg("install")
                         .arg("--only")
@@ -512,7 +576,9 @@ impl SelfHostedExplorerService {
                     &["run", "python"],
                     &Self::REQUIRED_PY_MODULES,
                 ) {
-                    let _ = std::process::Command::new(&poetry)
+                    let mut cmd = std::process::Command::new(&poetry);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let _ = cmd
                         .current_dir(root)
                         .arg("run")
                         .arg("python")
@@ -545,6 +611,12 @@ impl SelfHostedExplorerService {
 
         if root.join("Pipfile").exists() {
             if let Some(pipenv) = Self::find_pipenv() {
+                if let Some(python) = Self::find_pipenv_python() {
+                    let mut cmd = std::process::Command::new(&pipenv);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let _ = cmd.current_dir(root).arg("--python").arg(python).status();
+                }
+
                 // Ensure runtime deps are available in the pipenv environment.
                 if !Self::python_modules_available(
                     root,
@@ -552,16 +624,17 @@ impl SelfHostedExplorerService {
                     &["run", "python"],
                     &Self::REQUIRED_PY_MODULES,
                 ) {
-                    let install_status = std::process::Command::new(&pipenv)
+                    let mut cmd = std::process::Command::new(&pipenv);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let install_status = cmd
                         .current_dir(root)
                         .arg("install")
                         .arg("--deploy")
                         .status();
                     if !matches!(install_status, Ok(status) if status.success()) {
-                        let _ = std::process::Command::new(&pipenv)
-                            .current_dir(root)
-                            .arg("install")
-                            .status();
+                        let mut cmd = std::process::Command::new(&pipenv);
+                        Self::apply_no_window_for_std_command(&mut cmd);
+                        let _ = cmd.current_dir(root).arg("install").status();
                     }
                 }
                 if !Self::python_modules_available(
@@ -570,7 +643,9 @@ impl SelfHostedExplorerService {
                     &["run", "python"],
                     &Self::REQUIRED_PY_MODULES,
                 ) {
-                    let _ = std::process::Command::new(&pipenv)
+                    let mut cmd = std::process::Command::new(&pipenv);
+                    Self::apply_no_window_for_std_command(&mut cmd);
+                    let _ = cmd
                         .current_dir(root)
                         .arg("run")
                         .arg("python")
@@ -607,16 +682,13 @@ impl SelfHostedExplorerService {
         Some(cmd)
     }
 
-    fn ensure_python_modules_for_python(
-        python: &Path,
-        modules: &[&str],
-        pip_packages: &[&str],
-    ) {
+    fn ensure_python_modules_for_python(python: &Path, modules: &[&str], pip_packages: &[&str]) {
         if Self::python_modules_available_for_python(python, modules) {
             return;
         }
         if !pip_packages.is_empty() {
             let mut cmd = std::process::Command::new(python);
+            Self::apply_no_window_for_std_command(&mut cmd);
             cmd.arg("-m").arg("pip").arg("install");
             for pkg in pip_packages {
                 cmd.arg(pkg);
@@ -633,6 +705,7 @@ impl SelfHostedExplorerService {
         module: &str,
     ) -> bool {
         let mut cmd = std::process::Command::new(runner);
+        Self::apply_no_window_for_std_command(&mut cmd);
         cmd.current_dir(root);
         for arg in runner_args {
             cmd.arg(arg);
@@ -655,6 +728,7 @@ impl SelfHostedExplorerService {
 
     fn python_module_available_for_python(python: &Path, module: &str) -> bool {
         let mut cmd = std::process::Command::new(python);
+        Self::apply_no_window_for_std_command(&mut cmd);
         cmd.arg("-c").arg(format!("import {module}"));
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())
@@ -666,6 +740,15 @@ impl SelfHostedExplorerService {
             .all(|module| Self::python_module_available_for_python(python, module))
     }
 
+    fn apply_no_window_for_std_command(_cmd: &mut std::process::Command) {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            _cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+
     fn apply_common_env(cmd: &mut Command, settings: &SelfHostedSettings, node: &NodeSettings) {
         cmd.env("SQL_URI", Self::build_sql_uri(settings, node));
         if let Some(grpc) = Self::grpc_address_from_settings(node) {
@@ -674,6 +757,12 @@ impl SelfHostedExplorerService {
         cmd.env("NETWORK_TYPE", Self::network_type(node));
         cmd.env("DEBUG", "false");
         cmd.env("PYTHONUNBUFFERED", "1");
+        if std::env::var_os("LANG").is_none() {
+            cmd.env("LANG", "en_US.UTF-8");
+        }
+        if std::env::var_os("LC_ALL").is_none() {
+            cmd.env("LC_ALL", "en_US.UTF-8");
+        }
     }
 
     fn port_is_available(bind: &str, port: u16) -> bool {
