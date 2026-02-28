@@ -87,14 +87,19 @@ export const useSocketConnected = () => {
     };
 
     const handleConnectError = () => {
-      setConnected(false);
-      clearTimeout(timeoutId!);
+      if (!activeSocket.connected) {
+        setConnected(false);
+        clearTimeout(timeoutId!);
+      }
     };
 
     activeSocket.on("connect", handleConnect);
     activeSocket.on("disconnect", handleDisconnect);
     activeSocket.on("connect_error", handleConnectError);
     activeSocket.on("error", handleConnectError);
+    if (activeSocket.connected) {
+      handleConnect();
+    }
 
     return () => {
       activeSocket.off("connect", handleConnect);

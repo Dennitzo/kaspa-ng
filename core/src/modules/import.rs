@@ -23,6 +23,20 @@ pub struct Import {
     selected_wallet: Option<String>,
 }
 
+fn is_transitional_ibd_message(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains("transitional ibd state")
+}
+
+fn map_wallet_unlock_error(err: &Error) -> String {
+    if is_transitional_ibd_message(&err.to_string()) {
+        return i18n("Node is still syncing (IBD). Wallet opened in limited mode; data will appear after sync.")
+            .to_string();
+    }
+    err.to_string()
+}
+
 impl Import {
     pub fn new(runtime: Runtime) -> Self {
         Self {
@@ -184,7 +198,23 @@ impl ModuleT for Import {
                                 
                                 spawn_with_result(&unlock_result, async move {
                                     sleep(Duration::from_secs(2)).await;
-                                    wallet.wallet_open(wallet_secret, wallet_name, true, true).await?;
+                                    match wallet
+                                        .clone()
+                                        .wallet_open(wallet_secret.clone(), wallet_name.clone(), true, true)
+                                        .await
+                                    {
+                                        Ok(_) => {}
+                                        Err(err) => {
+                                            if is_transitional_ibd_message(&err.to_string()) {
+                                                wallet
+                                                    .wallet_open(wallet_secret, wallet_name, false, true)
+                                                    .await
+                                                    .map_err(Error::from)?;
+                                            } else {
+                                                return Err(Error::from(err));
+                                            }
+                                        }
+                                    }
                                     // wallet.load(secret, wallet_name).await?;
                                     Ok(())
                                 });
@@ -218,7 +248,7 @@ impl ModuleT for Import {
                                 core.select::<modules::AccountManager>();
                             }
                             Err(err) => {
-                                self.state = State::Unlock(Some(err.to_string()));
+                                self.state = State::Unlock(Some(map_wallet_unlock_error(&err)));
                             }
                         }
                         // ui.label(format!("Result: {:?}", result));

@@ -70,6 +70,7 @@ export default function Miners() {
       }
     >(),
   );
+  const seenBlockHashesRef = useRef<Set<string>>(new Set());
 
   const upsertMiner = useCallback(
     ({
@@ -106,6 +107,10 @@ export default function Miners() {
   );
 
   const handleIncomingBlock = useCallback(async (block: { block_hash: string; timestamp?: string }) => {
+    if (!block?.block_hash || seenBlockHashesRef.current.has(block.block_hash)) {
+      return;
+    }
+    seenBlockHashesRef.current.add(block.block_hash);
     try {
       const { data } = await axios.get(
         `${getApiBase()}/blocks/${block.block_hash}?includeTransactions=true&includeColor=true`,
@@ -126,6 +131,7 @@ export default function Miners() {
       setErrorCount(0);
     } catch (error) {
       console.error(error);
+      seenBlockHashesRef.current.delete(block.block_hash);
       setErrorCount((count) => count + 1);
       if (minerMapRef.current.size === 0) {
         setIsError(true);
@@ -176,6 +182,7 @@ export default function Miners() {
         let end: number | null = null;
 
         const applyBlock = (hash: string, data: any) => {
+          seenBlockHashesRef.current.add(hash);
           const minerInfo = data?.extra?.minerInfo ?? null;
           const minerAddress = data?.extra?.minerAddress ?? null;
           const blockTime = Number(data?.header?.timestamp ?? 0) || null;
@@ -249,6 +256,43 @@ export default function Miners() {
       cancelled = true;
     };
   }, [blockDagInfo, upsertMiner]);
+
+  useEffect(() => {
+    const tipHash = blockDagInfo?.virtualParentHashes?.[0];
+    if (!tipHash) return;
+
+    let cancelled = false;
+    const pollRecentBlocks = async () => {
+      try {
+        const { data } = await axios.get(`${getApiBase()}/blocks`, {
+          params: {
+            lowHash: tipHash,
+            includeBlocks: true,
+            includeTransactions: false,
+          },
+        });
+        const hashes: string[] = Array.isArray(data?.blockHashes)
+          ? data.blockHashes
+          : (data?.blocks ?? [])
+              .map((block: any) => block?.verboseData?.hash)
+              .filter((hash: string | undefined): hash is string => Boolean(hash));
+
+        for (const hash of hashes.slice(0, 30)) {
+          if (cancelled) return;
+          if (!hash || seenBlockHashesRef.current.has(hash)) continue;
+          await handleIncomingBlock({ block_hash: hash });
+        }
+      } catch {
+        // keep polling
+      }
+    };
+
+    const intervalId = setInterval(pollRecentBlocks, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [blockDagInfo?.virtualParentHashes?.[0], handleIncomingBlock]);
 
   const groupedMiners = useMemo(() => {
     const buckets = new Map<string, (typeof miners)[number] & { blocks: number }>();

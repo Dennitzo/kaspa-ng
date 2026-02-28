@@ -140,14 +140,21 @@ fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
 
 fn find_python_launcher() -> Option<String> {
     #[cfg(windows)]
-    let candidates = ["py", "python", "python3"];
+    let candidates = ["py -3.12", "py -3.11", "py -3.10", "py -3", "python3.12", "python3.11", "python", "python3"];
     #[cfg(not(windows))]
-    let candidates = ["python3", "python"];
+    let candidates = ["python3.12", "python3.11", "python3.10", "python3", "python"];
 
     for candidate in candidates {
-        let mut cmd = Command::new(candidate);
-        if cfg!(windows) && candidate.eq_ignore_ascii_case("py") {
-            cmd.arg("-3");
+        let mut parts = candidate.split_whitespace();
+        let program = match parts.next() {
+            Some(p) => p,
+            None => continue,
+        };
+        let args: Vec<&str> = parts.collect();
+
+        let mut cmd = Command::new(program);
+        for arg in &args {
+            cmd.arg(arg);
         }
         let ok = cmd
             .arg("--version")
@@ -185,14 +192,31 @@ fn prepare_python_server_env(
         venv_dir.join("bin").join("python3")
     };
 
+    if venv_python.exists()
+        && venv_python_is_too_new_for_runtime_deps(&venv_python)
+        && launcher_prefers_older_python(launcher)
+    {
+        println!(
+            "cargo:warning=Recreating python virtualenv for {} (existing venv python is too new)",
+            root.display()
+        );
+        let _ = std::fs::remove_dir_all(&venv_dir);
+    }
+
     if !venv_python.exists() {
         println!(
             "cargo:warning=Creating python virtualenv for {}",
             root.display()
         );
-        let mut cmd = Command::new(launcher);
-        if cfg!(windows) && launcher.eq_ignore_ascii_case("py") {
-            cmd.arg("-3");
+        let mut launcher_parts = launcher.split_whitespace();
+        let launcher_program = launcher_parts
+            .next()
+            .ok_or("invalid python launcher")?
+            .to_string();
+        let launcher_args: Vec<String> = launcher_parts.map(|s| s.to_string()).collect();
+        let mut cmd = Command::new(launcher_program);
+        for arg in launcher_args {
+            cmd.arg(arg);
         }
         let status = cmd
             .arg("-m")
@@ -213,33 +237,91 @@ fn prepare_python_server_env(
         return Ok(());
     }
 
-    let _ = Command::new(&venv_python)
-        .arg("-m")
-        .arg("pip")
-        .arg("install")
-        .arg("--upgrade")
-        .arg("pip")
-        .current_dir(root)
-        .status();
+    let _ = run_pip_install_with_retries(
+        &venv_python,
+        root,
+        &["--upgrade", "pip", "setuptools", "wheel"],
+        2,
+    );
 
     println!(
         "cargo:warning=Installing python runtime packages for {}",
         root.display()
     );
-    let mut cmd = Command::new(&venv_python);
-    cmd.arg("-m").arg("pip").arg("install");
-    for package in pip_packages {
-        cmd.arg(package);
-    }
-    let status = cmd.current_dir(root).status()?;
-    if !status.success() {
+    let mut install_args = vec![
+        "--prefer-binary",
+        "--disable-pip-version-check",
+        "--retries",
+        "5",
+        "--timeout",
+        "60",
+    ];
+    install_args.extend(pip_packages.iter().copied());
+
+    let install_ok = run_pip_install_with_retries(&venv_python, root, &install_args, 2)?;
+    if !install_ok {
+        // Retry in smaller chunks to mitigate transient index/network failures.
+        let mut chunk_ok = true;
+        for chunk in pip_packages.chunks(6) {
+            let mut chunk_args = vec![
+                "--prefer-binary",
+                "--disable-pip-version-check",
+                "--retries",
+                "5",
+                "--timeout",
+                "60",
+            ];
+            chunk_args.extend(chunk.iter().copied());
+            if !run_pip_install_with_retries(&venv_python, root, &chunk_args, 2)? {
+                chunk_ok = false;
+            }
+        }
+        if chunk_ok && python_modules_available_for_python(&venv_python, modules) {
+            return Ok(());
+        }
         println!(
             "cargo:warning=Python dependency install failed for {}; runtime may be unavailable",
+            root.display()
+        );
+    } else if !python_modules_available_for_python(&venv_python, modules) {
+        println!(
+            "cargo:warning=Python dependency verification failed for {}; runtime may be unavailable",
             root.display()
         );
     }
 
     Ok(())
+}
+
+fn run_pip_install_with_retries(
+    python: &Path,
+    root: &Path,
+    pip_args: &[&str],
+    attempts: usize,
+) -> Result<bool, Box<dyn Error>> {
+    let max_attempts = attempts.max(1);
+    for attempt in 1..=max_attempts {
+        let mut cmd = Command::new(python);
+        cmd.arg("-m").arg("pip").arg("install");
+        for arg in pip_args {
+            cmd.arg(arg);
+        }
+        let ok = cmd
+            .current_dir(root)
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if ok {
+            return Ok(true);
+        }
+        if attempt < max_attempts {
+            println!(
+                "cargo:warning=Python pip install attempt {attempt}/{max_attempts} failed for {}; retrying",
+                root.display()
+            );
+        }
+    }
+    Ok(false)
 }
 
 fn python_modules_available_for_python(python: &Path, modules: &[&str]) -> bool {
@@ -257,6 +339,28 @@ fn python_module_available_for_python(python: &Path, module: &str) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn launcher_prefers_older_python(launcher: &str) -> bool {
+    launcher.contains("3.12") || launcher.contains("3.11") || launcher.contains("3.10")
+}
+
+fn venv_python_is_too_new_for_runtime_deps(venv_python: &Path) -> bool {
+    let output = Command::new(venv_python)
+        .arg("-c")
+        .arg("import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        .output();
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let mut parts = version.split('.');
+    let major = parts.next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+    major > 3 || (major == 3 && minor >= 14)
 }
 
 fn external_builds_enabled() -> bool {
@@ -318,10 +422,20 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         return Ok(());
     }
 
-    if has_local_git_changes(&target)? {
-        println!("cargo:warning={name} has local changes; skipping git pull");
-        return Ok(());
-    }
+    let stashed_ref = if has_local_git_changes(&target)? {
+        match stash_local_git_changes(&target, name)? {
+            Some(stash_ref) => {
+                println!("cargo:warning={name} has local changes; stashed before pull ({stash_ref})");
+                Some(stash_ref)
+            }
+            None => {
+                println!("cargo:warning={name} has local changes but stash failed; skipping git pull");
+                return Ok(());
+            }
+        }
+    } else {
+        None
+    };
 
     let status = Command::new("git")
         .current_dir(&target)
@@ -329,6 +443,14 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
         println!("cargo:warning=Failed to update {name} via git pull --ff-only");
+    }
+
+    if let Some(stash_ref) = stashed_ref {
+        if !apply_stash_ref(&target, &stash_ref)? {
+            println!(
+                "cargo:warning=Failed to re-apply stashed local changes for {name} ({stash_ref})"
+            );
+        }
     }
 
     Ok(())
@@ -400,6 +522,87 @@ fn has_local_git_changes(repo_dir: &Path) -> Result<bool, Box<dyn Error>> {
         .args(["status", "--porcelain"])
         .output()?;
     Ok(!output.stdout.is_empty())
+}
+
+fn current_stash_ref(repo_dir: &Path) -> Result<Option<String>, Box<dyn Error>> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["rev-parse", "--verify", "refs/stash"])
+        .output()?;
+    if output.status.success() {
+        let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !hash.is_empty() {
+            return Ok(Some(hash));
+        }
+    }
+    Ok(None)
+}
+
+fn stash_local_git_changes(repo_dir: &Path, name: &str) -> Result<Option<String>, Box<dyn Error>> {
+    let before = current_stash_ref(repo_dir)?;
+    let stash_message = format!("kaspa-ng auto-sync stash ({name})");
+    let status = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["stash", "push", "--include-untracked", "-m", &stash_message])
+        .status()?;
+    if !status.success() {
+        return Ok(None);
+    }
+
+    let after = current_stash_ref(repo_dir)?;
+    if after.is_none() || after == before {
+        return Ok(None);
+    }
+
+    Ok(after)
+}
+
+fn apply_stash_ref(repo_dir: &Path, stash_ref: &str) -> Result<bool, Box<dyn Error>> {
+    let apply_ok = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["stash", "apply", "--index", stash_ref])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !apply_ok {
+        return Ok(false);
+    }
+
+    let drop_target = resolve_stash_drop_target(repo_dir, stash_ref)?.unwrap_or_else(|| stash_ref.to_string());
+    let drop_ok = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["stash", "drop", &drop_target])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !drop_ok {
+        println!("cargo:warning=Applied stash but failed to drop stash entry {drop_target}");
+    }
+
+    Ok(true)
+}
+
+fn resolve_stash_drop_target(
+    repo_dir: &Path,
+    stash_ref: &str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let output = Command::new("git")
+        .current_dir(repo_dir)
+        .args(["stash", "list", "--format=%H %gd"])
+        .output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let lines = String::from_utf8_lossy(&output.stdout);
+    for line in lines.lines() {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next().unwrap_or_default();
+        let label = parts.next().unwrap_or_default();
+        if hash == stash_ref && !label.is_empty() {
+            return Ok(Some(label.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn export_rusty_kaspa_workspace_version() -> Result<(), Box<dyn Error>> {

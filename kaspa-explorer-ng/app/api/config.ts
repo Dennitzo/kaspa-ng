@@ -36,9 +36,15 @@ const readRuntimeConfig = (): ExplorerRuntimeConfig => {
 };
 
 const normalizeBase = (value: string) => value.replace(/\/+$/, "");
+const normalizeSocketUrl = (value: string) => {
+  const normalized = normalizeBase(value);
+  if (normalized.startsWith("wss://")) return `https://${normalized.slice("wss://".length)}`;
+  if (normalized.startsWith("ws://")) return `http://${normalized.slice("ws://".length)}`;
+  return normalized;
+};
 
 export const getApiBase = () => normalizeBase(readRuntimeConfig().apiBase ?? "https://api.kaspa.org");
-export const getSocketUrl = () => readRuntimeConfig().socketUrl ?? "wss://api.kaspa.org";
+export const getSocketUrl = () => normalizeSocketUrl(readRuntimeConfig().socketUrl ?? "https://api.kaspa.org");
 export const getSocketPath = () => readRuntimeConfig().socketPath ?? "/ws/socket.io";
 export const getNetworkId = () => readRuntimeConfig().networkId ?? "mainnet";
 export const getApiSource = (): ExplorerApiSource => {

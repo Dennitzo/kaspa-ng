@@ -25,6 +25,7 @@ export const useIncomingBlocks = () => {
   const { connected } = useSocketConnected();
   const { data: blockDagInfo } = useBlockdagInfo();
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const lastSocketBlockAtRef = useRef(0);
 
   const startTime = useMemo(() => Date.now() + 500, []);
   const [blockCount, setBlockCount] = useState(0);
@@ -33,9 +34,13 @@ export const useIncomingBlocks = () => {
   const [avgTxRate, setAvgTxRate] = useState(0);
 
   const handleBlocks = useCallback((newBlock: Block) => {
+    lastSocketBlockAtRef.current = Date.now();
     setBlockCount((prevBlockCount) => prevBlockCount + 1);
     setTxCount((prevTxCount) => prevTxCount + (newBlock.txCount || 0));
-    setBlocks((prevBlocks) => [newBlock, ...prevBlocks.slice(0, MAX_BLOCK_BUFFER - 1)]);
+    setBlocks((prevBlocks) => {
+      const merged = [newBlock, ...prevBlocks.filter((block) => block.block_hash !== newBlock.block_hash)];
+      return merged.slice(0, MAX_BLOCK_BUFFER);
+    });
   }, []);
   const lastThrottleTime = useRef(0);
 
@@ -46,7 +51,8 @@ export const useIncomingBlocks = () => {
   });
 
   useEffect(() => {
-    if (connected) return;
+    // Poll whenever the socket is disconnected OR appears stale.
+    if (connected && Date.now() - lastSocketBlockAtRef.current < 20000) return;
     const tipHash = blockDagInfo?.virtualParentHashes?.[0];
     if (!tipHash) return;
 
@@ -93,17 +99,28 @@ export const useIncomingBlocks = () => {
             };
           })
           .filter((block: Block | null): block is Block => block !== null)
-          .sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+          .sort((a: Block, b: Block) => Number(b.timestamp) - Number(a.timestamp));
 
         if (cancelled) return;
 
-        setBlocks(nextBlocks.slice(0, MAX_BLOCK_BUFFER));
+        setBlocks((prevBlocks) => {
+          const merged = [...nextBlocks, ...prevBlocks];
+          const deduped: Block[] = [];
+          const seen = new Set<string>();
+          for (const block of merged) {
+            if (seen.has(block.block_hash)) continue;
+            seen.add(block.block_hash);
+            deduped.push(block);
+            if (deduped.length >= MAX_BLOCK_BUFFER) break;
+          }
+          return deduped;
+        });
 
         if (nextBlocks.length >= 2) {
           const newest = Number(nextBlocks[0].timestamp);
           const oldest = Number(nextBlocks[nextBlocks.length - 1].timestamp);
           const elapsed = Math.max((newest - oldest) / 1000, 1);
-          const totalTxs = nextBlocks.reduce((sum, block) => sum + (block.txCount || 0), 0);
+          const totalTxs = nextBlocks.reduce((sum: number, block: Block) => sum + (block.txCount || 0), 0);
           setAvgBlockTime(nextBlocks.length / elapsed);
           setAvgTxRate(totalTxs / elapsed);
         }

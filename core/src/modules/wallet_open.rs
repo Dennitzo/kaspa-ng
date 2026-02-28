@@ -39,6 +39,19 @@ impl WalletOpen {
         self.state = State::Unlock { wallet_descriptor, error : None};
     }
 
+    fn is_transitional_ibd_message(message: &str) -> bool {
+        message
+            .to_ascii_lowercase()
+            .contains("transitional ibd state")
+    }
+
+    fn map_wallet_error_message(err: &Error) -> String {
+        if Self::is_transitional_ibd_message(&err.to_string()) {
+            return i18n("Node is still syncing (IBD). Wallet opened in limited mode; data will appear after sync.")
+                .to_string();
+        }
+        err.to_string()
+    }
 }
 
 impl ModuleT for WalletOpen {
@@ -129,12 +142,12 @@ impl ModuleT for WalletOpen {
                         ));
                         ui.label(" ");
 
-                        if let Some(err) = error {
-                            ui.label(
-                                RichText::new(err.to_string())
-                                    .color(egui::Color32::from_rgb(255, 120, 120)),
-                            );
-                            ui.label(" ");
+                            if let Some(err) = error {
+                                ui.label(
+                                    RichText::new(Self::map_wallet_error_message(err.as_ref()))
+                                        .color(egui::Color32::from_rgb(255, 120, 120)),
+                                );
+                                ui.label(" ");
                         }
 
                         ui.label(i18n("Enter the password to unlock your wallet"));
@@ -178,7 +191,35 @@ impl ModuleT for WalletOpen {
                         self.state = State::Unlocking { wallet_descriptor };
                         spawn_with_result(&unlock_result, async move {
                             sleep(Duration::from_secs(1)).await;
-                            wallet.wallet_open(wallet_secret, Some(wallet_descriptor_delegate.filename), true, true).await?;
+                            match wallet
+                                .clone()
+                                .wallet_open(
+                                    wallet_secret.clone(),
+                                    Some(wallet_descriptor_delegate.filename.clone()),
+                                    true,
+                                    true,
+                                )
+                                .await
+                            {
+                                Ok(_) => {}
+                                Err(err) => {
+                                    if Self::is_transitional_ibd_message(&err.to_string()) {
+                                        // During transitional IBD, account descriptor loading can fail.
+                                        // Open wallet storage first and let data sync catch up afterwards.
+                                        wallet
+                                            .wallet_open(
+                                                wallet_secret,
+                                                Some(wallet_descriptor_delegate.filename),
+                                                false,
+                                                true,
+                                            )
+                                            .await
+                                            .map_err(Error::from)?;
+                                    } else {
+                                        return Err(Error::from(err));
+                                    }
+                                }
+                            }
                             Ok(())
                         });
                     }

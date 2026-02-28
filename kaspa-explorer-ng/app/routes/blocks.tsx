@@ -4,7 +4,6 @@ import Box from "../assets/box.svg";
 import { useBlockdagInfo } from "../hooks/useBlockDagInfo";
 import { useBlockReward } from "../hooks/useBlockReward";
 import { type Block, useIncomingBlocks } from "../hooks/useIncomingBlocks";
-import { useSocketCommand } from "../hooks/useSocketCommand";
 import { useTransactionsCount } from "../hooks/useTransactionsCount";
 import Card from "../layout/Card";
 import CardContainer from "../layout/CardContainer";
@@ -84,13 +83,6 @@ export default function Blocks() {
       return merged.slice(0, 20);
     });
   }, [incomingBlocks]);
-
-  useSocketCommand({
-    command: "last-blocks",
-    onReceive: (data: Block[]) => {
-      setBlocks(data.reverse());
-    },
-  });
 
   const displayedBlocks = blocks.slice(0, 10);
 

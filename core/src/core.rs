@@ -983,8 +983,20 @@ impl Core {
                         }
                     }
                     CoreWallet::Error { message } => {
-                        // runtime().notify(UserNotification::error(message.as_str()));
-                        println!("{message}");
+                        if message
+                            .to_ascii_lowercase()
+                            .contains("transitional ibd state")
+                        {
+                            runtime().notify(
+                                UserNotification::warning(
+                                    "Node is still in transitional IBD state. Wallet data will sync automatically.",
+                                )
+                                .short(),
+                            );
+                        } else {
+                            // runtime().notify(UserNotification::error(message.as_str()));
+                            println!("{message}");
+                        }
                     }
                     CoreWallet::UtxoProcStart => {
                         self.state.error = None;
@@ -999,7 +1011,19 @@ impl Core {
                     }
                     CoreWallet::UtxoProcStop => {}
                     CoreWallet::UtxoProcError { message } => {
-                        runtime().notify(UserNotification::error(message.as_str()));
+                        if message
+                            .to_ascii_lowercase()
+                            .contains("transitional ibd state")
+                        {
+                            runtime().notify(
+                                UserNotification::warning(
+                                    "Node is still syncing (IBD). Wallet will keep retrying in the background.",
+                                )
+                                .short(),
+                            );
+                        } else {
+                            runtime().notify(UserNotification::error(message.as_str()));
+                        }
 
                         if message.contains("network type") {
                             self.state.error = Some(message);
