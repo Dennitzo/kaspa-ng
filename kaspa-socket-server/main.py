@@ -4,11 +4,12 @@ import os
 import time
 from asyncio import Task, CancelledError
 
+import socketio
 from fastapi_utils.tasks import repeat_every
 from starlette.responses import RedirectResponse
 
 import sockets
-from server import app, kaspad_client
+from server import app as fastapi_app, kaspad_client, sio
 from sockets import blocks
 from sockets.blockdag import periodical_blockdag
 from sockets.bluescore import periodical_blue_score
@@ -39,7 +40,7 @@ def _start_blocks_task() -> Task:
     return task
 
 
-@app.on_event("startup")
+@fastapi_app.on_event("startup")
 async def startup():
     global BLOCKS_TASK
     # find kaspad before staring webserver
@@ -47,7 +48,7 @@ async def startup():
     BLOCKS_TASK = _start_blocks_task()
 
 
-@app.on_event("shutdown")
+@fastapi_app.on_event("shutdown")
 async def shutdown():
     global SHUTTING_DOWN, BLOCKS_TASK
     SHUTTING_DOWN = True
@@ -59,7 +60,7 @@ async def shutdown():
             pass
 
 
-@app.on_event("startup")
+@fastapi_app.on_event("startup")
 @repeat_every(seconds=5)
 async def watchdog():
     global BLOCKS_TASK, SHUTTING_DOWN, LAST_WATCHDOG_LOG_TS
@@ -89,9 +90,14 @@ async def watchdog():
         BLOCKS_TASK = _start_blocks_task()
 
 
-@app.get("/", include_in_schema=False)
+@fastapi_app.get("/", include_in_schema=False)
 async def docs_redirect():
     return RedirectResponse(url='/docs')
+
+
+# Socket.IO endpoint is mounted as a top-level ASGI wrapper to avoid
+# framework/version-dependent mount-path behavior.
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app, socketio_path="ws/socket.io")
 
 
 if __name__ == '__main__':

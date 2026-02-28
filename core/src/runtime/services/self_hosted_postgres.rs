@@ -1384,7 +1384,7 @@ impl Service for SelfHostedPostgresService {
                                 if desired {
                                     this.logs.push(
                                         "INFO",
-                                        "ignoring stale postgres disable request (settings currently enabled)",
+                                        "ignoring stale postgres disable request (settings currently enabled; no action needed)",
                                     );
                                     continue;
                                 }

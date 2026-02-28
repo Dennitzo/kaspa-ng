@@ -13,8 +13,7 @@ from starlette.responses import JSONResponse
 from kaspad.KaspadMultiClient import KaspadMultiClient
 from kaspad.KaspadThread import KaspadCommunicationError
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[])
-socket_app = socketio.ASGIApp(sio)
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 
 app = FastAPI(
     title="Kaspa REST-API server",
@@ -29,8 +28,6 @@ app = FastAPI(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
-
-app.mount("/ws", socket_app)
 
 origins = ["*"]
 

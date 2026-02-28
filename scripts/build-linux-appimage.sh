@@ -127,8 +127,11 @@ download_with_fallback "$GTK_PLUGIN" \
 chmod +x "$LINUXDEPLOY" "$GTK_PLUGIN"
 
 export ARCH=x86_64
+# linuxdeploy-plugin-appimage expects the final output file path (not a directory).
+export LDAI_NO_APPSTREAM=1
 export NO_APPSTREAM=1
-export OUTPUT="$WORK_DIR"
+export LDAI_OUTPUT="$WORK_DIR/kaspa-ng.AppImage"
+export OUTPUT="$LDAI_OUTPUT"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 "$LINUXDEPLOY" \

@@ -111,6 +111,19 @@ require_cmd npm
 require_cmd python3
 require_cmd curl
 
+ensure_wasm_pack() {
+  if command -v wasm-pack >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "wasm-pack not found; installing via cargo"
+  cargo install wasm-pack --locked
+  command -v wasm-pack >/dev/null 2>&1 || {
+    echo "Failed to install wasm-pack" >&2
+    exit 1
+  }
+}
+
 is_compatible_kaspa_wasm_dir() {
   local dir="$1"
   local pkg="$dir/package.json"
@@ -203,6 +216,7 @@ prepare_kasia_wasm() {
 
 build_kasia() {
   [[ -d Kasia ]] || return 0
+  ensure_wasm_pack
   (
     cd Kasia
     if [[ -f package-lock.json ]]; then
@@ -210,7 +224,7 @@ build_kasia() {
     else
       npm install --no-audit --no-fund
     fi
-    npm run wasm:build || true
+    npm run wasm:build
     npm run build:production || npm exec vite build
   )
 }

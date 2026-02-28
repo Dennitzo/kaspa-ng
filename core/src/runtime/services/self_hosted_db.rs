@@ -242,7 +242,21 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     let db = &state.db;
     let (client, connection) = tokio_postgres::connect(&db.to_conn_string(), NoTls)
         .await
-        .map_err(|err| Error::Custom(err.to_string()))?;
+        .map_err(|err| {
+            let raw = err.to_string();
+            let lower = raw.to_ascii_lowercase();
+            if lower.contains("error connecting to server")
+                || lower.contains("connection refused")
+                || lower.contains("timed out")
+            {
+                Error::Custom(format!(
+                    "database not ready: failed to connect to postgres at {}:{} ({raw})",
+                    db.host, db.port
+                ))
+            } else {
+                Error::Custom(raw)
+            }
+        })?;
     spawn(async move {
         if let Err(err) = connection.await {
             log_warn!("self-hosted-db: postgres connection error: {err}");

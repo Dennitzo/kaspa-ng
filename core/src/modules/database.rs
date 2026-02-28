@@ -311,6 +311,8 @@ impl Database {
         (lower.contains("error sending request for url")
             && lower.contains("/api/status"))
             || lower.contains("connection refused")
+            || lower.contains("error connecting to server")
+            || lower.contains("service unavailable")
             || lower.contains("timed out")
             || lower.contains("unable to collect indexer metrics")
             || lower.contains("database not ready")

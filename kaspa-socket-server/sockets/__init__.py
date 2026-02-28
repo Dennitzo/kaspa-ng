@@ -1,4 +1,5 @@
 # encoding: utf-8
+import inspect
 
 from server import sio
 from sockets.blockdag import emit_blockdag
@@ -23,7 +24,9 @@ def room_has_clients(room_name: str) -> bool:
 async def join_room(sid, room_name):
     if room_name in VALID_ROOMS:
         print(f"{sid} joining {room_name}")
-        sio.enter_room(sid, room_name)
+        entered = sio.enter_room(sid, room_name)
+        if inspect.isawaitable(entered):
+            await entered
 
         try:
             if room_name == "blockdag":

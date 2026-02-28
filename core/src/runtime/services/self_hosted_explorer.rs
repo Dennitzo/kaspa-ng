@@ -849,6 +849,11 @@ impl SelfHostedExplorerService {
         if let Some(grpc) = Self::grpc_address_from_settings(node) {
             cmd.env("KASPAD_HOST_1", grpc);
         }
+        // Enable optional REST dataset endpoints for self-hosted explorer mode.
+        cmd.env("TRANSACTION_COUNT", "true");
+        cmd.env("ADDRESSES_ACTIVE_COUNT", "true");
+        cmd.env("ADDRESS_RANKINGS", "true");
+        cmd.env("HASHRATE_HISTORY", "true");
         cmd.env("NETWORK_TYPE", Self::network_type(node));
         cmd.env("DEBUG", "false");
         cmd.env("PYTHONUNBUFFERED", "1");
