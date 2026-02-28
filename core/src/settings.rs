@@ -793,6 +793,10 @@ impl UserInterfaceSettings {
     pub fn effective_kasia_port(&self, network: Network) -> u16 {
         network_ports(network).kasia_ui_port
     }
+
+    pub fn effective_kasvault_port(&self, network: Network) -> u16 {
+        network_ports(network).kasvault_ui_port
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
@@ -920,12 +924,57 @@ pub struct SelfHostedSettings {
     pub k_enabled: bool,
     #[serde(default)]
     pub kasia_enabled: bool,
+    #[serde(default)]
+    pub kasvault_enabled: bool,
     #[serde(default = "default_k_web_port")]
     pub k_web_port: u16,
     #[serde(default = "default_kasia_indexer_port")]
     pub kasia_indexer_port: u16,
     pub postgres_enabled: bool,
     pub postgres_data_dir: String,
+}
+
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KasvaultBrowser {
+    #[default]
+    SystemDefault,
+    Chrome,
+    Firefox,
+    Brave,
+    Edge,
+    Safari,
+}
+
+impl KasvaultBrowser {
+    pub fn label(self) -> &'static str {
+        match self {
+            KasvaultBrowser::SystemDefault => "System Default",
+            KasvaultBrowser::Chrome => "Google Chrome",
+            KasvaultBrowser::Firefox => "Mozilla Firefox",
+            KasvaultBrowser::Brave => "Brave",
+            KasvaultBrowser::Edge => "Microsoft Edge",
+            KasvaultBrowser::Safari => "Safari",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct KasvaultSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub browser: KasvaultBrowser,
+}
+
+impl Default for KasvaultSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            browser: KasvaultBrowser::SystemDefault,
+        }
+    }
 }
 
 fn default_explorer_rest_port() -> u16 {
@@ -956,10 +1005,15 @@ fn default_kasia_ui_port() -> u16 {
     19119
 }
 
+fn default_kasvault_ui_port() -> u16 {
+    3000
+}
+
 #[derive(Clone, Copy)]
 struct NetworkPorts {
     explorer_ui_port: u16,
     kasia_ui_port: u16,
+    kasvault_ui_port: u16,
     self_hosted_api_port: u16,
     self_hosted_rest_port: u16,
     self_hosted_socket_port: u16,
@@ -976,6 +1030,7 @@ fn network_ports(network: Network) -> NetworkPorts {
         Network::Mainnet => NetworkPorts {
             explorer_ui_port: default_explorer_ui_port(),
             kasia_ui_port: default_kasia_ui_port(),
+            kasvault_ui_port: default_kasvault_ui_port(),
             self_hosted_api_port: 19111,
             self_hosted_rest_port: 19112,
             self_hosted_socket_port: 19113,
@@ -989,6 +1044,7 @@ fn network_ports(network: Network) -> NetworkPorts {
         Network::Testnet10 => NetworkPorts {
             explorer_ui_port: 19218,
             kasia_ui_port: 19219,
+            kasvault_ui_port: 3000,
             self_hosted_api_port: 19211,
             self_hosted_rest_port: 19212,
             self_hosted_socket_port: 19213,
@@ -1002,6 +1058,7 @@ fn network_ports(network: Network) -> NetworkPorts {
         Network::Testnet12 => NetworkPorts {
             explorer_ui_port: 19318,
             kasia_ui_port: 19319,
+            kasvault_ui_port: 3000,
             self_hosted_api_port: 19311,
             self_hosted_rest_port: 19312,
             self_hosted_socket_port: 19313,
@@ -1316,6 +1373,7 @@ impl Default for SelfHostedSettings {
             indexer_upgrade_db: true,
             k_enabled: false,
             kasia_enabled: false,
+            kasvault_enabled: false,
             k_web_port: default_k_web_port(),
             kasia_indexer_port: default_kasia_indexer_port(),
             postgres_enabled: true,
@@ -1444,6 +1502,8 @@ pub struct Settings {
     pub explorer: ExplorerSettings,
     #[serde(default)]
     pub self_hosted: SelfHostedSettings,
+    #[serde(default)]
+    pub kasvault: KasvaultSettings,
     pub node: NodeSettings,
     pub user_interface: UserInterfaceSettings,
     pub language_code: String,
@@ -1466,6 +1526,7 @@ impl Default for Settings {
             estimator: EstimatorSettings::default(),
             explorer: ExplorerSettings::default(),
             self_hosted: SelfHostedSettings::default(),
+            kasvault: KasvaultSettings::default(),
             node: NodeSettings::default(),
             user_interface: UserInterfaceSettings::default(),
             language_code: "en".to_string(),
@@ -1619,6 +1680,11 @@ impl Settings {
                     }
                     if settings.self_hosted.kasia_indexer_port == 0 {
                         settings.self_hosted.kasia_indexer_port = default_kasia_indexer_port();
+                        migrated = true;
+                    }
+                    if settings.self_hosted.kasvault_enabled && !settings.kasvault.enabled {
+                        settings.kasvault.enabled = true;
+                        settings.self_hosted.kasvault_enabled = false;
                         migrated = true;
                     }
                     if should_auto_sync_self_hosted_explorer_profiles(
@@ -1857,6 +1923,11 @@ impl Settings {
                         }
                         if settings.self_hosted.kasia_indexer_port == 0 {
                             settings.self_hosted.kasia_indexer_port = default_kasia_indexer_port();
+                            migrated = true;
+                        }
+                        if settings.self_hosted.kasvault_enabled && !settings.kasvault.enabled {
+                            settings.kasvault.enabled = true;
+                            settings.self_hosted.kasvault_enabled = false;
                             migrated = true;
                         }
                         if should_auto_sync_self_hosted_explorer_profiles(

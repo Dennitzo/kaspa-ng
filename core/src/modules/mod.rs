@@ -37,6 +37,7 @@ kaspa_ng_macros::register_modules!(
         rothschild_logs,
         node,
         kasia,
+        kasvault,
     ]
 );
 

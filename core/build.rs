@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
     sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
     sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
+    sync_external_repo_if_needed("kasvault", "https://github.com/coderofstuff/kasvault.git")?;
     sync_external_repo_if_needed(
         "kasia-indexer",
         "https://github.com/K-Kluster/kasia-indexer.git",
@@ -25,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if external_builds_enabled() {
         build_k_social_if_needed()?;
         build_kasia_if_needed()?;
+        build_kasvault_if_needed()?;
     }
     build_cpu_miner_if_needed()?;
     build_rothschild_if_needed()?;
@@ -602,6 +604,80 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let kasvault_root = repo_root.join("kasvault");
+    if !kasvault_root.exists() {
+        return Ok(());
+    }
+
+    let package_json = kasvault_root.join("package.json");
+    let lockfile = kasvault_root.join("package-lock.json");
+    let src_dir = kasvault_root.join("src");
+    let public_dir = kasvault_root.join("public");
+    let config_overrides = kasvault_root.join("config-overrides.js");
+    let build_index = kasvault_root.join("build").join("index.html");
+
+    println!("cargo:rerun-if-changed={}", package_json.display());
+    println!("cargo:rerun-if-changed={}", lockfile.display());
+    println!("cargo:rerun-if-changed={}", src_dir.display());
+    println!("cargo:rerun-if-changed={}", public_dir.display());
+    println!("cargo:rerun-if-changed={}", config_overrides.display());
+
+    let latest_src = newest_mtime(&package_json)
+        .into_iter()
+        .chain(newest_mtime(&lockfile))
+        .chain(newest_mtime(&src_dir))
+        .chain(newest_mtime(&public_dir))
+        .chain(newest_mtime(&config_overrides))
+        .max();
+
+    if build_index.exists()
+        && let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src)
+        && bin_time >= src_time
+    {
+        sync_kasvault_build(&kasvault_root, &repo_root)?;
+        return Ok(());
+    }
+
+    println!("cargo:warning=Building KasVault (static)...");
+    let npm = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
+    let node_modules = kasvault_root.join("node_modules");
+
+    if !node_modules.exists() {
+        let status = if lockfile.exists() {
+            Command::new(&npm)
+                .current_dir(&kasvault_root)
+                .args(["ci", "--no-audit", "--no-fund"])
+                .status()
+        } else {
+            Command::new(&npm)
+                .current_dir(&kasvault_root)
+                .args(["install", "--no-audit", "--no-fund"])
+                .status()
+        };
+        if status.map(|s| !s.success()).unwrap_or(true) {
+            println!("cargo:warning=KasVault npm install failed; skipping build");
+            return Ok(());
+        }
+    }
+
+    let status = Command::new(&npm)
+        .current_dir(&kasvault_root)
+        .args(["run", "build"])
+        .status();
+    if status.map(|s| !s.success()).unwrap_or(true) {
+        println!("cargo:warning=KasVault build failed; skipping");
+    }
+
+    sync_kasvault_build(&kasvault_root, &repo_root)?;
+    Ok(())
+}
+
 fn apply_k_runtime_patches(k_root: &Path) -> Result<(), Box<dyn Error>> {
     let enabled = std::env::var("KASPA_NG_ENABLE_K_PRIVATE_KEY_PATCH")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -666,10 +742,28 @@ fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> 
     if init_ts.exists() {
         patch_file_replace_all(
             &init_ts,
-            &[(
-                "  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
-                "  const runtimeConfig =\n    (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n      .__KASPA_NG_KASIA_CONFIG ?? {};\n\n  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
-            )],
+            &[
+                (
+                    "import initKaspaWasm, { initConsolePanicHook } from \"kaspa-wasm\";",
+                    "import * as kaspaWasm from \"kaspa-wasm\";",
+                ),
+                (
+                    "let splashElement: HTMLElement;\n",
+                    "let splashElement: HTMLElement;\n\ntype KaspaInitModule = {\n  default?: () => Promise<unknown>;\n  init?: () => Promise<unknown>;\n  initSync?: (...args: unknown[]) => unknown;\n  initConsolePanicHook?: () => void;\n};\n\nasync function initKaspaWasmCompat() {\n  const mod = kaspaWasm as unknown as KaspaInitModule;\n\n  if (typeof mod.default === \"function\") {\n    await mod.default();\n    return;\n  }\n\n  if (typeof mod.init === \"function\") {\n    await mod.init();\n    return;\n  }\n\n  throw new Error(\n    \"kaspa-wasm init function not found (expected default export or init())\"\n  );\n}\n",
+                ),
+                (
+                    "  await Promise.all([initKaspaWasm(), initCipherWasm()]);",
+                    "  await Promise.all([initKaspaWasmCompat(), initCipherWasm()]);",
+                ),
+                (
+                    "  initConsolePanicHook();",
+                    "  const panicHook = (kaspaWasm as unknown as KaspaInitModule)\n    .initConsolePanicHook;\n  if (typeof panicHook === \"function\") {\n    panicHook();\n  }",
+                ),
+                (
+                    "  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
+                    "  const runtimeConfig =\n    (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n      .__KASPA_NG_KASIA_CONFIG ?? {};\n\n  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
+                ),
+            ],
         )?;
     }
 
@@ -1009,11 +1103,19 @@ fn patch_file_replace_all(
     let mut changed = false;
 
     for (from, to) in replacements {
-        if contents.contains(to) {
+        let from_crlf = from.replace('\n', "\r\n");
+        let to_crlf = to.replace('\n', "\r\n");
+
+        if contents.contains(to) || contents.contains(&to_crlf) {
             continue;
         }
         if contents.contains(from) {
             contents = contents.replace(from, to);
+            changed = true;
+            continue;
+        }
+        if contents.contains(&from_crlf) {
+            contents = contents.replace(&from_crlf, &to_crlf);
             changed = true;
         }
     }
@@ -1551,6 +1653,26 @@ fn sync_kasia_build(kasia_root: &Path, repo_root: &Path) -> Result<(), Box<dyn E
     }
 
     let dest_root = target_profile_dir(repo_root).join("Kasia").join("dist");
+    let src_time = newest_mtime(&src_root);
+    let dest_time = newest_mtime(&dest_root);
+    if dest_root.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
+        return Ok(());
+    }
+
+    if dest_root.exists() {
+        std::fs::remove_dir_all(&dest_root)?;
+    }
+    copy_dir_all(&src_root, &dest_root)?;
+    Ok(())
+}
+
+fn sync_kasvault_build(kasvault_root: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
+    let src_root = kasvault_root.join("build");
+    if !src_root.join("index.html").exists() {
+        return Ok(());
+    }
+
+    let dest_root = target_profile_dir(repo_root).join("KasVault").join("build");
     let src_time = newest_mtime(&src_root);
     let dest_time = newest_mtime(&dest_root);
     if dest_root.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {

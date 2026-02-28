@@ -432,6 +432,13 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Clone KasVault
+        shell: bash
+        run: |
+          if [ ! -d kasvault ]; then
+            git clone --depth 1 https://github.com/coderofstuff/kasvault.git kasvault
+          fi
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -441,6 +448,7 @@ jobs:
             kaspa-explorer-ng/package-lock.json
             K/package-lock.json
             Kasia/package-lock.json
+            kasvault/package-lock.json
 
       - name: Setup Environment
         shell: bash
@@ -604,6 +612,18 @@ jobs:
               npm run build:production || npm exec vite build
             )
           fi
+          if [ ! -d target/release/KasVault/build ] && [ ! -d kasvault/build ] && [ -d kasvault ]; then
+            echo "KasVault build missing after cargo build; running fallback build"
+            (
+              cd kasvault
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
           for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
@@ -646,13 +666,20 @@ jobs:
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia
             cp -r Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/Kasia/
           fi
+          if [ -d target/release/KasVault/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault
+            cp -r target/release/KasVault/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault/
+          elif [ -d kasvault/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault
+            cp -r kasvault/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault/
+          fi
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia KasVault; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
@@ -694,6 +721,18 @@ jobs:
               fi
               npm run wasm:build || true
               npm run build:production || npm exec vite build
+            )
+          fi
+          if [ ! -d target/release/KasVault/build ] && [ ! -d kasvault/build ] && [ -d kasvault ]; then
+            echo "KasVault build missing after cargo build; running fallback build"
+            (
+              cd kasvault
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
             )
           fi
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64"
@@ -740,13 +779,20 @@ jobs:
             mkdir -p "$ROOT/Kasia"
             cp -r Kasia/dist "$ROOT/Kasia/"
           fi
+          if [ -d target/release/KasVault/build ]; then
+            mkdir -p "$ROOT/KasVault"
+            cp -r target/release/KasVault/build "$ROOT/KasVault/"
+          elif [ -d kasvault/build ]; then
+            mkdir -p "$ROOT/KasVault"
+            cp -r kasvault/build "$ROOT/KasVault/"
+          fi
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia KasVault; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
@@ -793,6 +839,18 @@ jobs:
               npm run build:production || npm exec vite build
             )
           fi
+          if [ ! -d target/release/KasVault/build ] && [ ! -d kasvault/build ] && [ -d kasvault ]; then
+            echo "KasVault build missing after cargo build; running fallback build"
+            (
+              cd kasvault
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
           ROOT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64"
           mkdir -p "$ROOT"
           cp target/release/kaspa-ng "$ROOT/"
@@ -837,13 +895,20 @@ jobs:
             mkdir -p "$ROOT/Kasia"
             cp -r Kasia/dist "$ROOT/Kasia/"
           fi
+          if [ -d target/release/KasVault/build ]; then
+            mkdir -p "$ROOT/KasVault"
+            cp -r target/release/KasVault/build "$ROOT/KasVault/"
+          elif [ -d kasvault/build ]; then
+            mkdir -p "$ROOT/KasVault"
+            cp -r kasvault/build "$ROOT/KasVault/"
+          fi
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia KasVault; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
 
@@ -888,6 +953,18 @@ jobs:
               npm run build:production || npm exec vite build
             )
           fi
+          if [ ! -d target/release/KasVault/build ] && [ ! -d kasvault/build ] && [ -d kasvault ]; then
+            echo "KasVault build missing after cargo build; running fallback build"
+            (
+              cd kasvault
+              if [ -f package-lock.json ]; then
+                npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+              else
+                npm install --no-audit --no-fund
+              fi
+              npm run build
+            )
+          fi
           cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
@@ -929,6 +1006,13 @@ jobs:
           elif [ -d Kasia/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia
             cp -r Kasia/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/Kasia/
+          fi
+          if [ -d target/release/KasVault/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/KasVault
+            cp -r target/release/KasVault/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/KasVault/
+          elif [ -d kasvault/build ]; then
+            mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/KasVault
+            cp -r kasvault/build kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/KasVault/
           fi
           cp core/resources/icons/icon-256.png kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
@@ -976,13 +1060,20 @@ jobs:
             mkdir -p .debpkg/usr/bin/Kasia
             cp -r Kasia/dist .debpkg/usr/bin/Kasia/
           fi
+          if [ -d target/release/KasVault/build ]; then
+            mkdir -p .debpkg/usr/bin/KasVault
+            cp -r target/release/KasVault/build .debpkg/usr/bin/KasVault/
+          elif [ -d kasvault/build ]; then
+            mkdir -p .debpkg/usr/bin/KasVault
+            cp -r kasvault/build .debpkg/usr/bin/KasVault/
+          fi
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia; do
+          for d in K Kasia KasVault; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps

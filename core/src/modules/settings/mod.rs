@@ -827,26 +827,6 @@ impl Settings {
         CollapsingHeader::new(i18n("Services"))
             .default_open(true)
             .show(ui, |ui| {
-                CollapsingHeader::new(i18n("Node"))
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        if ui
-                            .checkbox(
-                                &mut self.settings.node.remove_grpc_info_in_rusty_kaspa_log,
-                                i18n("Remove GRPC info in rusty kaspa log"),
-                            )
-                            .changed()
-                        {
-                            core.settings.node.remove_grpc_info_in_rusty_kaspa_log =
-                                self.settings.node.remove_grpc_info_in_rusty_kaspa_log;
-                            core.store_settings();
-                        }
-
-                        ui.add_space(6.);
-                        ui.separator();
-                        ui.add_space(6.);
-                    });
-
                 #[cfg(not(target_arch = "wasm32"))]
                 CollapsingHeader::new(i18n("Self Hosted"))
                     .default_open(true)
@@ -1259,6 +1239,107 @@ impl Settings {
                     });
 
                 #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("KasVault"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
+                        let mut kasvault = self.settings.kasvault.clone();
+                        let mut changed = false;
+
+                        changed |= ui
+                            .add_enabled(
+                                is_mainnet,
+                                Checkbox::new(
+                                    &mut kasvault.enabled,
+                                    i18n("Enable KasVault (Ledger)"),
+                                ),
+                            )
+                            .changed();
+
+                        if !is_mainnet {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("KasVault (Ledger) is available only on Mainnet."),
+                            );
+                        }
+
+                        ui.add_enabled_ui(is_mainnet, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(i18n("Preferred Browser"));
+                                ComboBox::from_id_salt("kasvault_browser_combo")
+                                    .selected_text(kasvault.browser.label())
+                                    .show_ui(ui, |ui| {
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::SystemDefault,
+                                                i18n("System Default"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::Chrome,
+                                                i18n("Google Chrome"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::Firefox,
+                                                i18n("Mozilla Firefox"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::Brave,
+                                                i18n("Brave"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::Edge,
+                                                i18n("Microsoft Edge"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut kasvault.browser,
+                                                crate::settings::KasvaultBrowser::Safari,
+                                                i18n("Safari"),
+                                            )
+                                            .changed();
+                                    });
+                            });
+                        });
+
+                        let network = core.settings.node.network;
+                        let mut kasvault_webview = format!(
+                            "http://localhost:{}",
+                            core.settings.user_interface.effective_kasvault_port(network)
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label(i18n("KasVault WebView"));
+                            ui.add_enabled(
+                                false,
+                                TextEdit::singleline(&mut kasvault_webview).desired_width(260.0),
+                            );
+                        });
+
+                        if changed {
+                            self.settings.kasvault = kasvault.clone();
+                            core.settings.kasvault = kasvault;
+                            core.store_settings();
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+                    });
+
+                #[cfg(not(target_arch = "wasm32"))]
                 CollapsingHeader::new(i18n("RK Bridge"))
                     .default_open(true)
                     .show(ui, |ui| {
@@ -1303,6 +1384,7 @@ impl Settings {
 
                         let mut changed = false;
                         let bridge = &mut self.settings.node.stratum_bridge;
+                        use egui_phosphor::light::CLIPBOARD_TEXT;
 
                         let mut extranonce_size = bridge.extranonce_size as u32;
 
@@ -1325,11 +1407,24 @@ impl Settings {
                                     let mut stratum_url =
                                         format!("stratum+tcp://{local_ip}:{stratum_port}");
                                     ui.label(i18n("Miner connection"));
-                                    ui.add(
-                                        TextEdit::singleline(&mut stratum_url)
-                                            .desired_width(260.0)
-                                            .interactive(false),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        let response = ui.add(
+                                            TextEdit::singleline(&mut stratum_url)
+                                                .desired_width(260.0)
+                                                .interactive(false),
+                                        );
+                                        if ui
+                                            .small_button(RichText::new(format!(
+                                                " {CLIPBOARD_TEXT} "
+                                            )))
+                                            .on_hover_text_at_pointer(i18n("Copy to clipboard"))
+                                            .clicked()
+                                        {
+                                            ui.ctx().copy_text(stratum_url.clone());
+                                            runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                        }
+                                        response.on_hover_text(i18n("Read-only"));
+                                    });
                                     ui.end_row();
 
                                     ui.label(i18n("Min Share Difficulty"));
@@ -1470,15 +1565,31 @@ impl Settings {
 
                         let mut changed = false;
                         let miner = &mut self.settings.node.cpu_miner;
+                        use egui_phosphor::light::CLIPBOARD_TEXT;
 
                         Grid::new("cpu_miner_settings_grid")
                             .num_columns(2)
                             .spacing([16.0, 6.0])
                             .show(ui, |ui| {
                                 ui.label(i18n("Mining Address"));
-                                changed |= ui
-                                    .add(TextEdit::singleline(&mut miner.mining_address).desired_width(260.0))
-                                    .changed();
+                                ui.horizontal(|ui| {
+                                    changed |= ui
+                                        .add(
+                                            TextEdit::singleline(&mut miner.mining_address)
+                                                .desired_width(260.0),
+                                        )
+                                        .changed();
+                                    if ui
+                                        .small_button(RichText::new(format!(
+                                            " {CLIPBOARD_TEXT} "
+                                        )))
+                                        .on_hover_text_at_pointer(i18n("Copy to clipboard"))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(miner.mining_address.clone());
+                                        runtime().notify_clipboard(i18n("Copied to clipboard"));
+                                    }
+                                });
                                 ui.end_row();
 
                                 ui.label(i18n("Threads"));
@@ -1809,6 +1920,21 @@ impl Settings {
         CollapsingHeader::new(i18n("Advanced"))
             .default_open(false)
             .show(ui, |ui| {
+                if ui
+                    .checkbox(
+                        &mut self.settings.node.remove_grpc_info_in_rusty_kaspa_log,
+                        i18n("Remove GRPC info in rusty kaspa log"),
+                    )
+                    .changed()
+                {
+                    core.settings.node.remove_grpc_info_in_rusty_kaspa_log =
+                        self.settings.node.remove_grpc_info_in_rusty_kaspa_log;
+                    core.store_settings();
+                }
+
+                ui.add_space(6.);
+                ui.separator();
+                ui.add_space(6.);
 
                 ui.horizontal(|ui| {
                     ui.add_space(2.);

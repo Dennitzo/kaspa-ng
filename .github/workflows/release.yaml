@@ -24,12 +24,23 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Clone KasVault
+        shell: bash
+        run: |
+          if [ ! -d kasvault ]; then
+            git clone --depth 1 https://github.com/coderofstuff/kasvault.git kasvault
+          fi
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: kaspa-explorer-ng/package-lock.json
+          cache-dependency-path: |
+            kaspa-explorer-ng/package-lock.json
+            K/package-lock.json
+            Kasia/package-lock.json
+            kasvault/package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -187,6 +198,13 @@ jobs:
               mkdir -p dist/Kasia
               cp -r Kasia/dist dist/Kasia/
             fi
+            if [ -d target/release/KasVault/build ]; then
+              mkdir -p dist/KasVault
+              cp -r target/release/KasVault/build dist/KasVault/
+            elif [ -d kasvault/build ]; then
+              mkdir -p dist/KasVault
+              cp -r kasvault/build dist/KasVault/
+            fi
           else
             cp target/release/kaspa-ng dist/
             for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
@@ -224,6 +242,13 @@ jobs:
               mkdir -p dist/Kasia
               cp -r Kasia/dist dist/Kasia/
             fi
+            if [ -d target/release/KasVault/build ]; then
+              mkdir -p dist/KasVault
+              cp -r target/release/KasVault/build dist/KasVault/
+            elif [ -d kasvault/build ]; then
+              mkdir -p dist/KasVault
+              cp -r kasvault/build dist/KasVault/
+            fi
             cp core/resources/icons/icon-256.png dist/kaspa-ng.png
             cp core/resources/packaging/kaspa-ng.desktop dist/
           fi
@@ -247,7 +272,7 @@ jobs:
               exit 1
             fi
           done
-          for d in K Kasia; do
+          for d in K Kasia KasVault; do
             if [ ! -d "dist/${d}" ]; then
               echo "Optional packaged directory missing: ${d} (continuing)"
             fi
@@ -307,6 +332,13 @@ jobs:
             New-Item -ItemType Directory -Path dist\Kasia | Out-Null
             Copy-Item -Recurse -Force Kasia\dist dist\Kasia\
           }
+          if (Test-Path target\release\KasVault\build) {
+            New-Item -ItemType Directory -Path dist\KasVault | Out-Null
+            Copy-Item -Recurse -Force target\release\KasVault\build dist\KasVault\
+          } elseif (Test-Path kasvault\build) {
+            New-Item -ItemType Directory -Path dist\KasVault | Out-Null
+            Copy-Item -Recurse -Force kasvault\build dist\KasVault\
+          }
           if (Test-Path kaspa-rest-server) {
             Copy-Item -Recurse -Force kaspa-rest-server dist\
           }
@@ -334,7 +366,7 @@ jobs:
               throw "Missing packaged directory: $d"
             }
           }
-          foreach ($d in @("K", "Kasia")) {
+          foreach ($d in @("K", "Kasia", "KasVault")) {
             if (-not (Test-Path "dist\\$d")) {
               Write-Host "Optional packaged directory missing: $d (continuing)"
             }

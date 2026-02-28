@@ -98,6 +98,15 @@ elif [ -d "${ROOT}/target/${PROFILE}/Kasia/dist" ]; then
   cp -r "${ROOT}/target/${PROFILE}/Kasia/dist" "$MACOS_DIR/Kasia/"
 fi
 
+# Bundle KasVault frontend assets if present.
+if [ -d "${ROOT}/kasvault/build" ]; then
+  mkdir -p "$MACOS_DIR/KasVault"
+  cp -r "${ROOT}/kasvault/build" "$MACOS_DIR/KasVault/"
+elif [ -d "${ROOT}/target/${PROFILE}/KasVault/build" ]; then
+  mkdir -p "$MACOS_DIR/KasVault"
+  cp -r "${ROOT}/target/${PROFILE}/KasVault/build" "$MACOS_DIR/KasVault/"
+fi
+
 # Bundle self-hosted indexer binaries in paths expected by runtime lookup.
 copy_file_if_exists \
   "${ROOT}/simply-kaspa-indexer/target/${PROFILE}/simply-kaspa-indexer" \
