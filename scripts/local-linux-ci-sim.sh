@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#FOR DOCKER
 
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -10,9 +11,7 @@ IMAGE="${IMAGE:-ubuntu:22.04}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 CONTAINER_WORKDIR="/workspace"
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-}"
-SKIP_APPIMAGE="${SKIP_APPIMAGE:-0}"
 DEBUG="${DEBUG:-1}"
-FORCE_APPIMAGE="${FORCE_APPIMAGE:-0}"
 
 usage() {
   cat <<'USAGE'
@@ -25,14 +24,12 @@ Options:
   --image <name>            Docker image (default: ubuntu:22.04)
   --platform <platform>     Docker platform (default: linux/amd64)
   --artifact-root <name>    Optional artifact root name override
-  --skip-appimage           Skip AppImage step in local-artifact-sim
-  --force-appimage          Force AppImage step even on hosts where it is auto-skipped
   --debug                   Enable shell trace (default)
   --no-debug                Disable shell trace
   -h, --help                Show this help
 
 Environment equivalents:
-  IMAGE, PLATFORM, ARTIFACT_ROOT, SKIP_APPIMAGE=0|1, FORCE_APPIMAGE=0|1, DEBUG=0|1
+  IMAGE, PLATFORM, ARTIFACT_ROOT, DEBUG=0|1
 USAGE
 }
 
@@ -50,16 +47,8 @@ while [[ $# -gt 0 ]]; do
       ARTIFACT_ROOT="$2"
       shift 2
       ;;
-    --skip-appimage)
-      SKIP_APPIMAGE=1
-      shift
-      ;;
     --debug)
       DEBUG=1
-      shift
-      ;;
-    --force-appimage)
-      FORCE_APPIMAGE=1
       shift
       ;;
     --no-debug)
@@ -90,14 +79,6 @@ require_cmd docker
 if [[ "$DEBUG" == "1" ]]; then
   export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
   set -x
-fi
-
-# AppImage generation via linuxdeploy often fails under Docker emulation on macOS
-# with "Exec format error". Default to skipping it there unless explicitly forced.
-if [[ "$(uname -s)" == "Darwin" && "$FORCE_APPIMAGE" != "1" && "$SKIP_APPIMAGE" != "1" ]]; then
-  echo "Host is macOS; auto-enabling --skip-appimage for Docker Linux simulation."
-  echo "Use --force-appimage to attempt AppImage generation anyway."
-  SKIP_APPIMAGE=1
 fi
 
 CONTAINER_SCRIPT="$(mktemp)"
@@ -136,11 +117,6 @@ cd /workspace
 chmod +x scripts/local-artifact-sim.sh
 
 sim_args=(--no-debug)
-if [[ "${SKIP_APPIMAGE:-0}" == "1" ]]; then
-  sim_args+=(--no-appimage)
-else
-  sim_args+=(--build-appimage)
-fi
 if [[ -n "${ARTIFACT_ROOT:-}" ]]; then
   sim_args+=(--artifact-root "$ARTIFACT_ROOT")
 fi
@@ -150,9 +126,7 @@ INNER
 
 chmod +x "$CONTAINER_SCRIPT"
 
-DOCKER_ENV=(
-  -e SKIP_APPIMAGE="$SKIP_APPIMAGE"
-)
+DOCKER_ENV=()
 if [[ -n "$ARTIFACT_ROOT" ]]; then
   DOCKER_ENV+=( -e ARTIFACT_ROOT="$ARTIFACT_ROOT" )
 fi

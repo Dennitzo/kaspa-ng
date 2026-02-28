@@ -5,8 +5,6 @@ param(
     [switch]$SkipKasia,
     [switch]$SkipCargo,
     [switch]$SkipPackage,
-    [switch]$BuildAppImage,
-    [switch]$NoAppImage,
     [switch]$EnableDebug,
     [switch]$NoDebug
 )
@@ -58,16 +56,6 @@ if (-not $PSBoundParameters.ContainsKey("ArtifactRoot")) {
 $skipKasiaValue = $SkipKasia.IsPresent -or (Convert-ToBoolFromEnv -Value $env:SKIP_KASIA -Default $false)
 $skipCargoValue = $SkipCargo.IsPresent -or (Convert-ToBoolFromEnv -Value $env:SKIP_CARGO -Default $false)
 $skipPackageValue = $SkipPackage.IsPresent -or (Convert-ToBoolFromEnv -Value $env:SKIP_PACKAGE -Default $false)
-
-$buildAppImageMode = if ($BuildAppImage.IsPresent) {
-    "1"
-} elseif ($NoAppImage.IsPresent) {
-    "0"
-} elseif ($env:BUILD_APPIMAGE) {
-    $env:BUILD_APPIMAGE
-} else {
-    "auto"
-}
 
 $debugEnabled = if ($EnableDebug.IsPresent) {
     $true
@@ -637,10 +625,6 @@ function Package-AndVerify {
     }
 
     Write-Host "LOCAL_ARTIFACT_SIM_OK root=$root"
-
-    if ($buildAppImageMode -eq "1") {
-        throw "--build-appimage is not supported by the Windows PowerShell simulation script."
-    }
 }
 
 function Invoke-LoggedStage {

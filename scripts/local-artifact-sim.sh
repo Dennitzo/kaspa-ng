@@ -10,7 +10,6 @@ DEBUG="${DEBUG:-1}"
 SKIP_KASIA="${SKIP_KASIA:-0}"
 SKIP_CARGO="${SKIP_CARGO:-0}"
 SKIP_PACKAGE="${SKIP_PACKAGE:-0}"
-BUILD_APPIMAGE="${BUILD_APPIMAGE:-auto}"
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/ci-local-logs}"
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-}"
 
@@ -27,15 +26,12 @@ Options:
   --skip-kasia          Skip Kasia npm/wasm build
   --skip-cargo          Skip cargo build --release
   --skip-package        Skip packaging and verification
-  --build-appimage      Build AppImage too (Linux only)
-  --no-appimage         Do not build AppImage
   --debug               Enable shell trace (default)
   --no-debug            Disable shell trace
   -h, --help            Show this help
 
 Environment equivalents:
-  LOG_DIR, ARTIFACT_ROOT, SKIP_KASIA=1, SKIP_CARGO=1, SKIP_PACKAGE=1,
-  BUILD_APPIMAGE=auto|0|1, DEBUG=0|1
+  LOG_DIR, ARTIFACT_ROOT, SKIP_KASIA=1, SKIP_CARGO=1, SKIP_PACKAGE=1, DEBUG=0|1
 EOF
 }
 
@@ -63,14 +59,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --debug)
       DEBUG=1
-      shift
-      ;;
-    --build-appimage)
-      BUILD_APPIMAGE=1
-      shift
-      ;;
-    --no-appimage)
-      BUILD_APPIMAGE=0
       shift
       ;;
     --no-debug)
@@ -436,26 +424,6 @@ package_and_verify() {
   fi
 
   echo "LOCAL_ARTIFACT_SIM_OK root=$root"
-
-  local appimage_should_build
-  appimage_should_build=0
-  if [[ "$BUILD_APPIMAGE" == "1" ]]; then
-    appimage_should_build=1
-  elif [[ "$BUILD_APPIMAGE" == "auto" && "$os" == "Linux" ]]; then
-    appimage_should_build=1
-  fi
-
-  if [[ "$appimage_should_build" == "1" ]]; then
-    local appimage_out
-    appimage_out="${root}.AppImage"
-    if [[ -f "$ROOT_DIR/scripts/build-linux-appimage.sh" ]]; then
-      bash "$ROOT_DIR/scripts/build-linux-appimage.sh" --input "$root" --output "$appimage_out"
-      echo "LOCAL_APPIMAGE_OK file=$appimage_out"
-    else
-      echo "AppImage script missing: scripts/build-linux-appimage.sh" >&2
-      exit 1
-    fi
-  fi
 }
 
 echo "==> [1/4] Prepare Kasia wasm package"
