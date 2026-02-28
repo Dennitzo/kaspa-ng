@@ -325,11 +325,11 @@ fn open_url_with_browser(
             KasvaultBrowser::Safari => "Safari",
             KasvaultBrowser::SystemDefault => unreachable!(),
         };
-        return Command::new("open")
+        Command::new("open")
             .args(["-a", app, url])
             .spawn()
             .map(|_| ())
-            .map_err(|err| err.to_string());
+            .map_err(|err| err.to_string())
     }
 
     #[cfg(target_os = "windows")]

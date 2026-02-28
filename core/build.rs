@@ -470,12 +470,10 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         println!("cargo:warning=Failed to update {name} via git pull --ff-only");
     }
 
-    if let Some(stash_ref) = stashed_ref {
-        if !apply_stash_ref(&target, &stash_ref)? {
-            println!(
-                "cargo:warning=Failed to re-apply stashed local changes for {name} ({stash_ref})"
-            );
-        }
+    if let Some(stash_ref) = stashed_ref
+        && !apply_stash_ref(&target, &stash_ref)?
+    {
+        println!("cargo:warning=Failed to re-apply stashed local changes for {name} ({stash_ref})");
     }
 
     Ok(())
