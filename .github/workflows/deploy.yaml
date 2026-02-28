@@ -197,7 +197,9 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia postgres; do
+          [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
+          [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/postgres/bin/postgres.exe" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres.exe"; exit 1; }
+          for d in K Kasia; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           archive="kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng-${{ github.event.release.tag_name }}-windows-x64.zip"
@@ -270,7 +272,9 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia postgres; do
+          [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
+          [ -x "$ROOT/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
+          for d in K Kasia; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -345,7 +349,9 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia postgres; do
+          [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
+          [ -x "$ROOT/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
+          for d in K Kasia; do
             [ -d "$ROOT/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           [ -d "$ROOT/Kaspa-NG.app" ] || { echo "Missing packaged app bundle: Kaspa-NG.app"; exit 1; }
@@ -439,7 +445,9 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          for d in K Kasia postgres; do
+          [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
+          [ -x "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
+          for d in K Kasia; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || echo "Optional packaged directory missing: ${d} (continuing)"
           done
           mkdir -p .debpkg/usr/share/icons/hicolor/256x256/apps

@@ -289,7 +289,15 @@ jobs:
               exit 1
             fi
           done
-          for d in K Kasia KasVault postgres; do
+          if [ ! -d "dist/postgres" ]; then
+            echo "Missing packaged directory: postgres"
+            exit 1
+          fi
+          if [ ! -x "dist/postgres/bin/postgres" ]; then
+            echo "Missing PostgreSQL runtime binary: dist/postgres/bin/postgres"
+            exit 1
+          fi
+          for d in K Kasia KasVault; do
             if [ ! -d "dist/${d}" ]; then
               echo "Optional packaged directory missing: ${d} (continuing)"
             fi
@@ -416,7 +424,13 @@ jobs:
               throw "Missing packaged directory: $d"
             }
           }
-          foreach ($d in @("K", "Kasia", "KasVault", "postgres")) {
+          if (-not (Test-Path "dist\\postgres")) {
+            throw "Missing packaged directory: postgres"
+          }
+          if (-not (Test-Path "dist\\postgres\\bin\\postgres.exe")) {
+            throw "Missing PostgreSQL runtime binary: dist\\postgres\\bin\\postgres.exe"
+          }
+          foreach ($d in @("K", "Kasia", "KasVault")) {
             if (-not (Test-Path "dist\\$d")) {
               Write-Host "Optional packaged directory missing: $d (continuing)"
             }
