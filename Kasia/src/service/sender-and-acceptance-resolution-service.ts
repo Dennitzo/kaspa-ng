@@ -1,5 +1,10 @@
 import EventEmitter from "eventemitter3";
-import { Address, IVirtualChainChanged, RpcClient } from "kaspa-wasm";
+import {
+  Address,
+  addressFromScriptPublicKey,
+  IVirtualChainChanged,
+  RpcClient,
+} from "kaspa-wasm";
 import { VirtualChainEvent } from "../types/all";
 import { TransactionId } from "../types/transactions";
 import { devMode } from "../config/dev-mode";
@@ -33,6 +38,7 @@ export interface LiveServiceEvents {
 export class SenderAndAcceptanceResolutionService extends EventEmitter<LiveServiceEvents> {
   RESOLUTION_TIMEOUT_MS = 10_000;
   GARBAGE_COLLECTION_TIMEOUT_MS = 15_000;
+  private networkId = "mainnet";
 
   private waitingQueue: Map<
     TransactionId,
@@ -65,6 +71,16 @@ export class SenderAndAcceptanceResolutionService extends EventEmitter<LiveServi
       this.boundedOnVirtualChainChanged
     );
     await this.rpcClient.subscribeVirtualChainChanged(true);
+    try {
+      const serverInfo = await this.rpcClient.getServerInfo();
+      if (serverInfo?.networkId) {
+        this.networkId = serverInfo.networkId;
+      }
+    } catch (error) {
+      if (devMode) {
+        console.warn("Unable to resolve networkId from RPC server info:", error);
+      }
+    }
 
     // if (devMode) {
     //   setInterval(() => {
@@ -142,32 +158,15 @@ export class SenderAndAcceptanceResolutionService extends EventEmitter<LiveServi
           });
 
           try {
-            const blockResponse = await this.rpcClient.getBlock({
-              hash: acceptingBlock,
-              includeTransactions: false,
-            });
+            const sender = await this.resolveSenderFromAcceptingBlock(
+              txId,
+              acceptingBlock
+            );
 
-            if (!blockResponse?.block?.header?.daaScore) {
-              console.log(`resolving ${txId}, ${acceptingBlock} not found`);
-              continue;
-            }
-
-            // if the vcc changed between last known acceptance, it has to be redone
-            // ignore error and continue processing the queue
-            const returnAddressResponse = await this.rpcClient
-              .getUtxoReturnAddress({
-                txid: txId,
-                acceptingBlockDaaScore: blockResponse.block.header.daaScore,
-              })
-              .catch(() => {
-                return null;
-              });
-
-            if (returnAddressResponse === null && devMode) {
+            if (sender === null && devMode) {
               console.warn(
                 `resolving ${txId}, this try failed, trying again...`,
                 {
-                  blockResponse,
                   acceptingBlock,
                 }
               );
@@ -182,11 +181,11 @@ export class SenderAndAcceptanceResolutionService extends EventEmitter<LiveServi
               });
             }
 
-            if (returnAddressResponse?.returnAddress) {
+            if (sender) {
               waitingContext.resolve({
                 acceptingBlock: acceptingBlock,
                 txId,
-                sender: returnAddressResponse.returnAddress,
+                sender,
               });
             }
           } catch (error) {
@@ -202,6 +201,50 @@ export class SenderAndAcceptanceResolutionService extends EventEmitter<LiveServi
         }
       }
     }
+  }
+
+  private async resolveSenderFromAcceptingBlock(
+    txId: string,
+    acceptingBlock: string
+  ): Promise<Address | null> {
+    const blockResponse = await this.rpcClient.getBlock({
+      hash: acceptingBlock,
+      includeTransactions: true,
+    });
+    const transactions = blockResponse?.block?.transactions ?? [];
+
+    const tx = transactions.find((candidate) => {
+      const candidateId = candidate.verboseData?.transactionId;
+      const candidateHash = candidate.verboseData?.hash;
+      return candidateId === txId || candidateHash === txId;
+    });
+
+    if (!tx) {
+      return null;
+    }
+
+    for (const input of tx.inputs ?? []) {
+      const address = input.utxo?.address;
+      if (address) {
+        return address;
+      }
+
+      if (input.utxo?.scriptPublicKey) {
+        try {
+          const derived = addressFromScriptPublicKey(
+            input.utxo.scriptPublicKey,
+            this.networkId
+          );
+          if (derived) {
+            return derived;
+          }
+        } catch {
+          // ignore and keep trying other inputs
+        }
+      }
+    }
+
+    return null;
   }
 
   private onVirtualChainChanged(_event: IVirtualChainChanged) {

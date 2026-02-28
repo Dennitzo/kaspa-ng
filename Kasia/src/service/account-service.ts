@@ -115,7 +115,7 @@ export class AccountService extends EventEmitter<AccountServiceEvents> {
   ) {
     super();
 
-    this.networkId = rpc.networkId?.toString() ?? "mainnet";
+    this.networkId = "mainnet";
 
     this.processor = new UtxoProcessor({
       networkId: this.networkId,
@@ -224,7 +224,18 @@ export class AccountService extends EventEmitter<AccountServiceEvents> {
   async start() {
     try {
       console.log("starting account service");
-      this.processor.setNetworkId(this.rpc.networkId?.toString() || "mainnet");
+      if (this.rpc.isConnected) {
+        try {
+          const serverInfo = await this.rpc.getServerInfo();
+          if (serverInfo?.networkId) {
+            this.networkId = serverInfo.networkId;
+          }
+        } catch (error) {
+          console.warn("Unable to resolve networkId from RPC server info:", error);
+        }
+      }
+
+      this.processor.setNetworkId(this.networkId);
 
       // Get the receive address from the wallet
       const initialReceiveAddress =

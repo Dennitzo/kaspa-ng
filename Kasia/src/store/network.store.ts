@@ -70,11 +70,11 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
     }),
     async connect(): Promise<void> {
       const rpc = g().rpc;
+      const targetNetwork = g().network;
 
-      const isDifferentNetwork = rpc.networkId?.toString() !== g().network;
       const isDifferentUrl = rpc?.url !== (g().nodeUrl ?? undefined);
 
-      if (!isDifferentNetwork && !isDifferentUrl && rpc.isConnected) {
+      if (!isDifferentUrl && rpc.isConnected) {
         console.warn("Trying to connect RPC while it is already connected.");
         throw new Error("Already connected.");
       }
@@ -89,9 +89,7 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
 
       await rpc.disconnect();
 
-      if (isDifferentNetwork) {
-        rpc.setNetworkId(g().network);
-      }
+      rpc.setNetworkId(targetNetwork);
 
       const runtimeConfig =
         (globalThis as {
@@ -102,11 +100,11 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
         }).__KASPA_NG_KASIA_CONFIG ?? {};
 
       const officialNodeUrl =
-        rpc.networkId?.toString() === "mainnet"
+        targetNetwork === "mainnet"
           ? import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL
           : import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;
       const kasiaNodeUrl =
-        rpc.networkId?.toString() === "mainnet"
+        targetNetwork === "mainnet"
           ? runtimeConfig.defaultMainnetNodeUrl ?? officialNodeUrl
           : runtimeConfig.defaultTestnetNodeUrl ?? officialNodeUrl;
 
@@ -136,9 +134,9 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
             // verify network matches
             const serverInfo = await rpc.getServerInfo();
 
-            if (serverInfo.networkId !== rpc.networkId?.toString()) {
+            if (serverInfo.networkId !== targetNetwork) {
               throw new Error(
-                `RPC Node isn't on the correct networkId. Expected: ${rpc.networkId?.toString()}, Got: ${serverInfo.networkId}`
+                `RPC Node isn't on the correct networkId. Expected: ${targetNetwork}, Got: ${serverInfo.networkId}`
               );
             }
 
@@ -171,13 +169,11 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
         // persist the nodeUrl uppon successful connection
         if (g().nodeUrl) {
           localStorage.setItem(
-            `kasia_node_url_${rpc.networkId?.toString()}`,
+            `kasia_node_url_${targetNetwork}`,
             g().nodeUrl ?? ""
           );
         } else {
-          localStorage.removeItem(
-            `kasia_node_url_${rpc.networkId?.toString()}`
-          );
+          localStorage.removeItem(`kasia_node_url_${targetNetwork}`);
         }
 
         set({

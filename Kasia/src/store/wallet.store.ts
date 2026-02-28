@@ -253,7 +253,7 @@ export const useWalletStore = create<WalletState>((set, get) => {
       set({
         unlockedWallet: wallet,
         address: wallet.receivePublicKey.toAddress(
-          currentRpc.networkId ?? new NetworkId("mainnet")
+          new NetworkId(get().selectedNetwork ?? "mainnet")
         ),
       });
 
