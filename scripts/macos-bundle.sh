@@ -207,5 +207,13 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+# Ad-hoc sign the full app bundle so Gatekeeper doesn't treat it as broken
+# due to unsigned/partially-signed nested binaries.
+if command -v codesign >/dev/null 2>&1; then
+  SIGN_IDENTITY="${MACOS_CODESIGN_IDENTITY:--}"
+  codesign --force --deep --sign "${SIGN_IDENTITY}" --timestamp=none "${APP_DIR}"
+  codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+fi
+
 echo "Created ${APP_DIR}"
 echo "Run: open \"${APP_DIR}\""

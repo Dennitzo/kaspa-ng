@@ -12,8 +12,9 @@ gunicorn = "*"
 requests = "*"
 websockets = "*"
 fastapi-utils = "*"
+typing-inspect = "*"
 python-socketio = "*"
-psycopg2 = {extras = ["async"], version = "*"}
+psycopg2 = "*"
 asyncpg = "*"
 cachetools = "*"
 

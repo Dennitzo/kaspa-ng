@@ -32,6 +32,7 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
+    const REQUIRED_PY_MODULES: [&'static str; 3] = ["uvicorn", "fastapi_utils", "typing_inspect"];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)
     }
@@ -447,6 +448,11 @@ impl SelfHostedExplorerService {
     fn build_command(root: &Path, bind: &str, port: u16) -> Option<Command> {
         let bind_arg = format!("{bind}:{port}");
         if let Some(venv_python) = Self::find_venv_python(root) {
+            Self::ensure_python_modules_for_python(
+                &venv_python,
+                &Self::REQUIRED_PY_MODULES,
+                &["typing-inspect"],
+            );
             let mut cmd = Command::new(venv_python);
             cmd.arg("-m")
                 .arg("gunicorn")
@@ -461,7 +467,7 @@ impl SelfHostedExplorerService {
         }
         if root.join("pyproject.toml").exists() {
             if let Some(python) = Self::find_poetry_cached_venv_python(root) {
-                if Self::python_module_available_for_python(&python, "uvicorn") {
+                if Self::python_modules_available_for_python(&python, &Self::REQUIRED_PY_MODULES) {
                     let mut cmd = Command::new(python);
                     cmd.arg("-m")
                         .arg("uvicorn")
@@ -485,7 +491,12 @@ impl SelfHostedExplorerService {
                 }
 
                 // Ensure runtime deps exist in the selected poetry env.
-                if !Self::python_module_available(root, &poetry, &["run", "python"], "uvicorn") {
+                if !Self::python_modules_available(
+                    root,
+                    &poetry,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
                     let _ = std::process::Command::new(&poetry)
                         .current_dir(root)
                         .arg("install")
@@ -495,7 +506,28 @@ impl SelfHostedExplorerService {
                         .arg("--no-interaction")
                         .status();
                 }
-                if Self::python_module_available(root, &poetry, &["run", "python"], "uvicorn") {
+                if !Self::python_modules_available(
+                    root,
+                    &poetry,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
+                    let _ = std::process::Command::new(&poetry)
+                        .current_dir(root)
+                        .arg("run")
+                        .arg("python")
+                        .arg("-m")
+                        .arg("pip")
+                        .arg("install")
+                        .arg("typing-inspect")
+                        .status();
+                }
+                if Self::python_modules_available(
+                    root,
+                    &poetry,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
                     let mut cmd = Command::new(poetry);
                     cmd.arg("run")
                         .arg("python")
@@ -514,7 +546,12 @@ impl SelfHostedExplorerService {
         if root.join("Pipfile").exists() {
             if let Some(pipenv) = Self::find_pipenv() {
                 // Ensure runtime deps are available in the pipenv environment.
-                if !Self::python_module_available(root, &pipenv, &["run", "python"], "uvicorn") {
+                if !Self::python_modules_available(
+                    root,
+                    &pipenv,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
                     let install_status = std::process::Command::new(&pipenv)
                         .current_dir(root)
                         .arg("install")
@@ -526,6 +563,22 @@ impl SelfHostedExplorerService {
                             .arg("install")
                             .status();
                     }
+                }
+                if !Self::python_modules_available(
+                    root,
+                    &pipenv,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
+                    let _ = std::process::Command::new(&pipenv)
+                        .current_dir(root)
+                        .arg("run")
+                        .arg("python")
+                        .arg("-m")
+                        .arg("pip")
+                        .arg("install")
+                        .arg("typing-inspect")
+                        .status();
                 }
 
                 let mut cmd = Command::new(pipenv);
@@ -554,6 +607,25 @@ impl SelfHostedExplorerService {
         Some(cmd)
     }
 
+    fn ensure_python_modules_for_python(
+        python: &Path,
+        modules: &[&str],
+        pip_packages: &[&str],
+    ) {
+        if Self::python_modules_available_for_python(python, modules) {
+            return;
+        }
+        if !pip_packages.is_empty() {
+            let mut cmd = std::process::Command::new(python);
+            cmd.arg("-m").arg("pip").arg("install");
+            for pkg in pip_packages {
+                cmd.arg(pkg);
+            }
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            let _ = cmd.status();
+        }
+    }
+
     fn python_module_available(
         root: &Path,
         runner: &Path,
@@ -570,11 +642,28 @@ impl SelfHostedExplorerService {
         matches!(cmd.status(), Ok(status) if status.success())
     }
 
+    fn python_modules_available(
+        root: &Path,
+        runner: &Path,
+        runner_args: &[&str],
+        modules: &[&str],
+    ) -> bool {
+        modules
+            .iter()
+            .all(|module| Self::python_module_available(root, runner, runner_args, module))
+    }
+
     fn python_module_available_for_python(python: &Path, module: &str) -> bool {
         let mut cmd = std::process::Command::new(python);
         cmd.arg("-c").arg(format!("import {module}"));
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn python_modules_available_for_python(python: &Path, modules: &[&str]) -> bool {
+        modules
+            .iter()
+            .all(|module| Self::python_module_available_for_python(python, module))
     }
 
     fn apply_common_env(cmd: &mut Command, settings: &SelfHostedSettings, node: &NodeSettings) {
