@@ -507,23 +507,67 @@ jobs:
             echo "Kasia wasm package already present"
             exit 0
           fi
-
-          echo "Preparing Kasia wasm package from rusty-kaspa..."
           TMP_ROOT="$(mktemp -d 2>/dev/null || mktemp -d -t kasiawasm)"
           trap 'rm -rf "$TMP_ROOT"' EXIT
-          git clone --depth 1 https://github.com/kaspanet/rusty-kaspa.git "$TMP_ROOT/rusty-kaspa"
-          PKG_JSON="$(find "$TMP_ROOT/rusty-kaspa" -type f -path '*/web/kaspa/package.json' | head -n1)"
-          if [ -z "$PKG_JSON" ]; then
-            echo "Unable to locate kaspa wasm package in rusty-kaspa clone"
-            exit 1
+
+          find_kaspa_wasm_dir() {
+            local search_root="$1"
+            [ -d "$search_root" ] || return 1
+            while IFS= read -r pkg; do
+              if grep -Eq '"name"[[:space:]]*:[[:space:]]*"kaspa-wasm"' "$pkg"; then
+                local parent
+                parent="$(dirname "$pkg")"
+                if [ -f "$parent/kaspa.js" ] && [ -f "$parent/kaspa.d.ts" ]; then
+                  echo "$parent"
+                  return 0
+                fi
+              fi
+            done < <(find "$search_root" -type f -name package.json)
+            return 1
+          }
+
+          copy_pkg() {
+            local src_dir="$1"
+            echo "Using kaspa-wasm package from: $src_dir"
+            mkdir -p Kasia/wasm
+            rm -rf Kasia/wasm/*
+            cp -R "$src_dir"/. Kasia/wasm/
+            test -f Kasia/wasm/package.json
+            test -f Kasia/wasm/kaspa.js
+            test -f Kasia/wasm/kaspa.d.ts
+          }
+
+          if PKG_DIR="$(find_kaspa_wasm_dir rusty-kaspa 2>/dev/null)"; then
+            copy_pkg "$PKG_DIR"
+            exit 0
           fi
-          SRC_DIR="$(dirname "$PKG_JSON")"
-          mkdir -p Kasia/wasm
-          rm -rf Kasia/wasm/*
-          cp -R "$SRC_DIR"/. Kasia/wasm/
-          test -f Kasia/wasm/package.json
-          test -f Kasia/wasm/kaspa.js
-          test -f Kasia/wasm/kaspa.d.ts
+
+          if [ -n "${KASIA_WASM_SDK_URL:-}" ]; then
+            URLS=("${KASIA_WASM_SDK_URL}")
+          else
+            URLS=(
+              "https://github.com/IzioDev/rusty-kaspa/releases/download/v1.0.1-beta1/kaspa-wasm32-sdk-v1.0.1-beta1.zip"
+              "https://github.com/kaspanet/rusty-kaspa/releases/download/v1.0.0/kaspa-wasm32-sdk-v1.0.0.zip"
+            )
+          fi
+
+          for url in "${URLS[@]}"; do
+            echo "Attempting Kasia wasm SDK download from ${url}"
+            zip_path="${TMP_ROOT}/sdk.zip"
+            extract_dir="${TMP_ROOT}/extract"
+            rm -rf "$zip_path" "$extract_dir"
+            if ! curl -fL --retry 2 -o "$zip_path" "$url"; then
+              continue
+            fi
+            python3 -c 'import pathlib,sys,zipfile; p=pathlib.Path(sys.argv[1]); d=pathlib.Path(sys.argv[2]); d.mkdir(parents=True, exist_ok=True); zipfile.ZipFile(p).extractall(d)' "$zip_path" "$extract_dir"
+            if PKG_DIR="$(find_kaspa_wasm_dir "$extract_dir" 2>/dev/null)"; then
+              copy_pkg "$PKG_DIR"
+              exit 0
+            fi
+          done
+
+          echo "Unable to locate kaspa-wasm package for Kasia/wasm"
+          exit 1
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
