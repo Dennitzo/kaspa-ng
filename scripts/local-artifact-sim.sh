@@ -111,6 +111,44 @@ require_cmd npm
 require_cmd python3
 require_cmd curl
 
+ensure_rollup_native() {
+  [[ -f node_modules/rollup/dist/native.js ]] || return 0
+
+  if node -e "require('rollup/dist/native.js')" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local os arch pkg
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os/$arch" in
+    Linux/x86_64)
+      pkg="@rollup/rollup-linux-x64-gnu"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      pkg="@rollup/rollup-linux-arm64-gnu"
+      ;;
+    *)
+      echo "rollup native binding missing; unsupported auto-fix target: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+
+  echo "rollup native binding missing; installing ${pkg}"
+  npm install --no-audit --no-fund --no-save "$pkg"
+  node -e "require('rollup/dist/native.js')" >/dev/null
+}
+
+npm_install_with_fallback() {
+  if [[ -f package-lock.json ]]; then
+    npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
+  else
+    npm install --no-audit --no-fund
+  fi
+  ensure_rollup_native
+}
+
 ensure_wasm_pack() {
   if command -v wasm-pack >/dev/null 2>&1; then
     return 0
@@ -219,11 +257,7 @@ build_kasia() {
   ensure_wasm_pack
   (
     cd Kasia
-    if [[ -f package-lock.json ]]; then
-      npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
-    else
-      npm install --no-audit --no-fund
-    fi
+    npm_install_with_fallback
     npm run wasm:build
     npm run build:production || npm exec vite build
   )
@@ -238,11 +272,7 @@ build_explorer_if_missing() {
   echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
   (
     cd kaspa-explorer-ng
-    if [[ -f package-lock.json ]]; then
-      npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
-    else
-      npm install --no-audit --no-fund
-    fi
+    npm_install_with_fallback
     npm run build
   )
 }
