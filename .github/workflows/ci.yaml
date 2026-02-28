@@ -737,28 +737,6 @@ jobs:
           path: kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           overwrite: true
 
-      - name: Build Windows MSI package
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          ./scripts/build-windows-msi.ps1 -PackageDir "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64" -SkipBuild
-
-      - name: Resolve Windows MSI artifact path
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $msi = Get-ChildItem -File "kaspa-ng-windows-x64-*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $msi) { throw "MSI package was not created" }
-          Add-Content -Path $env:GITHUB_ENV -Value "WINDOWS_MSI_ASSET=$($msi.FullName)"
-
-      - name: Upload Windows MSI to GitHub
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaspa-ng-${{ env.SHORT_SHA }}-windows-x64-msi
-          path: ${{ env.WINDOWS_MSI_ASSET }}
-          overwrite: true
-
       - name: Build on MacOS (arm64)
         if: |
           runner.os == 'macOS' &&

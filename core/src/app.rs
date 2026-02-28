@@ -133,7 +133,7 @@ cfg_if! {
                     )
                     .subcommand(
                         Command::new("build")
-                            .about("Build release artifacts; on Windows also creates an MSI package")
+                            .about("Build release artifacts")
                     )
                     ;
 
@@ -179,31 +179,6 @@ cfg_if! {
                 return Err(crate::error::Error::custom(format!(
                     "cargo build --release failed with status {status}"
                 )));
-            }
-
-            #[cfg(target_os = "windows")]
-            {
-                let script = std::path::PathBuf::from("scripts").join("build-windows-msi.ps1");
-                if !script.exists() {
-                    return Err(crate::error::Error::custom(format!(
-                        "MSI script not found: {}",
-                        script.display()
-                    )));
-                }
-
-                let msi_status = std::process::Command::new("powershell")
-                    .arg("-NoProfile")
-                    .arg("-ExecutionPolicy")
-                    .arg("Bypass")
-                    .arg("-File")
-                    .arg(script)
-                    .arg("-SkipBuild")
-                    .status()?;
-                if !msi_status.success() {
-                    return Err(crate::error::Error::custom(format!(
-                        "MSI build script failed with status {msi_status}"
-                    )));
-                }
             }
 
             Ok(())

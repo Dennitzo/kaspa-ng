@@ -425,11 +425,7 @@ jobs:
           Copy-Item LICENSE dist\
           if (Test-Path $out) { Remove-Item $out }
           Compress-Archive -Path dist\* -DestinationPath $out
-          ./scripts/build-windows-msi.ps1 -PackageDir "dist" -SkipBuild -Version "$env:RELEASE_TAG"
-          $msi = Get-ChildItem -File "kaspa-ng-windows-x64-*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $msi) { throw "MSI package was not created" }
           Add-Content -Path $env:GITHUB_ENV -Value "ASSET=$out"
-          Add-Content -Path $env:GITHUB_ENV -Value "MSI_ASSET=$($msi.FullName)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -446,14 +442,6 @@ jobs:
           path: ${{ env.APPIMAGE_ASSET }}
           overwrite: true
 
-      - name: Upload Windows MSI artifact
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaspa-ng-windows-msi-${{ github.ref_name }}
-          path: ${{ env.MSI_ASSET }}
-          overwrite: true
-
       - name: Upload macOS App Bundle artifact
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
@@ -468,12 +456,6 @@ jobs:
         with:
           files: ${{ env.ASSET }}
           body_path: RELEASE_NOTES.md
-
-      - name: Upload MSI to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Windows'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.MSI_ASSET }}
 
       - name: Upload AppImage to GitHub Release
         if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
