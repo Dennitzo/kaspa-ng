@@ -276,6 +276,24 @@ copy_binary_if_exists() {
   fi
 }
 
+copy_dir_filtered() {
+  local src="$1"
+  local dst="$2"
+  [[ -d "$src" ]] || return 0
+  mkdir -p "$dst"
+  (
+    cd "$src"
+    tar \
+      --exclude='.venv' \
+      --exclude='__pycache__' \
+      --exclude='.DS_Store' \
+      -cf - .
+  ) | (
+    cd "$dst"
+    tar -xf -
+  )
+}
+
 package_and_verify() {
   local short_sha platform root os
   short_sha="$(git rev-parse --short HEAD 2>/dev/null || echo "local")"
@@ -299,6 +317,11 @@ package_and_verify() {
 
   cp target/release/kaspa-ng "$root/"
 
+  if [[ "$os" == "Linux" ]]; then
+    cp core/resources/icons/icon-256.png "$root/kaspa-ng.png"
+    cp core/resources/packaging/kaspa-ng.desktop "$root/"
+  fi
+
   local bin
   for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
     copy_binary_if_exists "$bin" "$root"
@@ -311,8 +334,8 @@ package_and_verify() {
     cp -r kaspa-explorer-ng/build "$root/kaspa-explorer-ng/"
   fi
 
-  [[ -d kaspa-rest-server ]] && cp -r kaspa-rest-server "$root/"
-  [[ -d kaspa-socket-server ]] && cp -r kaspa-socket-server "$root/"
+  copy_dir_filtered "kaspa-rest-server" "$root/kaspa-rest-server"
+  copy_dir_filtered "kaspa-socket-server" "$root/kaspa-socket-server"
 
   if [[ -d target/release/K/dist ]]; then
     mkdir -p "$root/K"

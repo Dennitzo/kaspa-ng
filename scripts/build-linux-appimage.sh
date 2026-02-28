@@ -61,6 +61,18 @@ require_cmd curl
 require_cmd sed
 require_cmd find
 
+download_with_fallback() {
+  local out="$1"
+  shift
+  local url
+  for url in "$@"; do
+    if curl -fL --retry 3 -o "$out" "$url"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -99,10 +111,15 @@ chmod +x "$APPDIR/AppRun"
 
 LINUXDEPLOY="$WORK_DIR/linuxdeploy-x86_64.AppImage"
 GTK_PLUGIN="$WORK_DIR/linuxdeploy-plugin-gtk.sh"
-curl -fL --retry 3 -o "$LINUXDEPLOY" \
-  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-curl -fL --retry 3 -o "$GTK_PLUGIN" \
-  "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk.sh"
+download_with_fallback "$LINUXDEPLOY" \
+  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
+  "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage" \
+  || { echo "Failed to download linuxdeploy" >&2; exit 1; }
+download_with_fallback "$GTK_PLUGIN" \
+  "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk.sh" \
+  "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/main/linuxdeploy-plugin-gtk.sh" \
+  "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
+  || { echo "Failed to download linuxdeploy GTK plugin" >&2; exit 1; }
 chmod +x "$LINUXDEPLOY" "$GTK_PLUGIN"
 
 export ARCH=x86_64

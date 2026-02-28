@@ -340,7 +340,6 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.cache/trunk/
-            target/wasm32-ci/
           key: ubuntu-22.04-${{ runner.arch }}-cargo-wasm32-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
@@ -495,7 +494,6 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            target/
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
