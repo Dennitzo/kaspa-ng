@@ -60,7 +60,25 @@ const SearchBox = (props: Props) => {
   };
 
   useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+
+      const tag = target.tagName.toLowerCase();
+      if (tag === "textarea" || tag === "select") return true;
+
+      if (tag === "input") {
+        const input = target as HTMLInputElement;
+        const type = (input.type || "text").toLowerCase();
+        return !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(type);
+      }
+
+      return false;
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+
       if (
         (event.key === "#" || event.key === "/" || event.key === "-") &&
         document.activeElement !== inputFieldRef.current

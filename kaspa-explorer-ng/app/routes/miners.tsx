@@ -342,7 +342,7 @@ export default function Miners() {
         <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-gray-100 bg-gray-25 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-black">Filter miner info</div>
-            <div className="text-xs text-gray-500">Type a keyword (e.g. Umbrel) to filter.</div>
+            <div className="text-xs text-gray-500">Type a keyword (e.g. RK-Stratum) to filter.</div>
           </div>
           <input
             type="text"
