@@ -140,9 +140,24 @@ fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
 
 fn find_python_launcher() -> Option<String> {
     #[cfg(windows)]
-    let candidates = ["py -3.12", "py -3.11", "py -3.10", "py -3", "python3.12", "python3.11", "python", "python3"];
+    let candidates = [
+        "py -3.12",
+        "py -3.11",
+        "py -3.10",
+        "py -3",
+        "python3.12",
+        "python3.11",
+        "python",
+        "python3",
+    ];
     #[cfg(not(windows))]
-    let candidates = ["python3.12", "python3.11", "python3.10", "python3", "python"];
+    let candidates = [
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "python3",
+        "python",
+    ];
 
     for candidate in candidates {
         let mut parts = candidate.split_whitespace();
@@ -358,8 +373,14 @@ fn venv_python_is_too_new_for_runtime_deps(venv_python: &Path) -> bool {
     }
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let mut parts = version.split('.');
-    let major = parts.next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+    let major = parts
+        .next()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
     major > 3 || (major == 3 && minor >= 14)
 }
 
@@ -425,11 +446,15 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
     let stashed_ref = if has_local_git_changes(&target)? {
         match stash_local_git_changes(&target, name)? {
             Some(stash_ref) => {
-                println!("cargo:warning={name} has local changes; stashed before pull ({stash_ref})");
+                println!(
+                    "cargo:warning={name} has local changes; stashed before pull ({stash_ref})"
+                );
                 Some(stash_ref)
             }
             None => {
-                println!("cargo:warning={name} has local changes but stash failed; skipping git pull");
+                println!(
+                    "cargo:warning={name} has local changes but stash failed; skipping git pull"
+                );
                 return Ok(());
             }
         }
@@ -568,7 +593,8 @@ fn apply_stash_ref(repo_dir: &Path, stash_ref: &str) -> Result<bool, Box<dyn Err
         return Ok(false);
     }
 
-    let drop_target = resolve_stash_drop_target(repo_dir, stash_ref)?.unwrap_or_else(|| stash_ref.to_string());
+    let drop_target =
+        resolve_stash_drop_target(repo_dir, stash_ref)?.unwrap_or_else(|| stash_ref.to_string());
     let drop_ok = Command::new("git")
         .current_dir(repo_dir)
         .args(["stash", "drop", &drop_target])
