@@ -1148,8 +1148,7 @@ fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building kasia-indexer (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&indexer_root)
+    let status = child_cargo_command(&cargo, &indexer_root)
         .args(["build", "-p", "indexer", "--release"])
         .status()?;
 
@@ -1248,8 +1247,7 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building kaspa-stratum-bridge (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&rusty_kaspa)
+    let status = child_cargo_command(&cargo, &rusty_kaspa)
         .args(["build", "-p", "kaspa-stratum-bridge", "--release"])
         .status()?;
 
@@ -1313,8 +1311,7 @@ fn build_cpu_miner_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building kaspa-miner (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&miner_root)
+    let status = child_cargo_command(&cargo, &miner_root)
         .args(["build", "--release"])
         .status()?;
 
@@ -1382,8 +1379,7 @@ fn build_rothschild_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building rothschild (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&rusty_kaspa)
+    let status = child_cargo_command(&cargo, &rusty_kaspa)
         .args(["build", "-p", "rothschild", "--release"])
         .status()?;
 
@@ -1467,8 +1463,7 @@ fn build_simply_kaspa_indexer_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building simply-kaspa-indexer (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&indexer_root)
+    let status = child_cargo_command(&cargo, &indexer_root)
         .args(["build", "-p", "simply-kaspa-indexer", "--release"])
         .status()?;
 
@@ -1563,8 +1558,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:warning=Building K-indexer components (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = Command::new(cargo)
-        .current_dir(&k_indexer_root)
+    let status = child_cargo_command(&cargo, &k_indexer_root)
         .args([
             "build",
             "-p",
@@ -1902,6 +1896,26 @@ fn sync_kasia_indexer_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Bo
 
     std::fs::copy(bin_path, dest_path)?;
     Ok(())
+}
+
+fn child_cargo_command(cargo: &str, cwd: &Path) -> Command {
+    let mut cmd = Command::new(cargo);
+    cmd.current_dir(cwd);
+
+    // Prevent nested cargo invocations from inheriting wasm/cross-compilation
+    // context from the parent build script environment.
+    for key in [
+        "CARGO_BUILD_TARGET",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "RUSTFLAGS",
+        "RUSTC_WRAPPER",
+        "TARGET",
+        "HOST",
+    ] {
+        cmd.env_remove(key);
+    }
+
+    cmd
 }
 
 fn target_profile_dir(repo_root: &Path) -> PathBuf {
