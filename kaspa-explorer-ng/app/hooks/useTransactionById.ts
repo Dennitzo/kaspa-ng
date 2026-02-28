@@ -2,38 +2,88 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { getApiBase } from "../api/config";
 
+const extractTransactionFromSearchResponse = (payload: unknown): TransactionData | null => {
+  if (Array.isArray(payload)) {
+    return payload.length > 0 ? (payload[0] as TransactionData) : null;
+  }
+
+  if (payload && typeof payload === "object") {
+    const objectPayload = payload as Record<string, unknown>;
+    const transactions = objectPayload.transactions;
+    if (Array.isArray(transactions) && transactions.length > 0) {
+      return transactions[0] as TransactionData;
+    }
+    const data = objectPayload.data;
+    if (Array.isArray(data) && data.length > 0) {
+      return data[0] as TransactionData;
+    }
+  }
+
+  return null;
+};
+
+const searchTransactionById = async (transactionId: string): Promise<TransactionData | null> => {
+  const requests: Array<{
+    body: Record<string, string[]>;
+    params?: Record<string, string>;
+  }> = [
+    {
+      body: { transactionIds: [transactionId] },
+      params: { fields: "", resolve_previous_outpoints: "light" },
+    },
+    {
+      body: { transaction_ids: [transactionId] },
+      params: { fields: "", resolve_previous_outpoints: "light" },
+    },
+    {
+      body: { transactionIds: [transactionId] },
+    },
+    {
+      body: { transaction_ids: [transactionId] },
+    },
+  ];
+
+  for (const request of requests) {
+    try {
+      const { data } = await axios.post(`${getApiBase()}/transactions/search`, request.body, {
+        params: request.params,
+      });
+      const transaction = extractTransactionFromSearchResponse(data);
+      if (transaction) return transaction;
+    } catch {
+      // Try next fallback shape/params.
+    }
+  }
+
+  return null;
+};
+
 export const useTransactionById = (transactionId: string) =>
   useQuery({
     queryKey: ["transaction", { transactionId }],
     queryFn: async () => {
+      let initialError: unknown;
       try {
         const { data } = await axios.get(
           `${getApiBase()}/transactions/${transactionId}?resolve_previous_outpoints=light`,
         );
         return data as TransactionData;
       } catch (err) {
-        if (axios.isAxiosError(err) && err.response?.status === 404) {
-          const { data } = await axios.post(
-            `${getApiBase()}/transactions/search`,
-            { transactionIds: [transactionId] },
-            {
-              params: {
-                fields: "",
-                resolve_previous_outpoints: "light",
-              },
-            },
-          );
-          if (Array.isArray(data) && data.length > 0) {
-            return data[0] as TransactionData;
-          }
-        }
-        if (axios.isAxiosError(err)) {
-          const status = err.response?.status;
-          const statusText = err.response?.statusText;
-          throw new Error(status ? `API ${status}${statusText ? ` ${statusText}` : ""}` : err.message);
-        }
-        throw err;
+        initialError = err;
       }
+
+      const searchResult = await searchTransactionById(transactionId);
+      if (searchResult) {
+        return searchResult;
+      }
+
+      if (axios.isAxiosError(initialError)) {
+        const status = initialError.response?.status;
+        const statusText = initialError.response?.statusText;
+        throw new Error(status ? `API ${status}${statusText ? ` ${statusText}` : ""}` : initialError.message);
+      }
+
+      throw initialError ?? new Error("Transaction not found");
     },
     enabled: !!transactionId,
     retry: (failureCount, error) => {
@@ -50,7 +100,7 @@ export const useTransactionById = (transactionId: string) =>
     },
     refetchOnWindowFocus: false,
     staleTime: 30_000,
-    cacheTime: 5 * 60_000,
+    gcTime: 5 * 60_000,
   });
 
 export interface TransactionData {
