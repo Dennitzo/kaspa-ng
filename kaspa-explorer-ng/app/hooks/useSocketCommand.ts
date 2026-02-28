@@ -7,22 +7,23 @@ interface UseSocketCommand<T> {
 }
 
 export const useSocketCommand = <T>({ command, onReceive }: UseSocketCommand<T>) => {
-  const { connected } = useSocketConnected();
+  const { connected, generation } = useSocketConnected();
 
   useEffect(() => {
     if (!connected || !command) return;
+    const activeSocket = socket;
 
-    socket.emit(command, "");
+    activeSocket.emit(command, "");
 
     const handleResponse = (data: T) => {
       onReceive?.(data);
     };
 
-    socket.on(command, handleResponse);
+    activeSocket.on(command, handleResponse);
     return () => {
-      socket.off(command, handleResponse);
+      activeSocket.off(command, handleResponse);
     };
-  }, [connected, command, onReceive]);
+  }, [connected, generation, command, onReceive]);
 
   return {};
 };

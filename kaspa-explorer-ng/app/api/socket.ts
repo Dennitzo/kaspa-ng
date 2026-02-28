@@ -18,10 +18,19 @@ const readRuntimeSocketConfig = () => {
 let currentSocketConfig = readRuntimeSocketConfig();
 let socketGeneration = 0;
 
-export let socket = io(currentSocketConfig.socketUrl, {
-  path: currentSocketConfig.socketPath,
-  autoConnect: true,
-});
+const createSocket = (socketUrl: string, socketPath: string) =>
+  io(socketUrl, {
+    path: socketPath,
+    autoConnect: true,
+    transports: ["websocket", "polling"],
+    reconnection: true,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    rememberUpgrade: true,
+  });
+
+export let socket = createSocket(currentSocketConfig.socketUrl, currentSocketConfig.socketPath);
 
 export const getSocketGeneration = () => socketGeneration;
 
@@ -42,10 +51,7 @@ export const ensureSocketConfig = () => {
   }
 
   currentSocketConfig = nextConfig;
-  socket = io(currentSocketConfig.socketUrl, {
-    path: currentSocketConfig.socketPath,
-    autoConnect: true,
-  });
+  socket = createSocket(currentSocketConfig.socketUrl, currentSocketConfig.socketPath);
   socketGeneration += 1;
   return true;
 };
@@ -80,12 +86,21 @@ export const useSocketConnected = () => {
       clearTimeout(timeoutId!);
     };
 
+    const handleConnectError = () => {
+      setConnected(false);
+      clearTimeout(timeoutId!);
+    };
+
     activeSocket.on("connect", handleConnect);
     activeSocket.on("disconnect", handleDisconnect);
+    activeSocket.on("connect_error", handleConnectError);
+    activeSocket.on("error", handleConnectError);
 
     return () => {
       activeSocket.off("connect", handleConnect);
       activeSocket.off("disconnect", handleDisconnect);
+      activeSocket.off("connect_error", handleConnectError);
+      activeSocket.off("error", handleConnectError);
       clearTimeout(timeoutId!);
     };
   }, [generation]);
