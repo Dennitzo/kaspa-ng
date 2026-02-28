@@ -20,6 +20,7 @@ from constants import (
     USE_SCRIPT_FOR_ADDRESS,
 )
 from dbsession import async_session
+from endpoints import is_missing_table_error
 from models.ScriptsActiveCount import ScriptsActiveCount
 from models.TxAddrMapping import TxScriptCount, TxAddrCount
 from server import app
@@ -119,11 +120,19 @@ async def get_addresses_active_count_for_day(
         response.headers["Cache-Control"] = "public, max-age=600"
 
     async with async_session() as s:
-        result = await s.execute(
-            select(ScriptsActiveCount)
-            .where(ScriptsActiveCount.timestamp >= start_ms, ScriptsActiveCount.timestamp < end_ms)
-            .order_by(ScriptsActiveCount.timestamp)
-        )
+        try:
+            result = await s.execute(
+                select(ScriptsActiveCount)
+                .where(ScriptsActiveCount.timestamp >= start_ms, ScriptsActiveCount.timestamp < end_ms)
+                .order_by(ScriptsActiveCount.timestamp)
+            )
+        except Exception as exc:
+            if is_missing_table_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Addresses active count table is not available. Enable and populate scripts_active_counts first.",
+                ) from exc
+            raise
         rows = result.scalars().all()
         return [
             AddressesActiveCountResponse(

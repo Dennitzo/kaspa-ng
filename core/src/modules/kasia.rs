@@ -125,6 +125,8 @@ pub struct Kasia {
     #[cfg(not(target_arch = "wasm32"))]
     last_bounds: Option<WryRect>,
     #[cfg(not(target_arch = "wasm32"))]
+    last_zoom: Option<f64>,
+    #[cfg(not(target_arch = "wasm32"))]
     last_signature: Option<(Network, bool, KasiaRuntimeConfig)>,
     #[cfg(not(target_arch = "wasm32"))]
     status: Option<String>,
@@ -148,6 +150,8 @@ impl Kasia {
             webview: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_bounds: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_zoom: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_signature: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -278,7 +282,7 @@ impl ModuleT for Kasia {
     fn render(
         &mut self,
         core: &mut Core,
-        _ctx: &egui::Context,
+        ctx: &egui::Context,
         frame: &mut eframe::Frame,
         ui: &mut egui::Ui,
     ) {
@@ -292,6 +296,7 @@ impl ModuleT for Kasia {
                 self.server = None;
                 self.last_signature = None;
                 self.last_bounds = None;
+                self.last_zoom = None;
                 self.last_probe_ok = None;
                 self.last_probe_status = None;
                 self.last_probe_at = None;
@@ -380,17 +385,25 @@ impl ModuleT for Kasia {
             ui.allocate_rect(available_rect, Sense::hover());
 
             let bounds = WryRect {
-                position: LogicalPosition::new(available_rect.min.x as f64, available_rect.min.y as f64)
-                    .into(),
-                size: LogicalSize::new(available_rect.width() as f64, available_rect.height() as f64)
-                    .into(),
+                position: LogicalPosition::new(
+                    available_rect.min.x as f64,
+                    available_rect.min.y as f64,
+                )
+                .into(),
+                size: LogicalSize::new(
+                    available_rect.width() as f64,
+                    available_rect.height() as f64,
+                )
+                .into(),
             };
+            let target_zoom = f64::from(ctx.zoom_factor().max(0.5));
 
             let runtime_config = Self::runtime_config(core, use_self_hosted);
             let signature = Some((core.settings.node.network, use_self_hosted, runtime_config.clone()));
             if self.webview.is_some() && self.last_signature != signature {
                 self.webview.take();
                 self.last_bounds = None;
+                self.last_zoom = None;
             }
 
             if self.webview.is_none() {
@@ -418,8 +431,10 @@ impl ModuleT for Kasia {
                     Ok(webview) => {
                         let _ = webview.set_visible(true);
                         let _ = webview.focus();
+                        let _ = webview.zoom(target_zoom);
                         self.webview = Some(webview);
                         self.last_bounds = Some(bounds);
+                        self.last_zoom = Some(target_zoom);
                         self.last_signature = signature;
                         self.status = None;
                     }
@@ -435,6 +450,17 @@ impl ModuleT for Kasia {
                         self.last_bounds = Some(bounds);
                     }
                 }
+                if self
+                    .last_zoom
+                    .map(|zoom| (zoom - target_zoom).abs() > 0.001)
+                    .unwrap_or(true)
+                {
+                    if let Err(err) = webview.zoom(target_zoom) {
+                        self.status = Some(format!("Kasia WebView zoom error: {err}"));
+                    } else {
+                        self.last_zoom = Some(target_zoom);
+                    }
+                }
                 let _ = webview.set_visible(true);
             }
         }
@@ -442,6 +468,7 @@ impl ModuleT for Kasia {
         #[cfg(target_arch = "wasm32")]
         {
             let _ = core;
+            let _ = ctx;
             let _ = frame;
             ui.label(i18n("Kasia is not available in Web builds."));
         }

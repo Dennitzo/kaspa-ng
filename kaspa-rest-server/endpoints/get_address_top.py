@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 from constants import ADDRESS_RANKINGS
 from dbsession import async_session_blocks
-from endpoints import sql_db_only
+from endpoints import sql_db_only, is_missing_table_error
 from models.TopScript import TopScript
 from server import app
 
@@ -53,20 +53,28 @@ async def get_addresses_top(
             return []
 
     async with async_session_blocks() as s:
-        ts_subquery = select(TopScript.timestamp).distinct().order_by(TopScript.timestamp.desc()).limit(limit)
-        if before is not None:
-            ts_subquery = ts_subquery.where(TopScript.timestamp < before)
-        top_scripts = (
-            (
-                await s.execute(
-                    select(TopScript)
-                    .where(TopScript.timestamp.in_(ts_subquery))
-                    .order_by(TopScript.timestamp.desc(), TopScript.rank)
+        try:
+            ts_subquery = select(TopScript.timestamp).distinct().order_by(TopScript.timestamp.desc()).limit(limit)
+            if before is not None:
+                ts_subquery = ts_subquery.where(TopScript.timestamp < before)
+            top_scripts = (
+                (
+                    await s.execute(
+                        select(TopScript)
+                        .where(TopScript.timestamp.in_(ts_subquery))
+                        .order_by(TopScript.timestamp.desc(), TopScript.rank)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+        except Exception as exc:
+            if is_missing_table_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Top addresses table is not available. Enable and populate top_scripts first.",
+                ) from exc
+            raise
 
     grouped: dict[int, list[TopScript]] = {}
     for ts in top_scripts:

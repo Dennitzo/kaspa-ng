@@ -19,6 +19,7 @@ from constants import (
     TRANSACTION_COUNT,
 )
 from dbsession import async_session
+from endpoints import is_missing_table_error
 from models.TransactionCount import TransactionCount
 from server import app
 
@@ -45,13 +46,21 @@ async def get_transaction_count_totals(response: Response):
     response.headers["Cache-Control"] = "public, max-age=300"
 
     async with async_session() as s:
-        result = await s.execute(
-            select(
-                func.max(TransactionCount.timestamp),
-                func.sum(TransactionCount.coinbase),
-                func.sum(TransactionCount.regular),
+        try:
+            result = await s.execute(
+                select(
+                    func.max(TransactionCount.timestamp),
+                    func.sum(TransactionCount.coinbase),
+                    func.sum(TransactionCount.regular),
+                )
             )
-        )
+        except Exception as exc:
+            if is_missing_table_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Transaction count table is not available. Enable and populate transactions_counts first.",
+                ) from exc
+            raise
         max_ts, coinbase_sum, regular_sum = result.one()
         if max_ts is None:
             raise HTTPException(status_code=404, detail="No transaction counts available")
@@ -99,11 +108,19 @@ async def get_transaction_count_for_day(response: Response, day_or_month: str = 
         response.headers["Cache-Control"] = "public, max-age=600"
 
     async with async_session() as s:
-        result = await s.execute(
-            select(TransactionCount)
-            .where(TransactionCount.timestamp >= start_ms, TransactionCount.timestamp < end_ms)
-            .order_by(TransactionCount.timestamp)
-        )
+        try:
+            result = await s.execute(
+                select(TransactionCount)
+                .where(TransactionCount.timestamp >= start_ms, TransactionCount.timestamp < end_ms)
+                .order_by(TransactionCount.timestamp)
+            )
+        except Exception as exc:
+            if is_missing_table_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Transaction count table is not available. Enable and populate transactions_counts first.",
+                ) from exc
+            raise
         rows = result.scalars().all()
         return [
             TransactionCountResponse(

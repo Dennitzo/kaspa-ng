@@ -9,7 +9,7 @@ from starlette.responses import Response
 
 from constants import ADDRESS_RANKINGS
 from dbsession import async_session_blocks
-from endpoints import sql_db_only
+from endpoints import sql_db_only, is_missing_table_error
 from models.DistributionTier import DistributionTier as DbDistributionTier
 from server import app
 
@@ -56,22 +56,30 @@ async def get_distribution_tiers(
             return []
 
     async with async_session_blocks() as s:
-        ts_subquery = (
-            select(DbDistributionTier.timestamp).distinct().order_by(DbDistributionTier.timestamp.desc()).limit(limit)
-        )
-        if before is not None:
-            ts_subquery = ts_subquery.where(DbDistributionTier.timestamp < before)
-        distribution_tiers = (
-            (
-                await s.execute(
-                    select(DbDistributionTier)
-                    .where(DbDistributionTier.timestamp.in_(ts_subquery))
-                    .order_by(DbDistributionTier.timestamp.desc(), DbDistributionTier.tier)
-                )
+        try:
+            ts_subquery = (
+                select(DbDistributionTier.timestamp).distinct().order_by(DbDistributionTier.timestamp.desc()).limit(limit)
             )
-            .scalars()
-            .all()
-        )
+            if before is not None:
+                ts_subquery = ts_subquery.where(DbDistributionTier.timestamp < before)
+            distribution_tiers = (
+                (
+                    await s.execute(
+                        select(DbDistributionTier)
+                        .where(DbDistributionTier.timestamp.in_(ts_subquery))
+                        .order_by(DbDistributionTier.timestamp.desc(), DbDistributionTier.tier)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        except Exception as exc:
+            if is_missing_table_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Address distribution table is not available. Enable and populate distribution_tiers first.",
+                ) from exc
+            raise
 
     grouped: dict[int, list[DbDistributionTier]] = {}
     for dt in distribution_tiers:

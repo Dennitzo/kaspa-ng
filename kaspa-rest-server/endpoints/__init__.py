@@ -4,6 +4,7 @@ import time
 from fastapi import HTTPException
 from functools import wraps
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from constants import NETWORK_TYPE
 from dbsession import async_session
@@ -69,3 +70,12 @@ def mainnet_only(func):
         return await func(*args, **kwargs)
 
     return wrapper
+
+
+def is_missing_table_error(exc: Exception) -> bool:
+    if isinstance(exc, ProgrammingError):
+        original = getattr(exc, "orig", None)
+        if original and original.__class__.__name__ == "UndefinedTableError":
+            return True
+    message = str(exc).lower()
+    return "does not exist" in message and "relation" in message
