@@ -15,6 +15,21 @@ cfg_if! {
             crate::settings::node_grpc_port_for_network(network)
         }
 
+        fn local_grpc_ports() -> [u16; 3] {
+            [
+                crate::settings::node_grpc_port_for_network(Network::Mainnet),
+                crate::settings::node_grpc_port_for_network(Network::Testnet10),
+                crate::settings::node_grpc_port_for_network(Network::Testnet12),
+            ]
+        }
+
+        fn is_local_host(host: &str) -> bool {
+            matches!(
+                host.trim().to_ascii_lowercase().as_str(),
+                "127.0.0.1" | "localhost" | "0.0.0.0" | "::1" | "::" | "[::1]" | "[::]"
+            )
+        }
+
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
             static FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
             FLAG.get_or_init(|| Arc::new(AtomicBool::new(false)))
@@ -113,11 +128,26 @@ cfg_if! {
                     return Some(format!("127.0.0.1:{default_port}"));
                 }
 
-                if trimmed.contains(':') {
-                    return Some(trimmed.trim_matches(|c| c == '[' || c == ']').to_string());
+                if let Some((host, port)) = trimmed.rsplit_once(':')
+                    && let Ok(port) = port.parse::<u16>()
+                {
+                    let host = host.trim_matches(|c| c == '[' || c == ']');
+                    if !host.is_empty() {
+                        // Keep local TN10/TN12/mainnet port in sync with active network.
+                        if is_local_host(host)
+                            && local_grpc_ports().contains(&port)
+                            && port != default_port
+                        {
+                            return Some(format!("{host}:{default_port}"));
+                        }
+                        return Some(format!("{host}:{port}"));
+                    }
                 }
 
-                Some(format!("{trimmed}:{default_port}"))
+                Some(format!(
+                    "{}:{default_port}",
+                    trimmed.trim_matches(|c| c == '[' || c == ']')
+                ))
             }
 
             pub fn logs(&self) -> MutexGuard<'_, Vec<Log>> {
@@ -309,7 +339,7 @@ cfg_if! {
 
                 let tps = settings.tps.max(1);
                 cmd.arg("--tps").arg(tps.to_string());
-                cmd.arg("--rpcserver").arg(rpc_server);
+                cmd.arg("--rpcserver").arg(&rpc_server);
 
                 if settings.threads > 0 {
                     cmd.arg("--threads").arg(settings.threads.to_string());
@@ -355,6 +385,11 @@ cfg_if! {
                 }
 
                 *self.child.lock().unwrap() = Some(child);
+                self.update_logs(format!(
+                    "Rothschild: network={} gRPC={}",
+                    network, rpc_server
+                ))
+                .await;
                 if restart_on_exit {
                     self.update_logs(i18n("Rothschild: started").to_string()).await;
                 } else {

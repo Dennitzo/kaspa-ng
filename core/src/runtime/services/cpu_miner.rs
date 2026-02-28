@@ -326,7 +326,7 @@ cfg_if! {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
 
-                cmd.arg("--kaspad-address").arg(grpc_host);
+                cmd.arg("--kaspad-address").arg(&grpc_host);
                 cmd.arg("--port").arg(grpc_port.to_string());
                 if settings.threads > 0 {
                     cmd.arg("--threads").arg(settings.threads.to_string());
@@ -372,6 +372,11 @@ cfg_if! {
                 }
 
                 *self.child.lock().unwrap() = Some(child);
+                self.update_logs(format!(
+                    "CPU Miner: network={} gRPC={}:{}",
+                    network, grpc_host, grpc_port
+                ))
+                .await;
                 self.update_logs(i18n("CPU Miner: started").to_string()).await;
 
                 let monitor = Arc::clone(self);
