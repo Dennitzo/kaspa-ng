@@ -270,6 +270,7 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      CARGO_TARGET_DIR: target/wasm32-ci
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -339,8 +340,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ~/.cache/trunk/
-            target/
-          key: ubuntu-22.04-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            target/wasm32-ci/
+          key: ubuntu-22.04-${{ runner.arch }}-cargo-wasm32-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Init CI logs
         run: mkdir -p "${{ env.CI_LOG_DIR }}"
@@ -495,7 +496,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-build-release-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install wasm-pack
         shell: bash
