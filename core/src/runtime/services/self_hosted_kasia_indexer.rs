@@ -182,16 +182,31 @@ impl SelfHostedKasiaIndexerService {
         } else {
             "indexer"
         };
+        let is_macos_bundle = {
+            #[cfg(target_os = "macos")]
+            {
+                std::env::current_exe()
+                    .ok()
+                    .map(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"))
+                    .unwrap_or(false)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        };
         let rel_candidates = [
             format!("target/release/{app_bin}"),
             format!("kasia-indexer/target/release/{raw_bin}"),
             format!("target/release/{raw_bin}"),
         ];
 
-        for candidate in rel_candidates {
-            let path = PathBuf::from(&candidate);
-            if let Some(path) = pick(path) {
-                return Some(path);
+        if !is_macos_bundle {
+            for candidate in rel_candidates {
+                let path = PathBuf::from(&candidate);
+                if let Some(path) = pick(path) {
+                    return Some(path);
+                }
             }
         }
 
@@ -220,6 +235,25 @@ impl SelfHostedKasiaIndexerService {
                 .join(raw_bin);
             if let Some(path) = pick(path) {
                 return Some(path);
+            }
+            if is_macos_bundle && let Some(contents) = dir.parent() {
+                let resources = contents.join("Resources");
+                let path = resources.join("kasia-indexer").join(app_bin);
+                if let Some(path) = pick(path) {
+                    return Some(path);
+                }
+                let path = resources.join("kasia-indexer").join(raw_bin);
+                if let Some(path) = pick(path) {
+                    return Some(path);
+                }
+                let path = resources
+                    .join("kasia-indexer")
+                    .join("target")
+                    .join("release")
+                    .join(raw_bin);
+                if let Some(path) = pick(path) {
+                    return Some(path);
+                }
             }
         }
 

@@ -207,15 +207,30 @@ impl SelfHostedKIndexerService {
         } else {
             bin_name.to_string()
         };
+        let is_macos_bundle = {
+            #[cfg(target_os = "macos")]
+            {
+                std::env::current_exe()
+                    .ok()
+                    .map(|exe| exe.to_string_lossy().contains(".app/Contents/MacOS/"))
+                    .unwrap_or(false)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        };
         let rel_candidates = [
             format!("K-indexer/target/release/{bin}"),
             format!("target/release/{bin}"),
         ];
 
-        for candidate in rel_candidates {
-            let path = PathBuf::from(&candidate);
-            if path.exists() {
-                return Some(path);
+        if !is_macos_bundle {
+            for candidate in rel_candidates {
+                let path = PathBuf::from(&candidate);
+                if path.exists() {
+                    return Some(path);
+                }
             }
         }
 
@@ -233,6 +248,21 @@ impl SelfHostedKIndexerService {
                 .join(&bin);
             if path.exists() {
                 return Some(path);
+            }
+            if is_macos_bundle && let Some(contents) = dir.parent() {
+                let resources = contents.join("Resources");
+                let path = resources.join("K-indexer").join(&bin);
+                if path.exists() {
+                    return Some(path);
+                }
+                let path = resources
+                    .join("K-indexer")
+                    .join("target")
+                    .join("release")
+                    .join(&bin);
+                if path.exists() {
+                    return Some(path);
+                }
             }
         }
 

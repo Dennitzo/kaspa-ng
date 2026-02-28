@@ -511,9 +511,30 @@ jobs:
           if [ ! -d Kasia ]; then
             exit 0
           fi
-          if [ -f Kasia/wasm/package.json ] && [ -f Kasia/wasm/kaspa.js ] && [ -f Kasia/wasm/kaspa.d.ts ]; then
-            echo "Kasia wasm package already present"
+
+          is_compatible_kaspa_wasm_dir() {
+            local dir="$1"
+            local pkg="$dir/package.json"
+            local js="$dir/kaspa.js"
+            local dts="$dir/kaspa.d.ts"
+            [ -f "$pkg" ] && [ -f "$js" ] && [ -f "$dts" ] || return 1
+            grep -Eq '"name"[[:space:]]*:[[:space:]]*"kaspa-wasm"' "$pkg" || return 1
+            grep -Eq 'export[[:space:]]+class[[:space:]]+RpcClient' "$js" || return 1
+            grep -Eq 'export[[:space:]]+const[[:space:]]+ConnectStrategy' "$js" || return 1
+            grep -Eq 'export[[:space:]]+const[[:space:]]+Encoding' "$js" || return 1
+            grep -Eq 'export[[:space:]]+class[[:space:]]+Resolver' "$js" || return 1
+            grep -Eq 'export[[:space:]]+function[[:space:]]+initConsolePanicHook' "$js" || return 1
+            grep -Eq 'export[[:space:]]+default' "$js" || return 1
+            return 0
+          }
+
+          if is_compatible_kaspa_wasm_dir Kasia/wasm; then
+            echo "Kasia wasm package already present and compatible"
             exit 0
+          fi
+          if [ -d Kasia/wasm ]; then
+            echo "Existing Kasia/wasm is incompatible; replacing"
+            rm -rf Kasia/wasm
           fi
           TMP_ROOT="$(mktemp -d 2>/dev/null || mktemp -d -t kasiawasm)"
           trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -521,28 +542,36 @@ jobs:
           find_kaspa_wasm_dir() {
             local search_root="$1"
             [ -d "$search_root" ] || return 1
-            while IFS= read -r pkg; do
-              if grep -Eq '"name"[[:space:]]*:[[:space:]]*"kaspa-wasm"' "$pkg"; then
-                local parent
-                parent="$(dirname "$pkg")"
-                if [ -f "$parent/kaspa.js" ] && [ -f "$parent/kaspa.d.ts" ]; then
-                  echo "$parent"
-                  return 0
-                fi
+
+            local direct_candidates=(
+              "$search_root/kaspa-wasm32-sdk/web/kaspa"
+              "$search_root/web/kaspa"
+            )
+            for candidate in "${direct_candidates[@]}"; do
+              if is_compatible_kaspa_wasm_dir "$candidate"; then
+                echo "$candidate"
+                return 0
               fi
-            done < <(find "$search_root" -type f -name package.json)
+            done
+
+            while IFS= read -r pkg; do
+              local parent
+              parent="$(dirname "$pkg")"
+              if is_compatible_kaspa_wasm_dir "$parent"; then
+                echo "$parent"
+                return 0
+              fi
+            done < <(find "$search_root" -type f -path '*/web/kaspa/package.json')
             return 1
           }
 
           copy_pkg() {
             local src_dir="$1"
             echo "Using kaspa-wasm package from: $src_dir"
+            rm -rf Kasia/wasm
             mkdir -p Kasia/wasm
-            rm -rf Kasia/wasm/*
             cp -R "$src_dir"/. Kasia/wasm/
-            test -f Kasia/wasm/package.json
-            test -f Kasia/wasm/kaspa.js
-            test -f Kasia/wasm/kaspa.d.ts
+            is_compatible_kaspa_wasm_dir Kasia/wasm
           }
 
           if PKG_DIR="$(find_kaspa_wasm_dir rusty-kaspa 2>/dev/null)"; then

@@ -426,9 +426,15 @@ impl SelfHostedExplorerService {
             if let Some(dir) = exe.parent() {
                 candidates.push(dir.join(name));
                 candidates.push(dir.join("Resources").join(name));
-                for ancestor in dir.ancestors().skip(1).take(4) {
-                    candidates.push(ancestor.join(name));
-                    candidates.push(ancestor.join("Resources").join(name));
+                if is_macos_bundle {
+                    if let Some(contents) = dir.parent() {
+                        candidates.push(contents.join("Resources").join(name));
+                    }
+                } else {
+                    for ancestor in dir.ancestors().skip(1).take(4) {
+                        candidates.push(ancestor.join(name));
+                        candidates.push(ancestor.join("Resources").join(name));
+                    }
                 }
             }
         }

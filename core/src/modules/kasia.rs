@@ -55,6 +55,58 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 "#;
 
 #[cfg(not(target_arch = "wasm32"))]
+const KASIA_EMBED_LAYOUT_FIX_JS: &str = r#"
+(() => {
+  if (window.__kaspaNgKasiaEmbedFix) return;
+  window.__kaspaNgKasiaEmbedFix = true;
+
+  const apply = () => {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById("root");
+    if (!html || !body || !root) return;
+
+    html.style.setProperty("width", "100%", "important");
+    html.style.setProperty("height", "100%", "important");
+    html.style.setProperty("overflow", "hidden", "important");
+
+    body.style.setProperty("margin", "0", "important");
+    body.style.setProperty("width", "100%", "important");
+    body.style.setProperty("height", "100%", "important");
+    body.style.setProperty("overflow", "hidden", "important");
+
+    root.style.setProperty("width", "100%", "important");
+    root.style.setProperty("height", "100%", "important");
+    root.style.setProperty("max-width", "100%", "important");
+    root.style.setProperty("min-width", "0", "important");
+    root.style.setProperty("margin", "0", "important");
+
+    const first = root.firstElementChild;
+    if (first && first instanceof HTMLElement) {
+      first.style.setProperty("width", "100%", "important");
+      first.style.setProperty("height", "100%", "important");
+      first.style.setProperty("max-width", "100%", "important");
+      first.style.setProperty("min-width", "0", "important");
+      first.style.setProperty("margin", "0", "important");
+      first.style.setProperty("border-radius", "0", "important");
+      first.style.setProperty("box-shadow", "none", "important");
+    }
+  };
+
+  const observer = new MutationObserver(() => apply());
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["style", "class"],
+  });
+
+  window.addEventListener("resize", apply);
+  apply();
+})();
+"#;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, PartialEq, Eq)]
 struct KasiaRuntimeConfig {
     indexer_mainnet_url: Option<String>,
@@ -152,16 +204,17 @@ impl Kasia {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn runtime_config(core: &Core, use_self_hosted: bool) -> KasiaRuntimeConfig {
+        let node_url = Self::normalized_node_url_from_runtime(Network::Mainnet);
+
         if !use_self_hosted {
             return KasiaRuntimeConfig {
                 indexer_mainnet_url: None,
                 indexer_testnet_url: None,
-                default_mainnet_node_url: None,
-                default_testnet_node_url: None,
+                default_mainnet_node_url: Some(node_url.clone()),
+                default_testnet_node_url: Some(node_url),
             };
         }
 
-        let network = core.settings.node.network;
         let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
             || core.settings.self_hosted.api_bind == "::"
             || core.settings.self_hosted.api_bind == "[::]"
@@ -177,7 +230,6 @@ impl Kasia {
                 .self_hosted
                 .effective_kasia_indexer_port(core.settings.node.network)
         );
-        let node_url = Self::normalized_node_url_from_runtime(network);
 
         KasiaRuntimeConfig {
             indexer_mainnet_url: Some(indexer_url.clone()),
@@ -359,6 +411,7 @@ impl ModuleT for Kasia {
                     .with_accept_first_mouse(true)
                     .with_focused(true)
                     .with_initialization_script(WEBVIEW_SHORTCUTS_JS)
+                    .with_initialization_script(KASIA_EMBED_LAYOUT_FIX_JS)
                     .with_initialization_script(config_script.as_str())
                     .build_as_child(frame)
                 {
@@ -490,8 +543,14 @@ fn find_kasia_build_root() -> Option<PathBuf> {
         && let Some(dir) = exe.parent()
     {
         candidates.push(dir.join("Kasia").join("dist"));
-        for ancestor in dir.ancestors().skip(1).take(4) {
-            candidates.push(ancestor.join("Kasia").join("dist"));
+        if is_macos_bundle {
+            if let Some(contents) = dir.parent() {
+                candidates.push(contents.join("Resources").join("Kasia").join("dist"));
+            }
+        } else {
+            for ancestor in dir.ancestors().skip(1).take(4) {
+                candidates.push(ancestor.join("Kasia").join("dist"));
+            }
         }
     }
 

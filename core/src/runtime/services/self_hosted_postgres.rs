@@ -251,6 +251,16 @@ impl SelfHostedPostgresService {
         )))
     }
 
+    fn running_from_macos_bundle() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(exe) = std::env::current_exe() {
+                return exe.to_string_lossy().contains(".app/Contents/MacOS/");
+            }
+        }
+        false
+    }
+
     fn candidate_bin_dirs() -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = Vec::new();
 
@@ -267,7 +277,9 @@ impl SelfHostedPostgresService {
             }
         }
 
-        if let Ok(cwd) = std::env::current_dir() {
+        if !Self::running_from_macos_bundle()
+            && let Ok(cwd) = std::env::current_dir()
+        {
             dirs.push(cwd.join("postgres").join("bin"));
         }
 

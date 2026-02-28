@@ -596,10 +596,19 @@ fn find_explorer_root() -> Option<PathBuf> {
             candidates.push(dir.join("kaspa-explorer-ng").join("build").join("client"));
             candidates.push(dir.join("kaspa-explorer-ng").join("build"));
             candidates.push(dir.join("kaspa-explorer-ng").join("dist"));
-            for ancestor in dir.ancestors().skip(1).take(4) {
-                candidates.push(ancestor.join("kaspa-explorer-ng").join("build").join("client"));
-                candidates.push(ancestor.join("kaspa-explorer-ng").join("build"));
-                candidates.push(ancestor.join("kaspa-explorer-ng").join("dist"));
+            if is_macos_bundle {
+                if let Some(contents) = dir.parent() {
+                    let resources = contents.join("Resources").join("kaspa-explorer-ng");
+                    candidates.push(resources.join("build").join("client"));
+                    candidates.push(resources.join("build"));
+                    candidates.push(resources.join("dist"));
+                }
+            } else {
+                for ancestor in dir.ancestors().skip(1).take(4) {
+                    candidates.push(ancestor.join("kaspa-explorer-ng").join("build").join("client"));
+                    candidates.push(ancestor.join("kaspa-explorer-ng").join("build"));
+                    candidates.push(ancestor.join("kaspa-explorer-ng").join("dist"));
+                }
             }
         }
     }

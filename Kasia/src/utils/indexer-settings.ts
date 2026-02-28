@@ -77,6 +77,31 @@ export function getEffectiveIndexerUrl(network: "mainnet" | "testnet"): string {
     : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL;
 }
 
+export function getEffectiveNodeUrl(
+  network: "mainnet" | "testnet",
+  preferredUrl?: string | null
+): string {
+  const normalizedPreferred =
+    typeof preferredUrl === "string" ? preferredUrl.trim() : "";
+  if (normalizedPreferred.length > 0) {
+    return normalizedPreferred;
+  }
+
+  const runtimeConfig =
+    (globalThis as {
+      __KASPA_NG_KASIA_CONFIG?: {
+        defaultMainnetNodeUrl?: string;
+        defaultTestnetNodeUrl?: string;
+      };
+    }).__KASPA_NG_KASIA_CONFIG ?? {};
+
+  return network === "mainnet"
+    ? runtimeConfig.defaultMainnetNodeUrl ??
+        import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL
+    : runtimeConfig.defaultTestnetNodeUrl ??
+        import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;
+}
+
 export function toAddressPortDisplay(url: string | null): string {
   if (!url) {
     return "n/a";
@@ -107,7 +132,7 @@ function isPrivateIpv4Host(hostname: string): boolean {
   return false;
 }
 
-function isSelfHostedUrl(url: string): boolean {
+export function isSelfHostedUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
@@ -122,6 +147,20 @@ function isSelfHostedUrl(url: string): boolean {
     const normalized = toAddressPortDisplay(url).toLowerCase();
     return normalized.startsWith("127.0.0.1") || normalized.startsWith("localhost");
   }
+}
+
+export function getNodeStatusMeta(
+  network: "mainnet" | "testnet",
+  preferredUrl?: string | null
+): {
+  kind: "self-hosted" | "official";
+  addressPort: string;
+} {
+  const effective = getEffectiveNodeUrl(network, preferredUrl);
+  return {
+    kind: isSelfHostedUrl(effective) ? "self-hosted" : "official",
+    addressPort: toAddressPortDisplay(effective),
+  };
 }
 
 export function getIndexerStatusLabel(network: "mainnet" | "testnet"): string {

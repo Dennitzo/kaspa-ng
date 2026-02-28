@@ -101,28 +101,67 @@ export const useNetworkStore = create<NetworkState>((set, g) => {
           };
         }).__KASPA_NG_KASIA_CONFIG ?? {};
 
+      const officialNodeUrl =
+        rpc.networkId?.toString() === "mainnet"
+          ? import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL
+          : import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;
       const kasiaNodeUrl =
         rpc.networkId?.toString() === "mainnet"
-          ? runtimeConfig.defaultMainnetNodeUrl ??
-            import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL
-          : runtimeConfig.defaultTestnetNodeUrl ??
-            import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;
+          ? runtimeConfig.defaultMainnetNodeUrl ?? officialNodeUrl
+          : runtimeConfig.defaultTestnetNodeUrl ?? officialNodeUrl;
+
+      const preferredUrl = (g().nodeUrl ?? kasiaNodeUrl ?? "").trim();
+      const connectionCandidates = Array.from(
+        new Set(
+          [preferredUrl, officialNodeUrl].filter(
+            (url): url is string => typeof url === "string" && url.length > 0
+          )
+        )
+      );
 
       try {
-        await rpc.connect({
-          blockAsyncConnect: true,
-          retryInterval: 2_000,
-          timeoutDuration: 3_000,
-          url: g().nodeUrl ?? kasiaNodeUrl,
-          strategy: ConnectStrategy.Fallback,
-        });
+        let lastError: unknown;
+        let connected = false;
 
-        // verify network matches
-        const serverInfo = await rpc.getServerInfo();
+        for (const candidateUrl of connectionCandidates) {
+          try {
+            await rpc.connect({
+              blockAsyncConnect: true,
+              retryInterval: 2_000,
+              timeoutDuration: 3_000,
+              url: candidateUrl,
+              strategy: ConnectStrategy.Fallback,
+            });
 
-        if (serverInfo.networkId !== rpc.networkId?.toString()) {
-          throw new Error(
-            `RPC Node isn't on the correct networkId. Expected: ${rpc.networkId?.toString()}, Got: ${serverInfo.networkId}`
+            // verify network matches
+            const serverInfo = await rpc.getServerInfo();
+
+            if (serverInfo.networkId !== rpc.networkId?.toString()) {
+              throw new Error(
+                `RPC Node isn't on the correct networkId. Expected: ${rpc.networkId?.toString()}, Got: ${serverInfo.networkId}`
+              );
+            }
+
+            connected = true;
+            break;
+          } catch (error) {
+            lastError = error;
+            const message = unknownErrorToErrorLike(error).message;
+            console.warn(
+              `RPC connect failed on ${candidateUrl}, trying fallback if available: ${message}`
+            );
+            try {
+              await rpc.disconnect();
+            } catch {
+              // ignore disconnect errors while trying next fallback candidate
+            }
+          }
+        }
+
+        if (!connected) {
+          throw (
+            lastError ??
+            new Error("Unable to connect to any configured Kasia RPC node.")
           );
         }
 

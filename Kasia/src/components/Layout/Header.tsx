@@ -5,6 +5,7 @@ import { DatabaseZap } from "lucide-react";
 import {
   getEffectiveIndexerUrl,
   getIndexerStatusMeta,
+  getNodeStatusMeta,
   isIndexerDisabled,
 } from "../../utils/indexer-settings";
 import { ConnectionIndicator } from "../Common/ConnectionIndicator";
@@ -19,8 +20,24 @@ type Props = {
 
 export const Header: FC<Props> = () => {
   const navigate = useNavigate();
-  const network = useNetworkStore((state) =>
-    state.network === "mainnet" ? "mainnet" : "testnet"
+  const selectedNetwork = useNetworkStore((state) => state.network);
+  const network = selectedNetwork === "mainnet" ? "mainnet" : "testnet";
+  const nodeUrl = useNetworkStore((state) => state.nodeUrl);
+  const rpcUrl = useNetworkStore((state) => state.rpc.url ?? null);
+  const isNodeConnected = useNetworkStore((state) => state.isConnected);
+  const isNodeConnecting = useNetworkStore((state) => state.isConnecting);
+  const nodePreferredUrl = useMemo(() => {
+    const connected = typeof rpcUrl === "string" ? rpcUrl.trim() : "";
+    if (connected.length > 0) {
+      return connected;
+    }
+
+    const configured = typeof nodeUrl === "string" ? nodeUrl.trim() : "";
+    return configured.length > 0 ? configured : null;
+  }, [nodeUrl, rpcUrl]);
+  const nodeStatus = useMemo(
+    () => getNodeStatusMeta(network, nodePreferredUrl),
+    [network, nodePreferredUrl]
   );
   const indexerStatus = getIndexerStatusMeta(network);
   const effectiveIndexerUrl = useMemo(
@@ -58,6 +75,34 @@ export const Header: FC<Props> = () => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [effectiveIndexerUrl, indexerStatus.kind]);
+
+  const nodeTone =
+    nodeStatus.kind === "self-hosted"
+      ? {
+          chip: "text-[var(--text-primary)]",
+          label: "Self-hosted",
+        }
+      : {
+          chip: "text-[var(--text-primary)]",
+          label: "Official",
+        };
+  const nodeHealthTone = isNodeConnected
+    ? {
+        dot: "bg-[var(--accent-green)]",
+        border: "border-[var(--accent-green)]/40",
+        text: "Connected",
+      }
+    : isNodeConnecting
+      ? {
+          dot: "bg-[var(--accent-yellow)] animate-pulse",
+          border: "border-[var(--accent-yellow)]/30",
+          text: "Connecting",
+        }
+      : {
+          dot: "bg-[var(--accent-red)]",
+          border: "border-[var(--accent-red)]/40",
+          text: "Disconnected",
+        };
 
   const tone =
     indexerStatus.kind === "self-hosted"
@@ -116,6 +161,18 @@ export const Header: FC<Props> = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        <div
+          className={`bg-primary-bg/60 hidden items-center gap-2 rounded-full border px-3 py-1 text-xs sm:flex ${nodeTone.chip} ${nodeHealthTone.border}`}
+        >
+          <span className={`h-2 w-2 rounded-full ${nodeHealthTone.dot}`} />
+          <span className="font-medium">Node {nodeTone.label}</span>
+          <span className="text-[var(--text-secondary)]">
+            {nodeStatus.addressPort}
+          </span>
+          <span className="text-[var(--text-secondary)]/90">
+            {nodeHealthTone.text}
+          </span>
+        </div>
         <div
           className={`bg-primary-bg/60 hidden items-center gap-2 rounded-full border px-3 py-1 text-xs sm:flex ${tone.chip} ${healthTone.border}`}
         >

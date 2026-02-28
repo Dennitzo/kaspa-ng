@@ -895,7 +895,13 @@ fn ensure_kasia_wasm_package(
     wasm_package_json: &Path,
 ) -> Result<(), Box<dyn Error>> {
     if wasm_package_json.exists() {
-        return Ok(());
+        if kasia_wasm_package_is_compatible(wasm_dir) {
+            return Ok(());
+        }
+        println!(
+            "cargo:warning=Existing Kasia wasm package is incompatible (missing required exports); refreshing"
+        );
+        let _ = std::fs::remove_dir_all(wasm_dir);
     }
 
     let auto_fetch = std::env::var("KASIA_WASM_AUTO_FETCH")
@@ -947,6 +953,12 @@ fn ensure_kasia_wasm_package(
             );
             continue;
         };
+        if !kasia_wasm_package_is_compatible(&source_wasm_dir) {
+            println!(
+                "cargo:warning=Kasia wasm package from {url} is incompatible (missing required exports)"
+            );
+            continue;
+        }
 
         if wasm_dir.exists() {
             let _ = std::fs::remove_dir_all(wasm_dir);
@@ -989,9 +1001,23 @@ fn extract_zip(archive: &Path, destination: &Path) -> bool {
 }
 
 fn find_kasia_wasm_source_dir(root: &Path) -> Option<PathBuf> {
-    let direct = root.join("kaspa-wasm32-sdk").join("web").join("kaspa");
-    if direct.join("package.json").exists() {
-        return Some(direct);
+    // Only accept the browser SDK package (`web/kaspa`).
+    // NodeJS variants have the same package name but incompatible exports for Kasia.
+    let preferred_candidates = [
+        root.join("kaspa-wasm32-sdk").join("web").join("kaspa"),
+        root.join("web").join("kaspa"),
+        root.join("kaspa"),
+    ];
+    for candidate in preferred_candidates {
+        if candidate
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            == Some("web")
+            && kasia_wasm_package_is_compatible(&candidate)
+        {
+            return Some(candidate);
+        }
     }
 
     fn walk(dir: &Path, depth: usize) -> Option<PathBuf> {
@@ -1004,10 +1030,15 @@ fn find_kasia_wasm_source_dir(root: &Path) -> Option<PathBuf> {
             if !path.is_dir() {
                 continue;
             }
-            if path.file_name().and_then(|n| n.to_str()) == Some("kaspa")
-                && path.join("package.json").exists()
-            {
-                return Some(path);
+            if path.file_name().and_then(|n| n.to_str()) == Some("kaspa") {
+                let is_web_dir = path
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|name| name.to_str())
+                    == Some("web");
+                if is_web_dir && kasia_wasm_package_is_compatible(&path) {
+                    return Some(path);
+                }
             }
             if let Some(found) = walk(&path, depth + 1) {
                 return Some(found);
@@ -1017,6 +1048,41 @@ fn find_kasia_wasm_source_dir(root: &Path) -> Option<PathBuf> {
     }
 
     walk(root, 0)
+}
+
+fn kasia_wasm_package_is_compatible(dir: &Path) -> bool {
+    let package_json = dir.join("package.json");
+    let kaspa_js = dir.join("kaspa.js");
+    let kaspa_dts = dir.join("kaspa.d.ts");
+    if !(package_json.exists() && kaspa_js.exists() && kaspa_dts.exists()) {
+        return false;
+    }
+
+    let package_text = match std::fs::read_to_string(&package_json) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+    if !package_text.contains("\"kaspa-wasm\"") {
+        return false;
+    }
+
+    let js_text = match std::fs::read_to_string(&kaspa_js) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+
+    let required_exports = [
+        "export default",
+        "export class RpcClient",
+        "export const ConnectStrategy",
+        "export const Encoding",
+        "export class Resolver",
+        "export function initConsolePanicHook",
+    ];
+
+    required_exports
+        .iter()
+        .all(|required| js_text.contains(required))
 }
 
 fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {

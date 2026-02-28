@@ -534,8 +534,14 @@ fn find_k_build_root() -> Option<PathBuf> {
         && let Some(dir) = exe.parent()
     {
         candidates.push(dir.join("K").join("dist"));
-        for ancestor in dir.ancestors().skip(1).take(4) {
-            candidates.push(ancestor.join("K").join("dist"));
+        if is_macos_bundle {
+            if let Some(contents) = dir.parent() {
+                candidates.push(contents.join("Resources").join("K").join("dist"));
+            }
+        } else {
+            for ancestor in dir.ancestors().skip(1).take(4) {
+                candidates.push(ancestor.join("K").join("dist"));
+            }
         }
     }
 

@@ -174,6 +174,18 @@ cfg_if! {
                 if cfg!(windows) { "kaspa-miner.exe" } else { "kaspa-miner" }
             }
 
+            fn running_from_macos_bundle() -> bool {
+                #[cfg(target_os = "macos")]
+                {
+                    if let Ok(exe) = std::env::current_exe() {
+                        return exe
+                            .to_string_lossy()
+                            .contains(".app/Contents/MacOS/");
+                    }
+                }
+                false
+            }
+
             fn find_miner_binary() -> Option<PathBuf> {
                 let bin_name = Self::miner_binary_name();
 
@@ -206,7 +218,9 @@ cfg_if! {
                     }
                 }
 
-                if let Ok(cwd) = std::env::current_dir() {
+                if !Self::running_from_macos_bundle()
+                    && let Ok(cwd) = std::env::current_dir()
+                {
                     for profile in ["debug", "release"] {
                         let candidate = cwd.join("target").join(profile).join(bin_name);
                         if candidate.exists() {

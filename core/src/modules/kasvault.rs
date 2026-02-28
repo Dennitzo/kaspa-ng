@@ -475,9 +475,17 @@ fn find_kasvault_build_root() -> Option<PathBuf> {
     {
         candidates.push(dir.join("KasVault").join("build"));
         candidates.push(dir.join("kasvault").join("build"));
-        for ancestor in dir.ancestors().skip(1).take(4) {
-            candidates.push(ancestor.join("KasVault").join("build"));
-            candidates.push(ancestor.join("kasvault").join("build"));
+        if is_macos_bundle {
+            if let Some(contents) = dir.parent() {
+                let resources = contents.join("Resources");
+                candidates.push(resources.join("KasVault").join("build"));
+                candidates.push(resources.join("kasvault").join("build"));
+            }
+        } else {
+            for ancestor in dir.ancestors().skip(1).take(4) {
+                candidates.push(ancestor.join("KasVault").join("build"));
+                candidates.push(ancestor.join("kasvault").join("build"));
+            }
         }
     }
 
