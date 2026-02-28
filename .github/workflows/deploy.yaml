@@ -457,13 +457,8 @@ jobs:
           archive="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           asset_name="kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64.zip"
           zip -r "${archive}" ./kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/*
-          appimage_archive="kaspa-ng-${{ github.event.release.tag_name }}-linux-x86_64.AppImage"
-          ./scripts/build-linux-appimage.sh \
-            --input "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64" \
-            --output "${appimage_archive}"
           echo "archive=${archive}" >> $GITHUB_ENV
           echo "asset_name=${asset_name}" >> $GITHUB_ENV
-          echo "appimage_archive=${appimage_archive}" >> $GITHUB_ENV
 
       - name: Create Linux Debian Package
         if: runner.os == 'Linux'
@@ -525,14 +520,3 @@ jobs:
           asset_path: "./${{ steps.package_debian.outputs.file_name }}"
           asset_name: "${{ steps.package_debian.outputs.file_name }}"
           asset_content_type: application/vnd.debian.binary-package
-
-      - name: Upload Linux AppImage
-        if: runner.os == 'Linux'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: "./${{ env.appimage_archive }}"
-          asset_name: "${{ env.appimage_archive }}"
-          asset_content_type: application/vnd.appimage
