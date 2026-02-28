@@ -1905,6 +1905,7 @@ fn child_cargo_command(cargo: &str, cwd: &Path) -> Command {
     // Prevent nested cargo invocations from inheriting wasm/cross-compilation
     // context from the parent build script environment.
     for key in [
+        "CARGO_TARGET_DIR",
         "CARGO_BUILD_TARGET",
         "CARGO_ENCODED_RUSTFLAGS",
         "RUSTFLAGS",
@@ -1914,6 +1915,10 @@ fn child_cargo_command(cargo: &str, cwd: &Path) -> Command {
     ] {
         cmd.env_remove(key);
     }
+
+    // Isolate nested builds from the parent cargo target dir to avoid artifact
+    // races when build.rs compiles auxiliary workspaces in CI.
+    cmd.env("CARGO_TARGET_DIR", cwd.join("target"));
 
     cmd
 }
