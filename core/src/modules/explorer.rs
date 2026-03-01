@@ -332,36 +332,24 @@ impl ModuleT for Explorer {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.ensure_server_for_active_network(core);
-            let node_display = runtime()
-                .kaspa_service()
-                .rpc_url()
-                .unwrap_or_else(|| {
-                    match core.settings.node.connection_config_kind {
-                        NodeConnectionConfigKind::PublicServerRandom
-                        | NodeConnectionConfigKind::PublicServerCustom => {
-                            "public (resolving...)".to_string()
-                        }
-                        NodeConnectionConfigKind::Custom => {
-                            let configured = core.settings.node.wrpc_url.trim();
-                            if configured.is_empty() {
-                                format!(
-                                    "ws://127.0.0.1:{}",
-                                    crate::settings::node_wrpc_borsh_port_for_network(
-                                        core.settings.node.network,
-                                    )
-                                )
-                            } else if configured.contains("://") {
-                                configured.to_string()
-                            } else {
-                                format!("ws://{configured}")
-                            }
-                        }
-                    }
-                });
+            let endpoint = match core.settings.explorer.source {
+                ExplorerDataSource::Official => core
+                    .settings
+                    .explorer
+                    .official
+                    .for_network(core.settings.node.network)
+                    .clone(),
+                ExplorerDataSource::SelfHosted => self_hosted_explorer_profiles_from_settings(
+                    &core.settings.self_hosted,
+                )
+                .for_network(core.settings.node.network)
+                .clone(),
+            };
+            let node_display = endpoint.socket_url.trim().to_string();
             set_footer_connection_status(FooterConnectionStatus {
                 node: node_display.clone(),
-                node_health: if core.state().is_connected() {
-                    FooterConnectionHealth::Connected
+                node_health: if node_display.is_empty() {
+                    FooterConnectionHealth::Unknown
                 } else {
                     FooterConnectionHealth::Reachable
                 },
@@ -399,19 +387,6 @@ impl ModuleT for Explorer {
                 let bounds = webview_bounds_from_rect(available_rect, _ctx.pixels_per_point());
                 let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
-                let endpoint = match core.settings.explorer.source {
-                    ExplorerDataSource::Official => core
-                        .settings
-                        .explorer
-                        .official
-                        .for_network(core.settings.node.network)
-                        .clone(),
-                    ExplorerDataSource::SelfHosted => self_hosted_explorer_profiles_from_settings(
-                        &core.settings.self_hosted,
-                    )
-                    .for_network(core.settings.node.network)
-                    .clone(),
-                };
                 let endpoint_signature = Some((
                     core.settings.explorer.source,
                     core.settings.node.network,

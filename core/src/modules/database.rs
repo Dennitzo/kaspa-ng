@@ -1,6 +1,5 @@
 use crate::imports::*;
 use kaspa_metrics_core::data::as_data_size;
-use std::collections::HashMap;
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,47 +90,6 @@ pub struct Database {
 }
 
 impl Database {
-    const INDEXER_TABLES: [&'static str; 36] = [
-        // simply-kaspa-indexer (Postgres)
-        "vars",
-        "blocks",
-        "block_parent",
-        "subnetworks",
-        "transactions",
-        "transactions_acceptances",
-        "blocks_transactions",
-        "transactions_inputs",
-        "transactions_outputs",
-        "addresses_transactions",
-        "scripts_transactions",
-        "k_vars",
-        "k_broadcasts",
-        "k_votes",
-        "k_mentions",
-        "k_blocks",
-        "k_follows",
-        "k_contents",
-        "k_hashtags",
-        // kasia-indexer (Fjall partitions)
-        "metadata",
-        "block_compact_header",
-        "daa_index_compact_header",
-        "block_gaps",
-        "handshake_by_receiver",
-        "handshake_by_sender",
-        "tx-id-to-handshake",
-        "contextual_message_by_sender",
-        "payment_by_receiver",
-        "payment_by_sender",
-        "tx_id_to_payment",
-        "accepting_block_to_tx_id",
-        "tx_id_to_acceptance",
-        "pending_sender_resolution",
-        "self_stash_by_owner",
-        "tx-id-to-self-stash",
-        "tx-id-to-contextual-message",
-    ];
-
     pub fn new(runtime: Runtime) -> Self {
         Self {
             runtime,
@@ -536,19 +494,8 @@ impl ModuleT for Database {
                 .default_open(true)
                 .show(ui, |ui| {
                     if let Some(status) = &status {
-                        let mut table_map: HashMap<&str, &TableStats> = HashMap::new();
-                        for table in status.table_stats.iter() {
-                            table_map.insert(table.table_name.as_str(), table);
-                        }
-                        let mut table_rows: Vec<(&str, Option<&TableStats>)> = Self::INDEXER_TABLES
-                            .iter()
-                            .map(|name| (*name, table_map.get(*name).copied()))
-                            .collect();
-                        table_rows.sort_by(|a, b| {
-                            let a_size = a.1.map(|stats| stats.total_size_bytes).unwrap_or(-1);
-                            let b_size = b.1.map(|stats| stats.total_size_bytes).unwrap_or(-1);
-                            b_size.cmp(&a_size)
-                        });
+                        let mut table_rows = status.table_stats.clone();
+                        table_rows.sort_by(|a, b| b.total_size_bytes.cmp(&a.total_size_bytes));
 
                         Grid::new("db_table_stats")
                             .striped(true)
@@ -559,16 +506,10 @@ impl ModuleT for Database {
                                 ui.label(RichText::new(i18n("Size")).strong());
                                 ui.end_row();
 
-                                for (table_name, stats) in table_rows {
-                                    if let Some(stats) = stats {
-                                        ui.label(table_name);
-                                        ui.label(Self::format_count(stats.live_rows));
-                                        ui.label(Self::format_bytes(stats.total_size_bytes));
-                                    } else {
-                                        ui.label(table_name);
-                                        ui.label("--");
-                                        ui.label("--");
-                                    }
+                                for stats in table_rows {
+                                    ui.label(stats.table_name);
+                                    ui.label(Self::format_count(stats.live_rows));
+                                    ui.label(Self::format_bytes(stats.total_size_bytes));
                                     ui.end_row();
                                 }
                             });
