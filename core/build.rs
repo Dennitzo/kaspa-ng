@@ -976,22 +976,213 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    // npm optional native packages are frequently missing on CI/local due npm optional-dep bugs.
+    // Proactively repair before build to avoid false-negative Kasia build failures.
+    let _ = ensure_kasia_native_optional_deps(&npm_cmd);
+
     let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
     if wasm_status.map(|s| !s.success()).unwrap_or(true) {
         println!("cargo:warning=Kasia wasm:build failed; continuing with production build");
     }
 
-    let status = npm_cmd(&["run", "build:production"]).status();
-    if status.map(|s| !s.success()).unwrap_or(true) {
+    let mut status_ok = npm_cmd(&["run", "build:production"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !status_ok {
+        let repaired = ensure_kasia_native_optional_deps(&npm_cmd);
+        if repaired {
+            println!(
+                "cargo:warning=Kasia build:production failed; retried after repairing native npm optional deps"
+            );
+            status_ok = npm_cmd(&["run", "build:production"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        }
+    }
+
+    if !status_ok {
         println!("cargo:warning=Kasia build:production failed; trying vite build fallback");
-        let fallback = npm_cmd(&["exec", "vite", "build"]).status();
-        if fallback.map(|s| !s.success()).unwrap_or(true) {
+        let mut fallback_ok = npm_cmd(&["exec", "--", "vite", "build"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !fallback_ok {
+            let repaired = ensure_kasia_native_optional_deps(&npm_cmd);
+            if repaired {
+                println!(
+                    "cargo:warning=Kasia vite fallback failed; retrying after repairing native npm optional deps"
+                );
+                fallback_ok = npm_cmd(&["exec", "--", "vite", "build"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            }
+        }
+        if !fallback_ok {
             println!("cargo:warning=Kasia build failed; skipping");
         }
     }
 
     sync_kasia_build(&kasia_root, &repo_root)?;
     Ok(())
+}
+
+fn kasia_native_optional_packages() -> Vec<&'static str> {
+    let mut packages = Vec::new();
+
+    // Rollup native package
+    let rollup_pkg = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some("@rollup/rollup-darwin-arm64")
+        } else if cfg!(target_arch = "x86_64") {
+            Some("@rollup/rollup-darwin-x64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@rollup/rollup-linux-x64-gnu")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@rollup/rollup-linux-arm64-gnu")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@rollup/rollup-win32-x64-msvc")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@rollup/rollup-win32-arm64-msvc")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(pkg) = rollup_pkg {
+        packages.push(pkg);
+    }
+
+    // Lightning CSS native package
+    let lightningcss_pkg = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some("lightningcss-darwin-arm64")
+        } else if cfg!(target_arch = "x86_64") {
+            Some("lightningcss-darwin-x64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "x86_64") {
+            Some("lightningcss-linux-x64-gnu")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("lightningcss-linux-arm64-gnu")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            Some("lightningcss-win32-x64-msvc")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("lightningcss-win32-arm64-msvc")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(pkg) = lightningcss_pkg {
+        packages.push(pkg);
+    }
+
+    // Tailwind Oxide native package
+    let tailwind_oxide_pkg = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some("@tailwindcss/oxide-darwin-arm64")
+        } else if cfg!(target_arch = "x86_64") {
+            Some("@tailwindcss/oxide-darwin-x64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@tailwindcss/oxide-linux-x64-gnu")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@tailwindcss/oxide-linux-arm64-gnu")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@tailwindcss/oxide-win32-x64-msvc")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@tailwindcss/oxide-win32-arm64-msvc")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(pkg) = tailwind_oxide_pkg {
+        packages.push(pkg);
+    }
+
+    // Esbuild native package
+    let esbuild_pkg = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some("@esbuild/darwin-arm64")
+        } else if cfg!(target_arch = "x86_64") {
+            Some("@esbuild/darwin-x64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@esbuild/linux-x64")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@esbuild/linux-arm64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@esbuild/win32-x64")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@esbuild/win32-arm64")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(pkg) = esbuild_pkg {
+        packages.push(pkg);
+    }
+
+    packages
+}
+
+fn ensure_kasia_native_optional_deps(npm_cmd: &dyn Fn(&[&str]) -> std::process::Command) -> bool {
+    let packages = kasia_native_optional_packages();
+    if packages.is_empty() {
+        return false;
+    }
+
+    let mut args = vec!["install", "--no-save", "--no-audit", "--no-fund"];
+    args.extend(packages.iter().copied());
+
+    let package_list = packages.join(", ");
+    eprintln!("build: Kasia self-heal installing native npm optional deps ({package_list})");
+
+    npm_cmd(&args)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {

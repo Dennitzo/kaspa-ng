@@ -257,7 +257,7 @@ impl SelfHostedPostgresService {
 
         for bin_dir in Self::candidate_bin_dirs() {
             let candidate = bin_dir.join(&bin_name);
-            if candidate.exists() {
+            if Self::is_runnable_binary(&candidate) {
                 return Ok(candidate);
             }
         }
@@ -266,7 +266,7 @@ impl SelfHostedPostgresService {
             let _ = Self::attempt_auto_install_postgres();
             for bin_dir in Self::candidate_bin_dirs() {
                 let candidate = bin_dir.join(&bin_name);
-                if candidate.exists() {
+                if Self::is_runnable_binary(&candidate) {
                     return Ok(candidate);
                 }
             }
@@ -279,6 +279,19 @@ impl SelfHostedPostgresService {
         Err(Error::Custom(format!(
             "postgres binary not found: {bin_name} (searched common install paths and PATH)"
         )))
+    }
+
+    fn is_runnable_binary(path: &Path) -> bool {
+        if !path.exists() || !path.is_file() {
+            return false;
+        }
+
+        let mut cmd = std::process::Command::new(path);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        cmd.arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        matches!(cmd.status(), Ok(status) if status.success())
     }
 
     fn running_from_macos_bundle() -> bool {
@@ -455,7 +468,7 @@ impl SelfHostedPostgresService {
         let path_var = std::env::var_os("PATH")?;
         std::env::split_paths(&path_var)
             .map(|dir| dir.join(bin_name))
-            .find(|candidate| candidate.exists())
+            .find(|candidate| Self::is_runnable_binary(candidate))
     }
 
     fn initdb_if_needed(&self, settings: &SelfHostedSettings, data_dir: &Path) -> Result<()> {

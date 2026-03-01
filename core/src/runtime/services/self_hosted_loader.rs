@@ -3,7 +3,7 @@ use crate::runtime::services::{
     LogStore, LogStores, SelfHostedExplorerService, SelfHostedIndexerService,
     SelfHostedKIndexerService, SelfHostedKasiaIndexerService, SelfHostedPostgresService,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::net::TcpStream;
 use tokio::time::{MissedTickBehavior, timeout};
 use tokio_postgres::NoTls;
@@ -229,7 +229,7 @@ impl SelfHostedLoaderService {
 
         for dir in Self::postgres_candidate_bin_dirs() {
             let candidate = dir.join(&binary_name);
-            if candidate.exists() {
+            if Self::runnable_binary(&candidate) {
                 return Some(candidate);
             }
         }
@@ -237,8 +237,19 @@ impl SelfHostedLoaderService {
         std::env::var_os("PATH").and_then(|path_var| {
             std::env::split_paths(&path_var)
                 .map(|dir| dir.join(&binary_name))
-                .find(|candidate| candidate.exists())
+                .find(|candidate| Self::runnable_binary(candidate))
         })
+    }
+
+    fn runnable_binary(path: &Path) -> bool {
+        if !path.exists() || !path.is_file() {
+            return false;
+        }
+        let mut cmd = std::process::Command::new(path);
+        cmd.arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        matches!(cmd.status(), Ok(status) if status.success())
     }
 
     fn postgres_data_dir(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<PathBuf> {
