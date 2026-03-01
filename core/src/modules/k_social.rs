@@ -368,12 +368,12 @@ impl ModuleT for KSocial {
                         ));
                     } else {
                         log_info!(
-                            "K-Social: loading web app from {} with official API {}",
+                            "K-Social: loading web app from {} with public API {}",
                             start_url,
                             K_OFFICIAL_MAINNET_API
                         );
                         self.push_log(format!(
-                            "K-Social: loading web app with official API {}",
+                            "K-Social: loading web app with public API {}",
                             K_OFFICIAL_MAINNET_API
                         ));
                     }

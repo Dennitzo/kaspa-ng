@@ -169,7 +169,7 @@ export function getIndexerStatusLabel(network: "mainnet" | "testnet"): string {
   }
 
   const effective = getEffectiveIndexerUrl(network);
-  const kind = isSelfHostedUrl(effective) ? "Self-hosted" : "Official";
+  const kind = isSelfHostedUrl(effective) ? "Self-hosted" : "Public";
   return `Indexer ${kind} ${toAddressPortDisplay(effective)}`;
 }
 

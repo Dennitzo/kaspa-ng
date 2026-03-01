@@ -320,7 +320,17 @@ impl SelfHostedPostgresService {
     }
 
     fn run_command_success(cmd: &mut std::process::Command) -> bool {
+        Self::apply_no_window_for_std_command(cmd);
         matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn apply_no_window_for_std_command(_cmd: &mut std::process::Command) {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            _cmd.creation_flags(CREATE_NO_WINDOW);
+        }
     }
 
     fn attempt_auto_install_postgres() -> bool {
@@ -438,16 +448,19 @@ impl SelfHostedPostgresService {
         ));
         std::fs::write(&pwfile, settings.db_password.as_bytes())?;
 
-        let status = std::process::Command::new(initdb_bin)
-            .arg("-D")
-            .arg(data_dir)
-            .arg("-U")
-            .arg(&settings.db_user)
-            .arg("--auth=md5")
-            .arg("--encoding=UTF8")
-            .arg(format!("--pwfile={}", pwfile.display()))
-            .env("LC_MESSAGES", "C")
-            .status();
+        let status = {
+            let mut cmd = std::process::Command::new(initdb_bin);
+            Self::apply_no_window_for_std_command(&mut cmd);
+            cmd.arg("-D")
+                .arg(data_dir)
+                .arg("-U")
+                .arg(&settings.db_user)
+                .arg("--auth=md5")
+                .arg("--encoding=UTF8")
+                .arg(format!("--pwfile={}", pwfile.display()))
+                .env("LC_MESSAGES", "C")
+                .status()
+        };
 
         let _ = std::fs::remove_file(&pwfile);
 
@@ -754,6 +767,7 @@ impl SelfHostedPostgresService {
                         sql: &str|
          -> Result<String> {
             let mut cmd = std::process::Command::new(&psql_bin);
+            Self::apply_no_window_for_std_command(&mut cmd);
             cmd.arg("-X")
                 .arg("-v")
                 .arg("ON_ERROR_STOP=1")
@@ -951,6 +965,7 @@ impl SelfHostedPostgresService {
         let run_psql =
             |admin: Option<&str>, host: Option<&str>, use_tcp: bool, sql: &str| -> Result<String> {
                 let mut cmd = std::process::Command::new(&psql_bin);
+                Self::apply_no_window_for_std_command(&mut cmd);
                 cmd.arg("-X")
                     .arg("-v")
                     .arg("ON_ERROR_STOP=1")

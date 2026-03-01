@@ -1209,7 +1209,7 @@ impl Settings {
                                     core.settings.explorer.source = ExplorerDataSource::Official;
                                     self.settings.explorer.source = ExplorerDataSource::Official;
                                     self.runtime.toast(UserNotification::info(i18n(
-                                        "Self-hosted services disabled. Explorer switched to Official.",
+                                        "Self-hosted services disabled. Explorer switched to Public.",
                                     )));
                                 } else if settings.enabled
                                     && !matches!(

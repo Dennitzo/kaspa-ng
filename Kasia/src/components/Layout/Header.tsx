@@ -84,7 +84,7 @@ export const Header: FC<Props> = () => {
         }
       : {
           chip: "text-[var(--text-primary)]",
-          label: "Official",
+          label: "Public",
         };
   const nodeHealthTone = isNodeConnected
     ? {
@@ -113,7 +113,7 @@ export const Header: FC<Props> = () => {
       : indexerStatus.kind === "official"
         ? {
             chip: "text-[var(--text-primary)]",
-            label: "Official",
+            label: "Public",
           }
         : {
             chip: "text-[var(--text-primary)]",

@@ -68,7 +68,7 @@ export const getApiSource = (): ExplorerApiSource => {
 export const getApiSourceLabel = () => {
   const source = getApiSource();
   if (source === "self-hosted") return "Self-hosted";
-  if (source === "official") return "Official";
+  if (source === "official") return "Public";
   return "Custom";
 };
 
