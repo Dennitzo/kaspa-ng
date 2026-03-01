@@ -51,21 +51,48 @@ fn ensure_node_and_npm_ready() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let node_info = detected_node_info()
+        .map(|(cmd, version, major)| format!("{cmd}={version} (major {major})"))
+        .unwrap_or_else(|| "not found".to_string());
+    let npm_cmd = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
+    let npm_info = command_output_line(&npm_cmd, &["--version"])
+        .map(|version| format!("{npm_cmd}={version}"))
+        .unwrap_or_else(|| format!("{npm_cmd}=not found"));
+
     Err(format!(
-        "Node.js/npm prerequisite check failed. Ensure node >= {MIN_NODE_MAJOR} and npm are installed and available in PATH (build.rs does not auto-install system packages)."
+        "Node.js/npm prerequisite check failed. Ensure node >= {MIN_NODE_MAJOR} and npm are installed and available in PATH (build.rs does not auto-install system packages). Detected: node[{node_info}], npm[{npm_info}]"
     )
     .into())
 }
 
 fn node_and_npm_ready(min_major: u32) -> bool {
-    let node_version = command_output_line("node", &["--version"]);
-    let npm_ok = command_succeeds("npm", &["--version"]);
-    let node_ok = node_version
-        .as_deref()
-        .and_then(parse_node_major)
-        .map(|major| major >= min_major)
+    let npm_cmd = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
+    let npm_ok = command_succeeds(&npm_cmd, &["--version"]);
+    let node_ok = detected_node_info()
+        .map(|(_, _, major)| major >= min_major)
         .unwrap_or(false);
     node_ok && npm_ok
+}
+
+fn detected_node_info() -> Option<(String, String, u32)> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Ok(node_cmd) = std::env::var("NODE") {
+        let trimmed = node_cmd.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+    candidates.push("node".to_string());
+    candidates.push("nodejs".to_string());
+
+    for cmd in candidates {
+        if let Some(version) = command_output_line(&cmd, &["--version"])
+            && let Some(major) = parse_node_major(version.as_str())
+        {
+            return Some((cmd, version, major));
+        }
+    }
+    None
 }
 
 fn parse_node_major(version: &str) -> Option<u32> {
