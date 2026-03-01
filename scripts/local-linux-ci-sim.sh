@@ -96,7 +96,7 @@ apt-get install -y --no-install-recommends \
   libssl-dev libglib2.0-dev libatk1.0-dev libgtk-4-dev \
   libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
   libsoup-3.0-dev libx11-dev protobuf-compiler libprotobuf-dev \
-  python3 python3-pip zip xz-utils clang libclang-dev llvm-dev
+  python3 python3-pip python3-venv zip xz-utils clang libclang-dev llvm-dev
 
 # Node.js 22 (matches CI)
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -131,11 +131,19 @@ if [[ -n "$ARTIFACT_ROOT" ]]; then
   DOCKER_ENV+=( -e ARTIFACT_ROOT="$ARTIFACT_ROOT" )
 fi
 
-docker run --rm -t \
-  --platform "$PLATFORM" \
-  -v "$ROOT_DIR":"$CONTAINER_WORKDIR" \
-  -v "$CONTAINER_SCRIPT":"/tmp/local-linux-ci-inner.sh:ro" \
-  -w "$CONTAINER_WORKDIR" \
-  "${DOCKER_ENV[@]}" \
+docker_args=(
+  --rm -t
+  --platform "$PLATFORM"
+  -v "$ROOT_DIR":"$CONTAINER_WORKDIR"
+  -v "$CONTAINER_SCRIPT":"/tmp/local-linux-ci-inner.sh:ro"
+  -w "$CONTAINER_WORKDIR"
+)
+
+if ((${#DOCKER_ENV[@]})); then
+  docker_args+=("${DOCKER_ENV[@]}")
+fi
+
+docker run \
+  "${docker_args[@]}" \
   "$IMAGE" \
   bash /tmp/local-linux-ci-inner.sh

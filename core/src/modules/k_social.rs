@@ -48,6 +48,8 @@ pub struct KSocial {
     #[cfg(not(target_arch = "wasm32"))]
     last_bounds: Option<WryRect>,
     #[cfg(not(target_arch = "wasm32"))]
+    last_zoom: Option<f64>,
+    #[cfg(not(target_arch = "wasm32"))]
     last_signature: Option<(Network, String, u16)>,
     #[cfg(not(target_arch = "wasm32"))]
     status: Option<String>,
@@ -72,6 +74,8 @@ impl KSocial {
             webview: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_bounds: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_zoom: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_signature: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -136,6 +140,7 @@ impl ModuleT for KSocial {
                 self.webview.take();
                 self.server.take();
                 self.last_bounds = None;
+                self.last_zoom = None;
                 self.last_signature = None;
                 self.status = Some(i18n("K-Social is available only on Mainnet.").to_string());
                 self.last_probe_status = None;
@@ -321,6 +326,12 @@ impl ModuleT for KSocial {
             {
                 let available_rect = ui.available_rect_before_wrap();
                 ui.allocate_rect(available_rect, Sense::hover());
+                #[cfg(target_os = "linux")]
+                let available_rect = {
+                    // Linux WebKit child windows can end up slightly smaller from DPI rounding.
+                    let pad = 1.0 / _ctx.pixels_per_point().max(1.0);
+                    available_rect.expand2(egui::vec2(pad, pad))
+                };
 
                 let bounds = WryRect {
                     position: LogicalPosition::new(
@@ -334,11 +345,13 @@ impl ModuleT for KSocial {
                     )
                     .into(),
                 };
+                let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
                 let signature = Some((core.settings.node.network, api_host.clone(), api_port));
                 if self.webview.is_some() && self.last_signature != signature {
                     self.webview.take();
                     self.last_bounds = None;
+                    self.last_zoom = None;
                 }
 
                 if self.webview.is_none() {
@@ -391,8 +404,10 @@ impl ModuleT for KSocial {
                         Ok(webview) => {
                             let _ = webview.set_visible(true);
                             let _ = webview.focus();
+                            let _ = webview.zoom(target_zoom);
                             self.webview = Some(webview);
                             self.last_bounds = Some(bounds);
+                            self.last_zoom = Some(target_zoom);
                             self.last_signature = signature;
                             self.status = None;
                             self.waiting_since = None;
@@ -410,6 +425,17 @@ impl ModuleT for KSocial {
                             resize_error = Some(err.to_string());
                         } else {
                             self.last_bounds = Some(bounds);
+                        }
+                    }
+                    if self
+                        .last_zoom
+                        .map(|zoom| (zoom - target_zoom).abs() > 0.001)
+                        .unwrap_or(true)
+                    {
+                        if let Err(err) = webview.zoom(target_zoom) {
+                            resize_error = Some(err.to_string());
+                        } else {
+                            self.last_zoom = Some(target_zoom);
                         }
                     }
                     let _ = webview.set_visible(true);

@@ -207,6 +207,14 @@ fn prepare_python_server_env(
         venv_dir.join("bin").join("python3")
     };
 
+    if venv_python.exists() && !python_interpreter_works(&venv_python) {
+        println!(
+            "cargo:warning=Recreating python virtualenv for {} (existing venv python is not runnable)",
+            root.display()
+        );
+        let _ = std::fs::remove_dir_all(&venv_dir);
+    }
+
     if venv_python.exists()
         && venv_python_is_too_new_for_runtime_deps(&venv_python)
         && launcher_prefers_older_python(launcher)
@@ -219,27 +227,36 @@ fn prepare_python_server_env(
     }
 
     if !venv_python.exists() {
-        println!(
-            "cargo:warning=Creating python virtualenv for {}",
-            root.display()
-        );
+        eprintln!("build: creating python virtualenv for {}", root.display());
         let mut launcher_parts = launcher.split_whitespace();
         let launcher_program = launcher_parts
             .next()
             .ok_or("invalid python launcher")?
             .to_string();
         let launcher_args: Vec<String> = launcher_parts.map(|s| s.to_string()).collect();
-        let mut cmd = Command::new(launcher_program);
-        for arg in launcher_args {
-            cmd.arg(arg);
+        let mut created = false;
+        for attempt in 1..=2 {
+            let mut cmd = Command::new(&launcher_program);
+            for arg in &launcher_args {
+                cmd.arg(arg);
+            }
+            let status = cmd
+                .arg("-m")
+                .arg("venv")
+                .arg("--clear")
+                .arg(&venv_dir)
+                .current_dir(root)
+                .status()?;
+            if status.success() {
+                created = true;
+                break;
+            }
+            if attempt == 1 {
+                let _ = std::fs::remove_dir_all(&venv_dir);
+            }
         }
-        let status = cmd
-            .arg("-m")
-            .arg("venv")
-            .arg(&venv_dir)
-            .current_dir(root)
-            .status()?;
-        if !status.success() {
+
+        if !created {
             println!(
                 "cargo:warning=Failed to create python virtualenv for {}; skipping setup",
                 root.display()
@@ -259,8 +276,8 @@ fn prepare_python_server_env(
         2,
     );
 
-    println!(
-        "cargo:warning=Installing python runtime packages for {}",
+    eprintln!(
+        "build: installing python runtime packages for {}",
         root.display()
     );
     let mut install_args = vec![
@@ -349,6 +366,17 @@ fn python_module_available_for_python(python: &Path, module: &str) -> bool {
     Command::new(python)
         .arg("-c")
         .arg(format!("import {module}"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn python_interpreter_works(python: &Path) -> bool {
+    Command::new(python)
+        .arg("-c")
+        .arg("import sys; print(sys.version_info[0])")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()

@@ -159,6 +159,8 @@ pub struct Explorer {
     #[cfg(not(target_arch = "wasm32"))]
     last_bounds: Option<WryRect>,
     #[cfg(not(target_arch = "wasm32"))]
+    last_zoom: Option<f64>,
+    #[cfg(not(target_arch = "wasm32"))]
     last_path: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     last_endpoint_signature: Option<(ExplorerDataSource, Network, String, String, String)>,
@@ -181,6 +183,8 @@ impl Explorer {
             #[cfg(not(target_arch = "wasm32"))]
             last_bounds: None,
             #[cfg(not(target_arch = "wasm32"))]
+            last_zoom: None,
+            #[cfg(not(target_arch = "wasm32"))]
             last_path: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_endpoint_signature: None,
@@ -198,6 +202,7 @@ impl Explorer {
         self.webview.take();
         self.server.take();
         self.last_bounds = None;
+        self.last_zoom = None;
         self.last_path = None;
         self.last_endpoint_signature = None;
         self.last_webview_attempt = None;
@@ -326,6 +331,12 @@ impl ModuleT for Explorer {
 
                 let available_rect = ui.available_rect_before_wrap();
                 ui.allocate_rect(available_rect, Sense::hover());
+                #[cfg(target_os = "linux")]
+                let available_rect = {
+                    // Linux WebKit child windows can end up slightly smaller from DPI rounding.
+                    let pad = 1.0 / _ctx.pixels_per_point().max(1.0);
+                    available_rect.expand2(egui::vec2(pad, pad))
+                };
 
                 let bounds = WryRect {
                     position: LogicalPosition::new(
@@ -339,6 +350,7 @@ impl ModuleT for Explorer {
                     )
                     .into(),
                 };
+                let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
                 let endpoint = match core.settings.explorer.source {
                     ExplorerDataSource::Official => core
@@ -364,6 +376,7 @@ impl ModuleT for Explorer {
                 if self.webview.is_some() && self.last_endpoint_signature != endpoint_signature {
                     self.webview.take();
                     self.last_bounds = None;
+                    self.last_zoom = None;
                 }
 
                 if self.webview.is_none() {
@@ -398,8 +411,10 @@ impl ModuleT for Explorer {
                         Ok(webview) => {
                             let _ = webview.set_visible(true);
                             let _ = webview.focus();
+                            let _ = webview.zoom(target_zoom);
                             self.webview = Some(webview);
                             self.last_bounds = Some(bounds);
+                            self.last_zoom = Some(target_zoom);
                             self.last_path = Some(core.settings.user_interface.explorer_last_path.clone());
                             self.last_endpoint_signature = endpoint_signature;
                             self.status = None;
@@ -471,6 +486,17 @@ impl ModuleT for Explorer {
                             return;
                         }
                         self.last_bounds = Some(bounds);
+                    }
+                    if self
+                        .last_zoom
+                        .map(|zoom| (zoom - target_zoom).abs() > 0.001)
+                        .unwrap_or(true)
+                    {
+                        if let Err(err) = webview.zoom(target_zoom) {
+                            self.status = Some(format!("Explorer WebView zoom error: {err}"));
+                            return;
+                        }
+                        self.last_zoom = Some(target_zoom);
                     }
                 }
             } else {

@@ -369,6 +369,12 @@ impl ModuleT for Kasia {
 
             let available_rect = ui.available_rect_before_wrap();
             ui.allocate_rect(available_rect, Sense::hover());
+            #[cfg(target_os = "linux")]
+            let available_rect = {
+                // Linux WebKit child windows can end up slightly smaller from DPI rounding.
+                let pad = 1.0 / ctx.pixels_per_point().max(1.0);
+                available_rect.expand2(egui::vec2(pad, pad))
+            };
 
             let bounds = WryRect {
                 position: LogicalPosition::new(

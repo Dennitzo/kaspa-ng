@@ -164,11 +164,13 @@ impl Runtime {
             settings,
             self_hosted_logs.clone(),
             self_hosted_loader_status.clone(),
-            self_hosted_postgres_service.clone(),
-            self_hosted_indexer_service.clone(),
-            self_hosted_k_indexer_service.clone(),
-            self_hosted_kasia_indexer_service.clone(),
-            self_hosted_explorer_service.clone(),
+            SelfHostedLoaderServices {
+                postgres_service: self_hosted_postgres_service.clone(),
+                indexer_service: self_hosted_indexer_service.clone(),
+                k_indexer_service: self_hosted_k_indexer_service.clone(),
+                kasia_indexer_service: self_hosted_kasia_indexer_service.clone(),
+                explorer_service: self_hosted_explorer_service.clone(),
+            },
         ));
 
         let update_monitor_service = Arc::new(UpdateMonitorService::new(

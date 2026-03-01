@@ -3,6 +3,7 @@ use crate::runtime::services::{
     LogStore, LogStores, SelfHostedExplorerService, SelfHostedIndexerService,
     SelfHostedKIndexerService, SelfHostedKasiaIndexerService, SelfHostedPostgresService,
 };
+use std::path::PathBuf;
 use tokio::net::TcpStream;
 use tokio::time::{MissedTickBehavior, timeout};
 use tokio_postgres::NoTls;
@@ -58,6 +59,24 @@ pub enum SelfHostedLoaderEvents {
     Exit,
 }
 
+#[derive(Clone)]
+pub struct SelfHostedLoaderServices {
+    pub postgres_service: Arc<SelfHostedPostgresService>,
+    pub indexer_service: Arc<SelfHostedIndexerService>,
+    pub k_indexer_service: Arc<SelfHostedKIndexerService>,
+    pub kasia_indexer_service: Arc<SelfHostedKasiaIndexerService>,
+    pub explorer_service: Arc<SelfHostedExplorerService>,
+}
+
+#[derive(Clone, Copy)]
+struct LoaderReadiness {
+    connected: bool,
+    postgres_ready: bool,
+    indexers_ready: bool,
+    rest_ready: bool,
+    socket_ready: bool,
+}
+
 pub struct SelfHostedLoaderService {
     pub application_events: ApplicationEventsChannel,
     pub service_events: Channel<SelfHostedLoaderEvents>,
@@ -82,6 +101,7 @@ pub struct SelfHostedLoaderService {
     indexer_failures: Mutex<u32>,
     explorer_failures: Mutex<u32>,
     last_ping_log_at: Mutex<Option<Instant>>,
+    last_postgres_debug_log_at: Mutex<Option<Instant>>,
 }
 
 impl SelfHostedLoaderService {
@@ -95,6 +115,7 @@ impl SelfHostedLoaderService {
     const INDEXER_BOOT_GRACE: Duration = Duration::from_secs(45);
     const EXPLORER_BOOT_GRACE: Duration = Duration::from_secs(25);
     const NETWORK_SWITCH_GRACE: Duration = Duration::from_secs(30);
+    const POSTGRES_DEBUG_LOG_INTERVAL: Duration = Duration::from_secs(12);
 
     fn resolve_probe_host(bind: &str) -> String {
         let trimmed = bind.trim();
@@ -142,6 +163,173 @@ impl SelfHostedLoaderService {
         let (host, port_raw) = trimmed.rsplit_once(':')?;
         let port = port_raw.parse::<u16>().ok()?;
         Some((Self::normalize_probe_host(host), port))
+    }
+
+    fn postgres_candidate_bin_dirs() -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent()
+        {
+            dirs.push(exe_dir.join("postgres").join("bin"));
+
+            #[cfg(target_os = "macos")]
+            {
+                dirs.push(exe_dir.join("../Resources/postgres/bin"));
+                dirs.push(exe_dir.join("../../Resources/postgres/bin"));
+            }
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            dirs.push(cwd.join("postgres").join("bin"));
+        }
+
+        if let Some(home) = workflow_core::dirs::home_dir() {
+            dirs.push(home.join(".kaspa/self-hosted/postgres-runtime/bin"));
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            dirs.extend([
+                PathBuf::from("/opt/homebrew/opt/postgresql@15/bin"),
+                PathBuf::from("/usr/local/opt/postgresql@15/bin"),
+                PathBuf::from("/opt/homebrew/opt/postgresql/bin"),
+                PathBuf::from("/usr/local/opt/postgresql/bin"),
+            ]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            dirs.extend([
+                PathBuf::from("/usr/lib/postgresql/15/bin"),
+                PathBuf::from("/usr/pgsql-15/bin"),
+                PathBuf::from("/usr/local/pgsql/bin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+            ]);
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            dirs.extend([
+                PathBuf::from("C:\\Program Files\\PostgreSQL\\15\\bin"),
+                PathBuf::from("C:\\Program Files (x86)\\PostgreSQL\\15\\bin"),
+            ]);
+        }
+
+        dirs
+    }
+
+    fn find_postgres_binary(binary: &str) -> Option<PathBuf> {
+        let binary_name = if cfg!(windows) {
+            format!("{binary}.exe")
+        } else {
+            binary.to_string()
+        };
+
+        for dir in Self::postgres_candidate_bin_dirs() {
+            let candidate = dir.join(&binary_name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        std::env::var_os("PATH").and_then(|path_var| {
+            std::env::split_paths(&path_var)
+                .map(|dir| dir.join(&binary_name))
+                .find(|candidate| candidate.exists())
+        })
+    }
+
+    fn postgres_data_dir(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<PathBuf> {
+        if !settings.postgres_data_dir.trim().is_empty() {
+            let mut path = PathBuf::from(settings.postgres_data_dir.trim());
+            path.push(crate::settings::network_profile_slug(node.network));
+            return Ok(path);
+        }
+
+        let default_storage_folder = kaspa_wallet_core::storage::local::default_storage_folder();
+        let storage_folder = workflow_store::fs::resolve_path(default_storage_folder)?;
+        Ok(storage_folder
+            .join("self-hosted")
+            .join("postgres")
+            .join(crate::settings::network_profile_slug(node.network)))
+    }
+
+    fn maybe_log_postgres_install_debug(
+        &self,
+        settings: &SelfHostedSettings,
+        node: &NodeSettings,
+        context: &str,
+    ) {
+        let mut guard = self.last_postgres_debug_log_at.lock().unwrap();
+        let should_log = guard
+            .map(|last| last.elapsed() >= Self::POSTGRES_DEBUG_LOG_INTERVAL)
+            .unwrap_or(true);
+        if !should_log {
+            return;
+        }
+        *guard = Some(Instant::now());
+
+        let postgres_bin = Self::find_postgres_binary("postgres");
+        let initdb_bin = Self::find_postgres_binary("initdb");
+        let pg_ctl_bin = Self::find_postgres_binary("pg_ctl");
+        let db_port = settings.effective_db_port(node.network);
+
+        self.logs.push(
+            "INFO",
+            &format!(
+                "postgres debug ({context}): host={} port={} user={} network={}",
+                settings.db_host,
+                db_port,
+                settings.db_user,
+                node.network.name()
+            ),
+        );
+
+        match Self::postgres_data_dir(settings, node) {
+            Ok(data_dir) => {
+                let postmaster_pid = data_dir.join("postmaster.pid");
+                self.logs.push(
+                    "INFO",
+                    &format!(
+                        "postgres debug ({context}): data_dir={} exists={} postmaster.pid={}",
+                        data_dir.display(),
+                        data_dir.exists(),
+                        if postmaster_pid.exists() {
+                            "present"
+                        } else {
+                            "missing"
+                        }
+                    ),
+                );
+            }
+            Err(err) => {
+                self.logs.push(
+                    "WARN",
+                    &format!("postgres debug ({context}): failed to resolve data dir: {err}"),
+                );
+            }
+        }
+
+        self.logs.push(
+            "INFO",
+            &format!(
+                "postgres debug ({context}): binaries postgres={} initdb={} pg_ctl={}",
+                postgres_bin
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "not found".to_string()),
+                initdb_bin
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "not found".to_string()),
+                pg_ctl_bin
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "not found".to_string())
+            ),
+        );
     }
 
     async fn check_tcp(host: &str, port: u16) -> bool {
@@ -273,31 +461,22 @@ impl SelfHostedLoaderService {
             let now = Instant::now();
             if now < *until {
                 let remaining = until.saturating_duration_since(now).as_secs();
-                return Some((target.clone(), remaining));
+                return Some((*target, remaining));
             }
         }
         *guard = None;
         None
     }
 
-    fn publish_status(
-        &self,
-        phase: &str,
-        message: String,
-        connected: bool,
-        postgres_ready: bool,
-        indexers_ready: bool,
-        rest_ready: bool,
-        socket_ready: bool,
-    ) {
+    fn publish_status(&self, phase: &str, message: String, readiness: LoaderReadiness) {
         self.status.update(LoaderStatusSnapshot {
             phase: phase.to_string(),
             message,
-            connected,
-            postgres_ready,
-            indexers_ready,
-            rest_ready,
-            socket_ready,
+            connected: readiness.connected,
+            postgres_ready: readiness.postgres_ready,
+            indexers_ready: readiness.indexers_ready,
+            rest_ready: readiness.rest_ready,
+            socket_ready: readiness.socket_ready,
             last_ping_at: chrono::Utc::now().to_rfc3339(),
         });
         runtime().request_repaint();
@@ -307,11 +486,13 @@ impl SelfHostedLoaderService {
         self.publish_status(
             "Disabled",
             message.to_string(),
-            false,
-            false,
-            false,
-            false,
-            false,
+            LoaderReadiness {
+                connected: false,
+                postgres_ready: false,
+                indexers_ready: false,
+                rest_ready: false,
+                socket_ready: false,
+            },
         );
     }
 
@@ -388,15 +569,17 @@ impl SelfHostedLoaderService {
             ),
         );
         self.reset_restart_cooldowns();
-        self.begin_network_switch_grace(next.clone());
+        self.begin_network_switch_grace(next);
         self.publish_status(
             "Switching network",
             format!("Switching network: {} -> {}", previous.name(), next.name()),
-            false,
-            false,
-            false,
-            false,
-            false,
+            LoaderReadiness {
+                connected: false,
+                postgres_ready: false,
+                indexers_ready: false,
+                rest_ready: false,
+                socket_ready: false,
+            },
         );
         self.stop_dependents().await;
         sleep(Self::DEPENDENTS_STOP_GRACE).await;
@@ -410,9 +593,7 @@ impl SelfHostedLoaderService {
         let node = self.node_settings.lock().unwrap().clone();
         let network_switch_state = self.network_switch_state();
         let switching_network = network_switch_state.is_some();
-        let switch_target = network_switch_state
-            .as_ref()
-            .map(|(target, _)| target.clone());
+        let switch_target = network_switch_state.as_ref().map(|(target, _)| *target);
         let switch_remaining = network_switch_state
             .as_ref()
             .map(|(_, remaining)| *remaining)
@@ -431,11 +612,13 @@ impl SelfHostedLoaderService {
             self.publish_status(
                 "Initialisation",
                 "Postgres is disabled; enable Postgres to continue".to_string(),
-                false,
-                false,
-                false,
-                false,
-                false,
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: false,
+                    indexers_ready: false,
+                    rest_ready: false,
+                    socket_ready: false,
+                },
             );
             return;
         }
@@ -451,6 +634,7 @@ impl SelfHostedLoaderService {
         };
 
         if !postgres_ready {
+            self.maybe_log_postgres_install_debug(&settings, &node, "waiting for postgres");
             self.stop_dependents().await;
             *self.indexer_boot_started_at.lock().unwrap() = None;
             *self.explorer_boot_started_at.lock().unwrap() = None;
@@ -468,21 +652,25 @@ impl SelfHostedLoaderService {
                         target.name(),
                         switch_remaining
                     ),
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: false,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             } else {
                 self.publish_status(
                     "Initialisation",
                     "Waiting for Postgres".to_string(),
-                    false,
-                    false,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: false,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             }
             self.maybe_log_ping(
@@ -506,21 +694,25 @@ impl SelfHostedLoaderService {
                         target.name(),
                         switch_remaining
                     ),
-                    false,
-                    true,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             } else {
                 self.publish_status(
                     "Initialisation",
                     "Waiting for Node sync".to_string(),
-                    false,
-                    true,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             }
             self.maybe_log_ping(
@@ -612,21 +804,25 @@ impl SelfHostedLoaderService {
                         target.name(),
                         switch_remaining
                     ),
-                    false,
-                    true,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             } else {
                 self.publish_status(
                     "Initialisation",
                     format!("Waiting for {waiting}"),
-                    false,
-                    true,
-                    false,
-                    false,
-                    false,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
                 );
             }
             self.maybe_log_ping(format!(
@@ -681,21 +877,25 @@ impl SelfHostedLoaderService {
                         target.name(),
                         switch_remaining
                     ),
-                    false,
-                    true,
-                    true,
-                    rest_ready,
-                    socket_ready,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: true,
+                        rest_ready,
+                        socket_ready,
+                    },
                 );
             } else {
                 self.publish_status(
                     "Initialisation",
                     "Waiting for REST API and socket server".to_string(),
-                    false,
-                    true,
-                    true,
-                    rest_ready,
-                    socket_ready,
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: true,
+                        rest_ready,
+                        socket_ready,
+                    },
                 );
             }
             self.maybe_log_ping(format!(
@@ -717,11 +917,13 @@ impl SelfHostedLoaderService {
         self.publish_status(
             "Connected",
             "All self-hosted database services are running".to_string(),
-            true,
-            true,
-            true,
-            true,
-            true,
+            LoaderReadiness {
+                connected: true,
+                postgres_ready: true,
+                indexers_ready: true,
+                rest_ready: true,
+                socket_ready: true,
+            },
         );
         self.maybe_log_ping("ping: postgres=ok indexers=ok rest=ok socket=ok".to_string());
     }
@@ -731,11 +933,7 @@ impl SelfHostedLoaderService {
         settings: &Settings,
         logs: LogStores,
         status: SharedLoaderStatus,
-        postgres_service: Arc<SelfHostedPostgresService>,
-        indexer_service: Arc<SelfHostedIndexerService>,
-        k_indexer_service: Arc<SelfHostedKIndexerService>,
-        kasia_indexer_service: Arc<SelfHostedKasiaIndexerService>,
-        explorer_service: Arc<SelfHostedExplorerService>,
+        services: SelfHostedLoaderServices,
     ) -> Self {
         Self {
             application_events,
@@ -746,11 +944,11 @@ impl SelfHostedLoaderService {
             is_enabled: AtomicBool::new(false),
             logs: logs.loader,
             status,
-            postgres_service,
-            indexer_service,
-            k_indexer_service,
-            kasia_indexer_service,
-            explorer_service,
+            postgres_service: services.postgres_service,
+            indexer_service: services.indexer_service,
+            k_indexer_service: services.k_indexer_service,
+            kasia_indexer_service: services.kasia_indexer_service,
+            explorer_service: services.explorer_service,
             last_postgres_restart: Mutex::new(None),
             last_indexer_restart: Mutex::new(None),
             last_explorer_restart: Mutex::new(None),
@@ -761,6 +959,7 @@ impl SelfHostedLoaderService {
             indexer_failures: Mutex::new(0),
             explorer_failures: Mutex::new(0),
             last_ping_log_at: Mutex::new(None),
+            last_postgres_debug_log_at: Mutex::new(None),
         }
     }
 
@@ -846,11 +1045,13 @@ impl Service for SelfHostedLoaderService {
                                     this.publish_status(
                                         "Initialisation",
                                         "Applying updated self-hosted settings".to_string(),
-                                        false,
-                                        false,
-                                        false,
-                                        false,
-                                        false,
+                                        LoaderReadiness {
+                                            connected: false,
+                                            postgres_ready: false,
+                                            indexers_ready: false,
+                                            rest_ready: false,
+                                            socket_ready: false,
+                                        },
                                     );
                                     this.reconcile().await;
                                 }
@@ -873,11 +1074,13 @@ impl Service for SelfHostedLoaderService {
                                         this.publish_status(
                                             "Initialisation",
                                             "Applying updated network settings".to_string(),
-                                            false,
-                                            false,
-                                            false,
-                                            false,
-                                            false,
+                                            LoaderReadiness {
+                                                connected: false,
+                                                postgres_ready: false,
+                                                indexers_ready: false,
+                                                rest_ready: false,
+                                                socket_ready: false,
+                                            },
                                         );
                                     }
                                     this.reconcile().await;
