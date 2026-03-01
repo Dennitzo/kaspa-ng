@@ -16,3 +16,11 @@ kaspa-ng*
 /.idea
 *.log
 kaspa-ng.log
+.kaspa-ng-local-stashes/
+.kaspa-ng-local-stashes-backup/
+/K/
+/K-indexer/
+/Kasia/
+/kasia-indexer/
+/kasvault/
+/simply-kaspa-indexer/
