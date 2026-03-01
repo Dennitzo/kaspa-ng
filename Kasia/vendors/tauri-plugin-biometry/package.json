@@ -1,7 +1,0 @@
-{
-  "name": "@tauri-apps/plugin-biometry",
-  "version": "0.0.0-kaspa-ng-stub",
-  "type": "module",
-  "main": "index.js",
-  "types": "index.d.ts"
-}
