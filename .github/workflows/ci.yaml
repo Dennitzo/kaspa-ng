@@ -478,10 +478,18 @@ jobs:
 
       - name: Install Protoc (Windows)
         if: runner.os == 'Windows'
+        id: setup_protoc_windows
+        continue-on-error: true
         uses: arduino/setup-protoc@v3
         with:
-          version: "31.1"
+          version: "30.2"
           repo-token: ${{ github.token }}
+
+      - name: Fallback Install Protoc (Windows via Chocolatey)
+        if: runner.os == 'Windows' && steps.setup_protoc_windows.outcome == 'failure'
+        shell: pwsh
+        run: |
+          choco install protoc --no-progress --yes
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable

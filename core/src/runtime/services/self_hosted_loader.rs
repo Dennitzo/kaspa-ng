@@ -410,7 +410,9 @@ impl SelfHostedLoaderService {
         let node = self.node_settings.lock().unwrap().clone();
         let network_switch_state = self.network_switch_state();
         let switching_network = network_switch_state.is_some();
-        let switch_target = network_switch_state.as_ref().map(|(target, _)| target.clone());
+        let switch_target = network_switch_state
+            .as_ref()
+            .map(|(target, _)| target.clone());
         let switch_remaining = network_switch_state
             .as_ref()
             .map(|(_, remaining)| *remaining)

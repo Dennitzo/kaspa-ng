@@ -1309,7 +1309,9 @@ impl SelfHostedPostgresService {
                 );
                 Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
                 for _ in 0..4 {
-                    if Self::can_connect_with_configured_credentials(&settings, &node_settings).await {
+                    if Self::can_connect_with_configured_credentials(&settings, &node_settings)
+                        .await
+                    {
                         can_auth = true;
                         break;
                     }

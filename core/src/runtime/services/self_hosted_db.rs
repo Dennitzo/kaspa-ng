@@ -377,7 +377,9 @@ async fn status_handler(State(state): State<AppState>) -> Response {
         Err(err) => {
             let error_message = err.to_string();
             let loader_snapshot = state.loader_status.snapshot();
-            let switching_network = loader_snapshot.phase.eq_ignore_ascii_case("Switching network");
+            let switching_network = loader_snapshot
+                .phase
+                .eq_ignore_ascii_case("Switching network");
             if switching_network && is_transient_database_not_ready(&error_message) {
                 log_info!(
                     "self-hosted-db: transient status while switching network: {}",
