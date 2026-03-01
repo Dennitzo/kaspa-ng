@@ -129,6 +129,7 @@ sync_external_repo() {
 
 sync_external_repos() {
   local repos=(
+    "rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git"
     "K|https://github.com/thesheepcat/K.git"
     "K-indexer|https://github.com/thesheepcat/K-indexer.git"
     "simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git"
@@ -373,8 +374,6 @@ copy_binary_if_exists() {
     cp "target/release/${bin}" "$dest/"
   elif [[ -f "rusty-kaspa/target/release/${bin}" ]]; then
     cp "rusty-kaspa/target/release/${bin}" "$dest/"
-  elif [[ -f "cpuminer/target/release/${bin}" ]]; then
-    cp "cpuminer/target/release/${bin}" "$dest/"
   elif [[ -f "simply-kaspa-indexer/target/release/${bin}" ]]; then
     cp "simply-kaspa-indexer/target/release/${bin}" "$dest/"
   elif [[ -f "K-indexer/target/release/${bin}" ]]; then
@@ -431,7 +430,7 @@ package_and_verify() {
   fi
 
   local bin
-  for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+  for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
     copy_binary_if_exists "$bin" "$root"
   done
 
@@ -476,7 +475,7 @@ package_and_verify() {
     cp -r kasvault/build "$root/KasVault/"
   fi
 
-  for bin in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+  for bin in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
     [[ -f "$root/$bin" ]] || { echo "Missing packaged binary: $bin" >&2; exit 1; }
   done
   for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader K Kasia KasVault postgres; do

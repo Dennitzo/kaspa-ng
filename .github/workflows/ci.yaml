@@ -443,6 +443,7 @@ jobs:
               git clone --depth 1 "${url}" "${dir}"
             fi
           done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           K|https://github.com/thesheepcat/K.git
           K-indexer|https://github.com/thesheepcat/K-indexer.git
           simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git
@@ -695,13 +696,11 @@ jobs:
             )
           fi
           cp target/release/kaspa-ng.exe kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe
-          for bin in stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+          for bin in stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             if [ -f "target/release/${bin}" ]; then
               cp "target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
             elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
               cp "rusty-kaspa/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
-            elif [ -f "cpuminer/target/release/${bin}" ]; then
-              cp "cpuminer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
             elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
               cp "simply-kaspa-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
             elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -751,7 +750,7 @@ jobs:
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault
             cp -r kasvault/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault/
           fi
-          for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+          for f in kaspa-ng.exe stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
@@ -821,13 +820,11 @@ jobs:
           mkdir -p "$ROOT"
           cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
-          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
               cp "target/release/${bin}" "$ROOT/"
             elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
               cp "rusty-kaspa/target/release/${bin}" "$ROOT/"
-            elif [ -f "cpuminer/target/release/${bin}" ]; then
-              cp "cpuminer/target/release/${bin}" "$ROOT/"
             elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
               cp "simply-kaspa-indexer/target/release/${bin}" "$ROOT/"
             elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -877,7 +874,7 @@ jobs:
             mkdir -p "$ROOT/KasVault"
             cp -r kasvault/build "$ROOT/KasVault/"
           fi
-          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
@@ -965,13 +962,11 @@ jobs:
           mkdir -p "$ROOT"
           cp -R target/release/Kaspa-NG.app "$ROOT/"
           cp target/release/kaspa-ng "$ROOT/"
-          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
               cp "target/release/${bin}" "$ROOT/"
             elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
               cp "rusty-kaspa/target/release/${bin}" "$ROOT/"
-            elif [ -f "cpuminer/target/release/${bin}" ]; then
-              cp "cpuminer/target/release/${bin}" "$ROOT/"
             elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
               cp "simply-kaspa-indexer/target/release/${bin}" "$ROOT/"
             elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -1021,7 +1016,7 @@ jobs:
             mkdir -p "$ROOT/KasVault"
             cp -r kasvault/build "$ROOT/KasVault/"
           fi
-          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
@@ -1103,13 +1098,11 @@ jobs:
             )
           fi
           cp target/release/kaspa-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
               cp "target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
             elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
               cp "rusty-kaspa/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
-            elif [ -f "cpuminer/target/release/${bin}" ]; then
-              cp "cpuminer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
             elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
               cp "simply-kaspa-indexer/target/release/${bin}" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
             elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -1163,13 +1156,11 @@ jobs:
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           mkdir -p .debpkg/usr/bin
           cp target/release/kaspa-ng .debpkg/usr/bin/
-          for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             if [ -f "target/release/${bin}" ]; then
               cp "target/release/${bin}" .debpkg/usr/bin/
             elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
               cp "rusty-kaspa/target/release/${bin}" .debpkg/usr/bin/
-            elif [ -f "cpuminer/target/release/${bin}" ]; then
-              cp "cpuminer/target/release/${bin}" .debpkg/usr/bin/
             elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
               cp "simply-kaspa-indexer/target/release/${bin}" .debpkg/usr/bin/
             elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -1220,7 +1211,7 @@ jobs:
             mkdir -p .debpkg/usr/bin/KasVault
             cp -r kasvault/build .debpkg/usr/bin/KasVault/
           fi
-          for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do

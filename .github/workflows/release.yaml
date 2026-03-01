@@ -35,6 +35,7 @@ jobs:
               git clone --depth 1 "${url}" "${dir}"
             fi
           done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           K|https://github.com/thesheepcat/K.git
           K-indexer|https://github.com/thesheepcat/K-indexer.git
           simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git
@@ -156,8 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd rusty-kaspa && cargo build --release -p kaspa-stratum-bridge -p rothschild)
-          (cd cpuminer && cargo build --release)
+          (cd rusty-kaspa && cargo build --release -p kaspa-stratum-bridge)
           (cd simply-kaspa-indexer && cargo build --release -p simply-kaspa-indexer)
           (cd K-indexer && cargo build --release -p K-webserver -p K-transaction-processor)
           (cd kasia-indexer && cargo build --release -p indexer)
@@ -168,9 +168,9 @@ jobs:
           set -euo pipefail
           if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; else ext=""; fi
           missing=0
-          for bin in "stratum-bridge" "kaspa-miner" "rothschild" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor" "kasia-indexer"; do
+          for bin in "stratum-bridge" "simply-kaspa-indexer" "K-webserver" "K-transaction-processor" "kasia-indexer"; do
             found=""
-            for base in target/release rusty-kaspa/target/release cpuminer/target/release simply-kaspa-indexer/target/release K-indexer/target/release kasia-indexer/target/release; do
+            for base in target/release rusty-kaspa/target/release simply-kaspa-indexer/target/release K-indexer/target/release kasia-indexer/target/release; do
               if [ -f "${base}/${bin}${ext}" ]; then
                 found="${base}/${bin}${ext}"
                 break
@@ -204,13 +204,11 @@ jobs:
             ./scripts/macos-bundle.sh release
             cp -R target/release/Kaspa-NG.app dist/
             cp target/release/kaspa-ng dist/
-            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
               if [ -f "target/release/${bin}" ]; then
                 cp "target/release/${bin}" dist/
               elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
                 cp "rusty-kaspa/target/release/${bin}" dist/
-              elif [ -f "cpuminer/target/release/${bin}" ]; then
-                cp "cpuminer/target/release/${bin}" dist/
               elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
                 cp "simply-kaspa-indexer/target/release/${bin}" dist/
               elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -257,13 +255,11 @@ jobs:
             echo "MACOS_APP_BUNDLE_ASSET=${MACOS_APP_BUNDLE_OUT}" >> "$GITHUB_ENV"
           else
             cp target/release/kaspa-ng dist/
-            for bin in stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
               if [ -f "target/release/${bin}" ]; then
                 cp "target/release/${bin}" dist/
               elif [ -f "rusty-kaspa/target/release/${bin}" ]; then
                 cp "rusty-kaspa/target/release/${bin}" dist/
-              elif [ -f "cpuminer/target/release/${bin}" ]; then
-                cp "cpuminer/target/release/${bin}" dist/
               elif [ -f "simply-kaspa-indexer/target/release/${bin}" ]; then
                 cp "simply-kaspa-indexer/target/release/${bin}" dist/
               elif [ -f "K-indexer/target/release/${bin}" ]; then
@@ -316,7 +312,7 @@ jobs:
           elif [ -d postgres ]; then
             cp -r postgres dist/postgres
           fi
-          required_files=(kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
+          required_files=(kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
           for f in "${required_files[@]}"; do
             if [ ! -f "dist/${f}" ]; then
               echo "Missing packaged binary: ${f}"
@@ -381,8 +377,6 @@ jobs:
           Copy-Item target\release\kaspa-ng.exe dist\
           $bins = @(
             "stratum-bridge.exe",
-            "kaspa-miner.exe",
-            "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",
@@ -393,8 +387,6 @@ jobs:
               Copy-Item "target\\release\\$bin" dist\
             } elseif (Test-Path "rusty-kaspa\\target\\release\\$bin") {
               Copy-Item "rusty-kaspa\\target\\release\\$bin" dist\
-            } elseif (Test-Path "cpuminer\\target\\release\\$bin") {
-              Copy-Item "cpuminer\\target\\release\\$bin" dist\
             } elseif (Test-Path "simply-kaspa-indexer\\target\\release\\$bin") {
               Copy-Item "simply-kaspa-indexer\\target\\release\\$bin" dist\
             } elseif (Test-Path "K-indexer\\target\\release\\$bin") {
@@ -445,8 +437,6 @@ jobs:
           $requiredFiles = @(
             "kaspa-ng.exe",
             "stratum-bridge.exe",
-            "kaspa-miner.exe",
-            "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",

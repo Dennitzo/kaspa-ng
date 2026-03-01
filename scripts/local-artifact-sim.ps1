@@ -170,6 +170,7 @@ function Sync-ExternalRepo {
 
 function Sync-ExternalRepos {
     $repos = @(
+        @{ Dir = "rusty-kaspa"; Url = "https://github.com/kaspanet/rusty-kaspa.git" },
         @{ Dir = "K"; Url = "https://github.com/thesheepcat/K.git" },
         @{ Dir = "K-indexer"; Url = "https://github.com/thesheepcat/K-indexer.git" },
         @{ Dir = "simply-kaspa-indexer"; Url = "https://github.com/supertypo/simply-kaspa-indexer.git" },
@@ -522,7 +523,6 @@ function Copy-BinaryIfExists {
     $candidates = @(
         (Join-Path $RootDir ("target\release\{0}" -f $Bin)),
         (Join-Path $RootDir ("rusty-kaspa\target\release\{0}" -f $Bin)),
-        (Join-Path $RootDir ("cpuminer\target\release\{0}" -f $Bin)),
         (Join-Path $RootDir ("simply-kaspa-indexer\target\release\{0}" -f $Bin)),
         (Join-Path $RootDir ("K-indexer\target\release\{0}" -f $Bin))
     )
@@ -576,8 +576,6 @@ function Package-AndVerify {
 
     foreach ($bin in @(
             "stratum-bridge.exe",
-            "kaspa-miner.exe",
-            "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",
@@ -655,8 +653,6 @@ function Package-AndVerify {
     foreach ($file in @(
             "kaspa-ng.exe",
             "stratum-bridge.exe",
-            "kaspa-miner.exe",
-            "rothschild.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",

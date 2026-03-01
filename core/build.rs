@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .all_rustc()
         .emit()?;
 
+    sync_external_repo_if_needed("rusty-kaspa", "https://github.com/kaspanet/rusty-kaspa.git")?;
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
     ensure_node_and_npm_ready()?;
@@ -34,8 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         build_kasia_if_needed()?;
         build_kasvault_if_needed()?;
     }
-    build_cpu_miner_if_needed()?;
-    build_rothschild_if_needed()?;
     build_simply_kaspa_indexer_if_needed()?;
     if external_builds_enabled() {
         build_k_indexer_if_needed()?;
@@ -52,17 +51,8 @@ fn ensure_node_and_npm_ready() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    println!(
-        "cargo:warning=Node.js/npm missing or outdated; attempting auto-install/update (required Node major >= {MIN_NODE_MAJOR})"
-    );
-
-    let _ = install_or_update_node_and_npm();
-    if node_and_npm_ready(MIN_NODE_MAJOR) {
-        return Ok(());
-    }
-
     Err(format!(
-        "Node.js/npm prerequisite check failed. Ensure node >= {MIN_NODE_MAJOR} and npm are installed and available in PATH."
+        "Node.js/npm prerequisite check failed. Ensure node >= {MIN_NODE_MAJOR} and npm are installed and available in PATH (build.rs does not auto-install system packages)."
     )
     .into())
 }
@@ -98,50 +88,6 @@ fn command_succeeds(program: &str, args: &[&str]) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
-}
-
-fn install_or_update_node_and_npm() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        let installed = command_succeeds(
-            "choco",
-            &["install", "nodejs-lts", "--yes", "--no-progress"],
-        ) || command_succeeds(
-            "winget",
-            &[
-                "install",
-                "-e",
-                "--id",
-                "OpenJS.NodeJS.LTS",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-                "--silent",
-            ],
-        );
-        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
-        return installed;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let installed = command_succeeds("brew", &["install", "node@22"])
-            || command_succeeds("brew", &["install", "node"]);
-        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
-        return installed;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let direct = command_succeeds("apt-get", &["update"])
-            && command_succeeds("apt-get", &["install", "-y", "nodejs", "npm"]);
-        let sudo = command_succeeds("sudo", &["-n", "apt-get", "update"])
-            && command_succeeds("sudo", &["-n", "apt-get", "install", "-y", "nodejs", "npm"]);
-        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
-        return direct || sudo;
-    }
-
-    #[allow(unreachable_code)]
-    false
 }
 
 fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
@@ -1220,10 +1166,10 @@ fn prune_kasia_nested_swc_native_binding(kasia_root: &Path) -> bool {
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("@swc") || name.starts_with("core-") {
-            if std::fs::remove_dir_all(&path).is_ok() {
-                removed_any = true;
-            }
+        if (name.starts_with("@swc") || name.starts_with("core-"))
+            && std::fs::remove_dir_all(&path).is_ok()
+        {
+            removed_any = true;
         }
     }
 
@@ -1736,138 +1682,6 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn build_cpu_miner_if_needed() -> Result<(), Box<dyn Error>> {
-    let host = std::env::var("HOST").unwrap_or_default();
-    let target = std::env::var("TARGET").unwrap_or_default();
-    if !host.is_empty() && !target.is_empty() && host != target {
-        println!("cargo:warning=Skipping cpu miner build (cross-compile: {host} -> {target})");
-        return Ok(());
-    }
-
-    if target.contains("wasm32") {
-        println!("cargo:warning=Skipping cpu miner build (wasm32 target)");
-        return Ok(());
-    }
-
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let repo_root = manifest_dir
-        .parent()
-        .ok_or("failed to resolve repo root")?
-        .to_path_buf();
-    let miner_root = repo_root.join("cpuminer");
-    if !miner_root.exists() {
-        return Ok(());
-    }
-
-    let miner_src = miner_root.join("src");
-    let miner_toml = miner_root.join("Cargo.toml");
-
-    println!("cargo:rerun-if-changed={}", miner_toml.display());
-    println!("cargo:rerun-if-changed={}", miner_src.display());
-
-    let bin_name = if cfg!(windows) {
-        "kaspa-miner.exe"
-    } else {
-        "kaspa-miner"
-    };
-    let bin_path = miner_root.join("target").join("release").join(bin_name);
-
-    let latest_src = newest_mtime(&miner_src)
-        .into_iter()
-        .chain(newest_mtime(&miner_toml))
-        .max();
-
-    if bin_path.exists()
-        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
-        && bin_time >= src_time
-    {
-        sync_cpu_miner_binary(&bin_path, &repo_root)?;
-        return Ok(());
-    }
-
-    println!("cargo:warning=Building kaspa-miner (release)...");
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = child_cargo_command(&cargo, &miner_root)
-        .args(["build", "--release"])
-        .status()?;
-
-    if !status.success() {
-        return Err("failed to build kaspa-miner".into());
-    }
-
-    sync_cpu_miner_binary(&bin_path, &repo_root)?;
-
-    Ok(())
-}
-
-fn build_rothschild_if_needed() -> Result<(), Box<dyn Error>> {
-    let host = std::env::var("HOST").unwrap_or_default();
-    let target = std::env::var("TARGET").unwrap_or_default();
-    if !host.is_empty() && !target.is_empty() && host != target {
-        println!("cargo:warning=Skipping rothschild build (cross-compile: {host} -> {target})");
-        return Ok(());
-    }
-
-    if target.contains("wasm32") {
-        println!("cargo:warning=Skipping rothschild build (wasm32 target)");
-        return Ok(());
-    }
-
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let repo_root = manifest_dir
-        .parent()
-        .ok_or("failed to resolve repo root")?
-        .to_path_buf();
-    let rusty_kaspa = repo_root.join("rusty-kaspa");
-    let rothschild_root = rusty_kaspa.join("rothschild");
-    if !rothschild_root.exists() {
-        return Ok(());
-    }
-
-    let rothschild_src = rothschild_root.join("src");
-    let rothschild_toml = rothschild_root.join("Cargo.toml");
-    let rusty_toml = rusty_kaspa.join("Cargo.toml");
-
-    println!("cargo:rerun-if-changed={}", rothschild_toml.display());
-    println!("cargo:rerun-if-changed={}", rusty_toml.display());
-    println!("cargo:rerun-if-changed={}", rothschild_src.display());
-
-    let bin_name = if cfg!(windows) {
-        "rothschild.exe"
-    } else {
-        "rothschild"
-    };
-    let bin_path = rusty_kaspa.join("target").join("release").join(bin_name);
-
-    let latest_src = newest_mtime(&rothschild_src)
-        .into_iter()
-        .chain(newest_mtime(&rothschild_toml))
-        .chain(newest_mtime(&rusty_toml))
-        .max();
-
-    if bin_path.exists()
-        && let (Some(bin_time), Some(src_time)) = (mtime(&bin_path), latest_src)
-        && bin_time >= src_time
-    {
-        sync_rothschild_binary(&bin_path, &repo_root)?;
-        return Ok(());
-    }
-
-    println!("cargo:warning=Building rothschild (release)...");
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-    let status = child_cargo_command(&cargo, &rusty_kaspa)
-        .args(["build", "-p", "rothschild", "--release"])
-        .status()?;
-
-    if !status.success() {
-        return Err("failed to build rothschild".into());
-    }
-
-    sync_rothschild_binary(&bin_path, &repo_root)?;
-
-    Ok(())
-}
-
 fn build_simply_kaspa_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     let host = std::env::var("HOST").unwrap_or_default();
     let target = std::env::var("TARGET").unwrap_or_default();
@@ -2276,52 +2090,6 @@ fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), B
         bin_path
             .file_name()
             .ok_or("failed to resolve stratum-bridge filename")?,
-    );
-
-    let src_time = mtime(bin_path);
-    let dest_time = mtime(&dest_path);
-    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
-        return Ok(());
-    }
-
-    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
-    Ok(())
-}
-
-fn sync_cpu_miner_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
-    if !bin_path.exists() {
-        return Ok(());
-    }
-
-    let target_dir = target_profile_dir(repo_root);
-    std::fs::create_dir_all(&target_dir)?;
-    let dest_path = target_dir.join(
-        bin_path
-            .file_name()
-            .ok_or("failed to resolve cpu miner filename")?,
-    );
-
-    let src_time = mtime(bin_path);
-    let dest_time = mtime(&dest_path);
-    if dest_path.exists() && dest_time.is_some() && src_time.is_some() && dest_time >= src_time {
-        return Ok(());
-    }
-
-    copy_file_with_windows_lock_tolerance(bin_path, &dest_path)?;
-    Ok(())
-}
-
-fn sync_rothschild_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Box<dyn Error>> {
-    if !bin_path.exists() {
-        return Ok(());
-    }
-
-    let target_dir = target_profile_dir(repo_root);
-    std::fs::create_dir_all(&target_dir)?;
-    let dest_path = target_dir.join(
-        bin_path
-            .file_name()
-            .ok_or("failed to resolve rothschild filename")?,
     );
 
     let src_time = mtime(bin_path);

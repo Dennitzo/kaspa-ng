@@ -249,10 +249,8 @@ impl SelfHostedIndexerService {
     }
 
     fn indexer_network_arg(node: &NodeSettings) -> &'static str {
-        match node.network {
-            Network::Mainnet => "mainnet",
-            Network::Testnet10 | Network::Testnet12 => "testnet-10",
-        }
+        let _ = node;
+        "mainnet"
     }
 
     async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
@@ -538,18 +536,8 @@ impl SelfHostedIndexerService {
             "INFO",
             &format!("using indexer listen address: {indexer_listen}"),
         );
-        let selected_network = node.network.to_string();
-        if selected_network == "testnet-12" && network_arg == "testnet-10" {
-            self.logs.push(
-                "INFO",
-                "using indexer network: testnet-10 (testnet-12 compatibility mode)",
-            );
-        } else {
-            self.logs
-                .push("INFO", &format!("using indexer network: {network_arg}"));
-        }
-        self.logs
-            .push("INFO", &format!("selected app network: {selected_network}"));
+        self.logs.push("INFO", "using indexer network: mainnet");
+        self.logs.push("INFO", "selected app network: mainnet");
         Ok(())
     }
 

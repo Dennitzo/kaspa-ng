@@ -94,7 +94,6 @@ pub struct SelfHostedLoaderService {
     last_postgres_restart: Mutex<Option<Instant>>,
     last_indexer_restart: Mutex<Option<Instant>>,
     last_explorer_restart: Mutex<Option<Instant>>,
-    network_switch_grace: Mutex<Option<(Instant, Network)>>,
     indexer_boot_started_at: Mutex<Option<Instant>>,
     explorer_boot_started_at: Mutex<Option<Instant>>,
     postgres_failures: Mutex<u32>,
@@ -114,7 +113,6 @@ impl SelfHostedLoaderService {
     const DEPENDENTS_STOP_GRACE: Duration = Duration::from_millis(1500);
     const INDEXER_BOOT_GRACE: Duration = Duration::from_secs(45);
     const EXPLORER_BOOT_GRACE: Duration = Duration::from_secs(25);
-    const NETWORK_SWITCH_GRACE: Duration = Duration::from_secs(30);
     const POSTGRES_DEBUG_LOG_INTERVAL: Duration = Duration::from_secs(12);
 
     fn resolve_probe_host(bind: &str) -> String {
@@ -431,14 +429,7 @@ impl SelfHostedLoaderService {
                 let network_matches = status
                     .network_id
                     .map(Network::from)
-                    .map(|network| {
-                        network == node.network
-                            || matches!(
-                                (node.network, network),
-                                // Compatibility mode: Testnet12 wallet/rpc status is reported as testnet-10.
-                                (Network::Testnet12, Network::Testnet10)
-                            )
-                    })
+                    .map(|network| network == node.network)
                     .unwrap_or(true);
                 status.is_connected && status.is_synced && network_matches
             }
@@ -499,30 +490,8 @@ impl SelfHostedLoaderService {
         self.reset_health_failures();
     }
 
-    fn begin_network_switch_grace(&self, target: Network) {
-        *self.network_switch_grace.lock().unwrap() =
-            Some((Instant::now() + Self::NETWORK_SWITCH_GRACE, target));
-    }
-
-    fn clear_network_switch_grace(&self) {
-        *self.network_switch_grace.lock().unwrap() = None;
-    }
-
-    fn network_switch_state(&self) -> Option<(Network, u64)> {
-        let mut guard = self.network_switch_grace.lock().unwrap();
-        if let Some((until, target)) = guard.as_ref() {
-            let now = Instant::now();
-            if now < *until {
-                let remaining = until.saturating_duration_since(now).as_secs();
-                return Some((*target, remaining));
-            }
-        }
-        *guard = None;
-        None
-    }
-
     fn publish_status(&self, phase: &str, message: String, readiness: LoaderReadiness) {
-        self.status.update(LoaderStatusSnapshot {
+        let next = LoaderStatusSnapshot {
             phase: phase.to_string(),
             message,
             connected: readiness.connected,
@@ -531,7 +500,21 @@ impl SelfHostedLoaderService {
             rest_ready: readiness.rest_ready,
             socket_ready: readiness.socket_ready,
             last_ping_at: chrono::Utc::now().to_rfc3339(),
-        });
+        };
+
+        let current = self.status.snapshot();
+        let unchanged = current.phase == next.phase
+            && current.message == next.message
+            && current.connected == next.connected
+            && current.postgres_ready == next.postgres_ready
+            && current.indexers_ready == next.indexers_ready
+            && current.rest_ready == next.rest_ready
+            && current.socket_ready == next.socket_ready;
+        if unchanged {
+            return;
+        }
+
+        self.status.update(next);
         runtime().request_repaint();
     }
 
@@ -612,49 +595,13 @@ impl SelfHostedLoaderService {
         self.explorer_service.enable(true);
     }
 
-    async fn begin_network_switch(self: &Arc<Self>, previous: Network, next: Network) {
-        self.logs.push(
-            "INFO",
-            &format!(
-                "network switch detected: {} -> {}; entering loader grace window",
-                previous.name(),
-                next.name()
-            ),
-        );
-        self.reset_restart_cooldowns();
-        self.begin_network_switch_grace(next);
-        self.publish_status(
-            "Switching network",
-            format!("Switching network: {} -> {}", previous.name(), next.name()),
-            LoaderReadiness {
-                connected: false,
-                postgres_ready: false,
-                indexers_ready: false,
-                rest_ready: false,
-                socket_ready: false,
-            },
-        );
-        self.stop_dependents().await;
-        sleep(Self::DEPENDENTS_STOP_GRACE).await;
-        self.postgres_service.enable(false);
-        sleep(Duration::from_millis(700)).await;
-        self.postgres_service.enable(true);
-    }
-
     async fn reconcile(self: &Arc<Self>) {
         let settings = self.settings.lock().unwrap().clone();
         let node = self.node_settings.lock().unwrap().clone();
-        let network_switch_state = self.network_switch_state();
-        let switching_network = network_switch_state.is_some();
-        let switch_target = network_switch_state.as_ref().map(|(target, _)| *target);
-        let switch_remaining = network_switch_state
-            .as_ref()
-            .map(|(_, remaining)| *remaining)
-            .unwrap_or(0);
+        let switching_network = false;
 
         if !self.is_enabled.load(Ordering::SeqCst) || !settings.enabled {
             self.stop_all().await;
-            self.clear_network_switch_grace();
             self.publish_disabled("Loader is disabled");
             return;
         }
@@ -697,35 +644,17 @@ impl SelfHostedLoaderService {
             {
                 self.restart_postgres_stack().await;
             }
-            if let Some(target) = switch_target.as_ref() {
-                self.publish_status(
-                    "Switching network",
-                    format!(
-                        "Switching network to {} ({}s): waiting for Postgres",
-                        target.name(),
-                        switch_remaining
-                    ),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: false,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            } else {
-                self.publish_status(
-                    "Initialisation",
-                    "Waiting for Postgres".to_string(),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: false,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            }
+            self.publish_status(
+                "Initialisation",
+                "Waiting for Postgres".to_string(),
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: false,
+                    indexers_ready: false,
+                    rest_ready: false,
+                    socket_ready: false,
+                },
+            );
             self.maybe_log_ping(
                 "ping: postgres=down indexers=waiting rest=waiting socket=waiting".to_string(),
             );
@@ -739,35 +668,17 @@ impl SelfHostedLoaderService {
             *self.explorer_boot_started_at.lock().unwrap() = None;
             Self::health_failures(&self.indexer_failures, true);
             Self::health_failures(&self.explorer_failures, true);
-            if let Some(target) = switch_target.as_ref() {
-                self.publish_status(
-                    "Switching network",
-                    format!(
-                        "Switching network to {} ({}s): waiting for Node sync",
-                        target.name(),
-                        switch_remaining
-                    ),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            } else {
-                self.publish_status(
-                    "Initialisation",
-                    "Waiting for Node sync".to_string(),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            }
+            self.publish_status(
+                "Initialisation",
+                "Waiting for Node sync".to_string(),
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: true,
+                    indexers_ready: false,
+                    rest_ready: false,
+                    socket_ready: false,
+                },
+            );
             self.maybe_log_ping(
                 "ping: postgres=ok node=syncing indexers=waiting rest=waiting socket=waiting"
                     .to_string(),
@@ -846,35 +757,17 @@ impl SelfHostedLoaderService {
                 waiting.join(", ")
             };
 
-            if let Some(target) = switch_target.as_ref() {
-                self.publish_status(
-                    "Switching network",
-                    format!(
-                        "Switching network to {} ({}s): waiting for {waiting}",
-                        target.name(),
-                        switch_remaining
-                    ),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            } else {
-                self.publish_status(
-                    "Initialisation",
-                    format!("Waiting for {waiting}"),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: false,
-                        rest_ready: false,
-                        socket_ready: false,
-                    },
-                );
-            }
+            self.publish_status(
+                "Initialisation",
+                format!("Waiting for {waiting}"),
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: true,
+                    indexers_ready: false,
+                    rest_ready: false,
+                    socket_ready: false,
+                },
+            );
             self.maybe_log_ping(format!(
                 "ping: postgres=ok indexers={} rest=waiting socket=waiting",
                 if indexers_ready { "ok" } else { "down" }
@@ -919,35 +812,17 @@ impl SelfHostedLoaderService {
             {
                 self.restart_explorer().await;
             }
-            if let Some(target) = switch_target.as_ref() {
-                self.publish_status(
-                    "Switching network",
-                    format!(
-                        "Switching network to {} ({}s): waiting for REST API and socket server",
-                        target.name(),
-                        switch_remaining
-                    ),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: true,
-                        rest_ready,
-                        socket_ready,
-                    },
-                );
-            } else {
-                self.publish_status(
-                    "Initialisation",
-                    "Waiting for REST API and socket server".to_string(),
-                    LoaderReadiness {
-                        connected: false,
-                        postgres_ready: true,
-                        indexers_ready: true,
-                        rest_ready,
-                        socket_ready,
-                    },
-                );
-            }
+            self.publish_status(
+                "Initialisation",
+                "Waiting for REST API and socket server".to_string(),
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: true,
+                    indexers_ready: true,
+                    rest_ready,
+                    socket_ready,
+                },
+            );
             self.maybe_log_ping(format!(
                 "ping: postgres=ok indexers=ok rest={} socket={}",
                 if rest_ready { "ok" } else { "down" },
@@ -957,13 +832,6 @@ impl SelfHostedLoaderService {
         }
 
         *self.explorer_boot_started_at.lock().unwrap() = None;
-        if let Some(target) = switch_target {
-            self.logs.push(
-                "INFO",
-                &format!("network switch to {} completed", target.name()),
-            );
-            self.clear_network_switch_grace();
-        }
         self.publish_status(
             "Connected",
             "All self-hosted database services are running".to_string(),
@@ -1002,7 +870,6 @@ impl SelfHostedLoaderService {
             last_postgres_restart: Mutex::new(None),
             last_indexer_restart: Mutex::new(None),
             last_explorer_restart: Mutex::new(None),
-            network_switch_grace: Mutex::new(None),
             indexer_boot_started_at: Mutex::new(None),
             explorer_boot_started_at: Mutex::new(None),
             postgres_failures: Mutex::new(0),
@@ -1068,7 +935,6 @@ impl Service for SelfHostedLoaderService {
                                 let was_enabled = this.is_enabled.swap(true, Ordering::SeqCst);
                                 if !was_enabled {
                                     this.logs.push("INFO", "loader enabled");
-                                    this.clear_network_switch_grace();
                                     this.reset_restart_cooldowns();
                                 }
                                 this.reconcile().await;
@@ -1078,7 +944,6 @@ impl Service for SelfHostedLoaderService {
                                 if was_enabled {
                                     this.logs.push("INFO", "loader disabled");
                                 }
-                                this.clear_network_switch_grace();
                                 this.reset_restart_cooldowns();
                                 this.stop_all().await;
                                 this.publish_disabled("Loader is disabled");
@@ -1107,32 +972,25 @@ impl Service for SelfHostedLoaderService {
                                 }
                             }
                             Ok(SelfHostedLoaderEvents::UpdateNodeSettings(settings)) => {
-                                let previous_node = this.node_settings.lock().unwrap().clone();
                                 this.postgres_service.update_node_settings(settings.clone());
                                 this.indexer_service.update_node_settings(settings.clone());
                                 this.explorer_service.update_node_settings(settings.clone());
                                 this.k_indexer_service.update_node_settings(settings.clone());
                                 this.kasia_indexer_service.update_node_settings(settings.clone());
                                 *this.node_settings.lock().unwrap() = settings;
-                                let next_node = this.node_settings.lock().unwrap().clone();
                                 if this.is_enabled.load(Ordering::SeqCst) {
-                                    if previous_node.network != next_node.network {
-                                        this.begin_network_switch(previous_node.network, next_node.network)
-                                            .await;
-                                    } else {
-                                        this.reset_restart_cooldowns();
-                                        this.publish_status(
-                                            "Initialisation",
-                                            "Applying updated network settings".to_string(),
-                                            LoaderReadiness {
-                                                connected: false,
-                                                postgres_ready: false,
-                                                indexers_ready: false,
-                                                rest_ready: false,
-                                                socket_ready: false,
-                                            },
-                                        );
-                                    }
+                                    this.reset_restart_cooldowns();
+                                    this.publish_status(
+                                        "Initialisation",
+                                        "Applying updated network settings".to_string(),
+                                        LoaderReadiness {
+                                            connected: false,
+                                            postgres_ready: false,
+                                            indexers_ready: false,
+                                            rest_ready: false,
+                                            socket_ready: false,
+                                        },
+                                    );
                                     this.reconcile().await;
                                 }
                             }

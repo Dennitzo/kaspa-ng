@@ -484,13 +484,7 @@ impl ModuleT for Database {
                                             ui.colored_label(value_color, i18n("Connected"));
                                         } else {
                                             ui.add(egui::Spinner::new().size(14.0));
-                                            let status_label = if loader_phase
-                                                .eq_ignore_ascii_case("Switching network")
-                                            {
-                                                "Switching network".to_string()
-                                            } else {
-                                                i18n("Initialisation").to_string()
-                                            };
+                                            let status_label = i18n("Initialisation").to_string();
                                             ui.colored_label(value_color, status_label);
                                         }
                                     });

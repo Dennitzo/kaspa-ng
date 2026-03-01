@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${1:-release}"
 APP_NAME="Kaspa-NG"
 POSTGRES_STAGE_SCRIPT="${ROOT}/scripts/stage-postgres-runtime.sh"
+SYNC_EXTERNAL="${KASPA_NG_SKIP_EXTERNAL_SYNC:-0}"
 
 BIN="${ROOT}/target/${PROFILE}/kaspa-ng"
 if [ ! -f "$BIN" ]; then
@@ -54,6 +55,63 @@ copy_dir_if_exists() {
   return 1
 }
 
+sync_external_repo() {
+  local dir="$1"
+  local url="$2"
+  local target="${ROOT}/${dir}"
+
+  if [ -d "${target}/.git" ]; then
+    local current_url
+    current_url="$(git -C "${target}" remote get-url origin 2>/dev/null || true)"
+    if [ -n "${current_url}" ] && [ "${current_url}" != "${url}" ]; then
+      echo "External repo remote mismatch for ${dir}; recloning (${current_url} -> ${url})"
+      rm -rf "${target}"
+      git clone --depth 1 "${url}" "${target}"
+      return 0
+    fi
+    echo "Updating external repo ${dir} via git pull --ff-only"
+    git -C "${target}" pull --ff-only
+    return 0
+  fi
+
+  if [ -e "${target}" ]; then
+    echo "External repo ${dir} exists without .git; recloning"
+    rm -rf "${target}"
+  fi
+
+  echo "Cloning external repo ${dir}"
+  git clone --depth 1 "${url}" "${target}"
+}
+
+sync_external_repos_if_needed() {
+  if [ "${SYNC_EXTERNAL}" = "1" ] || [ "${SYNC_EXTERNAL}" = "true" ] || [ "${SYNC_EXTERNAL}" = "TRUE" ]; then
+    echo "Skipping external repo sync (KASPA_NG_SKIP_EXTERNAL_SYNC=${SYNC_EXTERNAL})"
+    return 0
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git not found; skipping external repo sync"
+    return 0
+  fi
+
+  local repos=(
+    "rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git"
+    "simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git"
+    "K-indexer|https://github.com/thesheepcat/K-indexer.git"
+    "kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git"
+    "K|https://github.com/thesheepcat/K.git"
+    "Kasia|https://github.com/K-Kluster/Kasia.git"
+    "kasvault|https://github.com/coderofstuff/kasvault.git"
+  )
+  local entry dir url
+  for entry in "${repos[@]}"; do
+    IFS='|' read -r dir url <<<"${entry}"
+    sync_external_repo "${dir}" "${url}"
+  done
+}
+
+sync_external_repos_if_needed
+
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 cp "$BIN" "$MACOS_DIR/"
@@ -65,19 +123,6 @@ elif [ -f "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" ]; then
   cp "${ROOT}/rusty-kaspa/target/${PROFILE}/stratum-bridge" "$MACOS_DIR/"
 fi
 
-# Bundle local helper binaries used by Services (CPU Miner / Rothschild).
-copy_file_if_exists \
-  "${ROOT}/target/${PROFILE}/kaspa-miner" \
-  "${MACOS_DIR}/kaspa-miner" || true
-copy_file_if_exists \
-  "${ROOT}/cpuminer/target/${PROFILE}/kaspa-miner" \
-  "${MACOS_DIR}/kaspa-miner" || true
-copy_file_if_exists \
-  "${ROOT}/target/${PROFILE}/rothschild" \
-  "${MACOS_DIR}/rothschild" || true
-copy_file_if_exists \
-  "${ROOT}/rusty-kaspa/target/${PROFILE}/rothschild" \
-  "${MACOS_DIR}/rothschild" || true
 
 if [ -d "${ROOT}/target/${PROFILE}/kaspa-explorer-ng" ]; then
   cp -r "${ROOT}/target/${PROFILE}/kaspa-explorer-ng" "$MACOS_DIR/"

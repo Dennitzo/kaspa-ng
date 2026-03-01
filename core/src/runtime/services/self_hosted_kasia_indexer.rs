@@ -107,10 +107,8 @@ impl SelfHostedKasiaIndexerService {
     }
 
     fn kasia_network(node: &NodeSettings) -> Option<&'static str> {
-        match node.network {
-            Network::Mainnet => Some("mainnet"),
-            Network::Testnet10 | Network::Testnet12 => None,
-        }
+        let _ = node;
+        Some("mainnet")
     }
 
     fn sanitize_wrpc_host(value: &str) -> String {

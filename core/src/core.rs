@@ -14,8 +14,6 @@ use workflow_i18n::*;
 use workflow_wasm::callback::CallbackMap;
 pub const TRANSACTION_PAGE_SIZE: u64 = 20;
 pub const MAINNET_EXPLORER: &str = "https://explorer.kaspa.org";
-pub const TESTNET10_EXPLORER: &str = "https://explorer-tn10.kaspa.org";
-pub const TESTNET12_EXPLORER: &str = "https://explorer-tn12.kaspa.org";
 
 pub enum Exception {
     #[allow(dead_code)]
@@ -166,6 +164,8 @@ impl Core {
             settings.store_sync().unwrap();
         }
 
+        settings.node.network = Network::Mainnet;
+
         let module = modules.get(&module_typeid).unwrap().clone();
         // let mut module = modules
         //     .get(&TypeId::of::<modules::Overview>())
@@ -194,9 +194,7 @@ impl Core {
             modules: modules.clone(),
             stack: VecDeque::new(),
             settings: settings.clone(),
-            startup_network_selection_pending: settings
-                .user_interface
-                .startup_network_selection_on_launch,
+            startup_network_selection_pending: false,
             toasts: Toasts::default(),
             default_style,
             mobile_style,
@@ -231,12 +229,7 @@ impl Core {
         });
 
         #[cfg(not(target_arch = "wasm32"))]
-        if this.startup_network_selection_pending {
-            this.runtime.self_hosted_db_service().enable(false);
-            this.runtime.self_hosted_loader_service().enable(false);
-        } else {
-            this.apply_self_hosted_enable_state();
-        }
+        this.apply_self_hosted_enable_state();
 
         this.wallet_update_list();
 
@@ -281,14 +274,6 @@ impl Core {
                     .store(type_id == TypeId::of::<modules::Logs>(), Ordering::Relaxed);
                 crate::runtime::services::stratum_bridge::update_logs_flag().store(
                     type_id == TypeId::of::<modules::RkBridgeLogs>(),
-                    Ordering::Relaxed,
-                );
-                crate::runtime::services::cpu_miner::update_logs_flag().store(
-                    type_id == TypeId::of::<modules::CpuMinerLogs>(),
-                    Ordering::Relaxed,
-                );
-                crate::runtime::services::rothschild::update_logs_flag().store(
-                    type_id == TypeId::of::<modules::RothschildLogs>(),
                     Ordering::Relaxed,
                 );
             }
@@ -413,7 +398,8 @@ impl Core {
         })
     }
 
-    pub fn change_current_network(&mut self, network: Network) {
+    pub fn change_current_network(&mut self, _network: Network) {
+        let network = Network::Mainnet;
         if self.settings.node.network != network {
             let initialized = self.settings.initialized;
             let mut next_settings = crate::settings::Settings::load_for_network_sync(network)
@@ -443,23 +429,6 @@ impl Core {
                 .enable(bridge_enabled, &self.settings.node);
             let settings_snapshot = self.settings.clone();
             self.get_mut::<modules::Settings>().load(settings_snapshot);
-            self.runtime
-                .cpu_miner_service()
-                .update_settings(&self.settings.node, &self.settings.node.cpu_miner);
-            let cpu_miner_can_run = self.settings.node.cpu_miner_enabled
-                && self.settings.node.node_kind.is_local()
-                && matches!(
-                    self.settings.node.network,
-                    Network::Testnet10 | Network::Testnet12
-                );
-            self.runtime.cpu_miner_service().enable(
-                cpu_miner_can_run,
-                &self.settings.node,
-                &self.settings.node.cpu_miner,
-            );
-            self.runtime
-                .rothschild_service()
-                .update_settings(&self.settings.node, &self.settings.node.rothschild);
             #[cfg(not(target_arch = "wasm32"))]
             {
                 self.runtime
@@ -595,16 +564,15 @@ impl Core {
         }
 
         window_frame(self.window_frame, ctx, "Kaspa NG", |ui| {
-            if !self.settings.initialized || self.startup_network_selection_pending {
-                egui::CentralPanel::default().show_inside(ui, |ui| {
-                    self.modules
-                        .get(&TypeId::of::<modules::Welcome>())
-                        .unwrap()
-                        .clone()
-                        .render(self, ctx, frame, ui);
-                });
-
-                return;
+            if !self.settings.initialized {
+                self.settings.initialized = true;
+                self.settings.node.network = Network::Mainnet;
+                self.store_settings();
+                self.complete_startup_network_selection();
+                // First-run bootstrap: start services with freshly initialized defaults.
+                self.runtime
+                    .kaspa_service()
+                    .update_services(&self.settings.node, None);
             }
 
             // delegate rendering to the adaptor, if any
@@ -804,12 +772,6 @@ impl Core {
                 self.select_with_type_id(type_id);
             }
             Events::NetworkChange(network) => {
-                self.runtime
-                    .cpu_miner_service()
-                    .update_settings(&self.settings.node, &self.settings.node.cpu_miner);
-                self.runtime
-                    .rothschild_service()
-                    .update_settings(&self.settings.node, &self.settings.node.rothschild);
                 self.modules.clone().values().for_each(|module| {
                     module.network_change(self, network);
                 });
@@ -853,8 +815,10 @@ impl Core {
                 self.release = Some(release);
             }
             Events::StoreSettings => {
-                self.settings_storage_requested = true;
-                self.last_settings_storage_request = Instant::now();
+                self.settings_storage_requested = false;
+                if let Err(err) = self.settings.store_sync() {
+                    log_error!("Failed to store settings: {}", err);
+                }
             }
             Events::UpdateLogs => {}
             Events::Metrics { snapshot } => {
@@ -1357,11 +1321,7 @@ impl Core {
     ) -> Result<()> {
         let network = Network::from(network_id);
         let selected_network = self.network();
-        let same_effective_network = selected_network == network
-            || matches!(
-                (selected_network, network),
-                (Network::Testnet12, Network::Testnet10)
-            );
+        let same_effective_network = selected_network == network;
         if !same_effective_network {
             return Err(Error::InvalidNetwork(network.to_string()));
         }

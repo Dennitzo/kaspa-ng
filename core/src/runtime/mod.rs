@@ -39,8 +39,6 @@ pub struct Inner {
     update_monitor_service: Arc<UpdateMonitorService>,
     market_monitor_service: Arc<MarketMonitorService>,
     stratum_bridge_service: Arc<StratumBridgeService>,
-    cpu_miner_service: Arc<CpuMinerService>,
-    rothschild_service: Arc<RothschildService>,
     #[cfg(not(target_arch = "wasm32"))]
     self_hosted_db_service: Arc<SelfHostedDbService>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -105,10 +103,6 @@ impl Runtime {
             application_events.clone(),
             settings,
         ));
-        let cpu_miner_service =
-            Arc::new(CpuMinerService::new(application_events.clone(), settings));
-        let rothschild_service =
-            Arc::new(RothschildService::new(application_events.clone(), settings));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_logs = LogStores {
             loader: Arc::new(LogStore::new(1000)),
@@ -200,8 +194,6 @@ impl Runtime {
             feerate_monitor_service.clone(),
             market_monitor_service.clone(),
             stratum_bridge_service.clone(),
-            cpu_miner_service.clone(),
-            rothschild_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             self_hosted_db_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -233,8 +225,6 @@ impl Runtime {
                 peer_monitor_service,
                 market_monitor_service,
                 stratum_bridge_service,
-                cpu_miner_service,
-                rothschild_service,
                 #[cfg(not(target_arch = "wasm32"))]
                 self_hosted_db_service,
                 #[cfg(not(target_arch = "wasm32"))]
@@ -406,14 +396,6 @@ impl Runtime {
 
     pub fn stratum_bridge_service(&self) -> &Arc<StratumBridgeService> {
         &self.inner.stratum_bridge_service
-    }
-
-    pub fn cpu_miner_service(&self) -> &Arc<CpuMinerService> {
-        &self.inner.cpu_miner_service
-    }
-
-    pub fn rothschild_service(&self) -> &Arc<RothschildService> {
-        &self.inner.rothschild_service
     }
 
     #[cfg(not(target_arch = "wasm32"))]

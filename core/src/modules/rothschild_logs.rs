@@ -35,17 +35,6 @@ impl ModuleT for RothschildLogs {
             ui.add_space(8.);
         }
 
-        if !matches!(
-            core.settings.node.network,
-            Network::Testnet10 | Network::Testnet12
-        ) {
-            ui.colored_label(
-                theme_color().warning_color,
-                i18n("Rothschild is available only on Testnet 10 and Testnet 12."),
-            );
-            ui.add_space(8.);
-        }
-
         if core.settings.node.node_kind.is_local() && !core.settings.node.enable_grpc {
             ui.colored_label(
                 theme_color().warning_color,

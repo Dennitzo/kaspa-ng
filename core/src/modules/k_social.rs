@@ -354,10 +354,27 @@ impl ModuleT for KSocial {
                 .rpc_url()
                 .map(normalize_k_node_url)
                 .unwrap_or_else(|| {
-                    format!(
-                        "ws://127.0.0.1:{}",
-                        crate::settings::node_wrpc_borsh_port_for_network(core.settings.node.network,)
-                    )
+                    match core.settings.node.connection_config_kind {
+                        crate::settings::NodeConnectionConfigKind::PublicServerRandom
+                        | crate::settings::NodeConnectionConfigKind::PublicServerCustom => {
+                            "public (resolving...)".to_string()
+                        }
+                        crate::settings::NodeConnectionConfigKind::Custom => {
+                            let configured = core.settings.node.wrpc_url.trim();
+                            if configured.is_empty() {
+                                format!(
+                                    "ws://127.0.0.1:{}",
+                                    crate::settings::node_wrpc_borsh_port_for_network(
+                                        core.settings.node.network,
+                                    )
+                                )
+                            } else if configured.contains("://") {
+                                configured.to_string()
+                            } else {
+                                format!("ws://{configured}")
+                            }
+                        }
+                    }
                 });
             let default_api = if use_self_hosted {
                 format!("http://{}:{}", api_host, api_port)
@@ -395,7 +412,7 @@ impl ModuleT for KSocial {
                     )
                 })
                 .unwrap_or((
-                    default_node,
+                    default_node.clone(),
                     if core.state().is_connected() {
                         FooterConnectionHealth::Connected
                     } else {
@@ -449,11 +466,7 @@ impl ModuleT for KSocial {
 
                 if self.webview.is_none() {
                     let start_url = format!("http://{}:{}/", server_host, server_port);
-                    let kaspa_node_url = runtime()
-                        .kaspa_service()
-                        .rpc_url()
-                        .map(normalize_k_node_url)
-                        .unwrap_or_else(|| "ws://127.0.0.1:17110".to_string());
+                    let kaspa_node_url = default_node.clone();
                     let config_script = k_runtime_config_script(
                         use_self_hosted,
                         &api_host,
@@ -1282,17 +1295,13 @@ fn proxy_k_api_request(
 #[cfg(not(target_arch = "wasm32"))]
 fn k_runtime_config_script(
     use_self_hosted: bool,
-    indexer_host: &str,
-    indexer_port: u16,
+    _indexer_host: &str,
+    _indexer_port: u16,
     network: Network,
     kaspa_node_url: &str,
 ) -> String {
-    let network = match network {
-        Network::Mainnet => "mainnet",
-        Network::Testnet10 => "testnet-10",
-        Network::Testnet12 => "testnet-10",
-    };
-    let self_hosted_api_url = format!("http://{indexer_host}:{indexer_port}");
+    let _ = network;
+    let network = "mainnet";
     let local_proxy_api_url = format!("http://{K_HOST}:{DEFAULT_K_PORT}/api");
 
     let telemetry_script = r##"
@@ -1463,7 +1472,7 @@ setTimeout(() => {
     const parsed = current ? JSON.parse(current) : {{}};
     parsed.indexerType = "public";
     parsed.apiBaseUrl = "{K_OFFICIAL_MAINNET_API}";
-    parsed.customIndexerUrl = "{self_hosted_api_url}";
+    parsed.customIndexerUrl = "{local_proxy_api_url}";
     parsed.kaspaConnectionType = "custom-node";
     parsed.customKaspaNodeUrl = "{kaspa_node_url}";
     parsed.selectedNetwork = "{network}";

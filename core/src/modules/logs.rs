@@ -43,12 +43,28 @@ impl ModuleT for Logs {
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .show(ui, |ui| {
-
-                for log in self.runtime.kaspa_service().logs().iter() {
+                let logs = self.runtime.kaspa_service().logs();
+                let mut shown = 0usize;
+                for log in logs.iter() {
                     if remove_grpc_info && is_grpc_info_line(&log.to_string()) {
                         continue;
                     }
                     ui.label(RichText::from(log));
+                    shown += 1;
+                }
+
+                if shown == 0 && !logs.is_empty() && remove_grpc_info {
+                    ui.colored_label(
+                        theme_color().warning_color,
+                        i18n(
+                            "All current Rusty Kaspa logs are hidden by the gRPC log filter. Disable 'remove grpc info in rusty kaspa log' in Settings to view them.",
+                        ),
+                    );
+                } else if shown == 0 {
+                    ui.colored_label(
+                        theme_color().warning_color,
+                        i18n("No Rusty Kaspa logs available yet."),
+                    );
                 }
             });
 

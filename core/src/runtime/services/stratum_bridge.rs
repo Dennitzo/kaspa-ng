@@ -22,8 +22,8 @@ cfg_if! {
         fn local_grpc_ports() -> [u16; 3] {
             [
                 crate::settings::node_grpc_port_for_network(Network::Mainnet),
-                crate::settings::node_grpc_port_for_network(Network::Testnet10),
-                crate::settings::node_grpc_port_for_network(Network::Testnet12),
+                crate::settings::node_grpc_port_for_network(Network::Mainnet),
+                crate::settings::node_grpc_port_for_network(Network::Mainnet),
             ]
         }
 

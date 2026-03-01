@@ -19,7 +19,6 @@ kaspa_ng_macros::register_modules!(
         wallet_create,
         wallet_open,
         wallet_secret,
-        welcome,
     ]
 );
 
@@ -33,8 +32,6 @@ kaspa_ng_macros::register_modules!(
         k_social,
         logs,
         rk_bridge_logs,
-        cpu_miner_logs,
-        rothschild_logs,
         node,
         kasia,
         kasvault,

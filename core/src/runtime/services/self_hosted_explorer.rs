@@ -180,19 +180,13 @@ impl SelfHostedExplorerService {
     }
 
     fn network_type(settings: &NodeSettings) -> &'static str {
-        match settings.network {
-            Network::Mainnet => "mainnet",
-            Network::Testnet10 => "testnet",
-            Network::Testnet12 => "testnet",
-        }
+        let _ = settings;
+        "mainnet"
     }
 
     fn network_id(settings: &NodeSettings) -> &'static str {
-        match settings.network {
-            Network::Mainnet => "mainnet",
-            Network::Testnet10 => "testnet-10",
-            Network::Testnet12 => "testnet-12",
-        }
+        let _ = settings;
+        "mainnet"
     }
 
     fn build_sql_uri(settings: &SelfHostedSettings, node: &NodeSettings) -> String {

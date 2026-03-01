@@ -25,6 +25,8 @@ use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebV
 
 #[cfg(not(target_arch = "wasm32"))]
 const KASIA_HOST: &str = "127.0.0.1";
+#[cfg(not(target_arch = "wasm32"))]
+const KASIA_PUBLIC_MAINNET_INDEXER_API: &str = "https://indexer.kasia.fyi";
 
 #[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
@@ -202,7 +204,7 @@ impl Kasia {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn normalized_node_url_from_runtime(network: Network) -> String {
+    fn normalized_node_url_from_runtime(node: &crate::settings::NodeSettings) -> String {
         runtime()
             .kaspa_service()
             .rpc_url()
@@ -217,19 +219,30 @@ impl Kasia {
                     format!("ws://{url}")
                 }
             })
-            .unwrap_or_else(|| match network {
-                Network::Mainnet => {
-                    format!("ws://127.0.0.1:{}", crate::settings::node_wrpc_borsh_port_for_network(network))
+            .unwrap_or_else(|| match node.connection_config_kind {
+                crate::settings::NodeConnectionConfigKind::PublicServerRandom
+                | crate::settings::NodeConnectionConfigKind::PublicServerCustom => {
+                    "public (resolving...)".to_string()
                 }
-                Network::Testnet10 | Network::Testnet12 => {
-                    format!("ws://127.0.0.1:{}", crate::settings::node_wrpc_borsh_port_for_network(network))
+                crate::settings::NodeConnectionConfigKind::Custom => {
+                    let configured = node.wrpc_url.trim();
+                    if configured.is_empty() {
+                        format!(
+                            "ws://127.0.0.1:{}",
+                            crate::settings::node_wrpc_borsh_port_for_network(node.network)
+                        )
+                    } else if configured.contains("://") {
+                        configured.to_string()
+                    } else {
+                        format!("ws://{configured}")
+                    }
                 }
             })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn runtime_config(core: &Core, use_self_hosted: bool) -> KasiaRuntimeConfig {
-        let node_url = Self::normalized_node_url_from_runtime(Network::Mainnet);
+        let node_url = Self::normalized_node_url_from_runtime(&core.settings.node);
 
         if !use_self_hosted {
             return KasiaRuntimeConfig {
@@ -374,11 +387,11 @@ impl ModuleT for Kasia {
                 self.last_probe_at = None;
             }
 
-            let node_display = Self::normalized_node_url_from_runtime(core.settings.node.network);
+            let node_display = Self::normalized_node_url_from_runtime(&core.settings.node);
             let api_display = if use_self_hosted {
                 format!("http://{}:{}", host, api_port)
             } else {
-                "public".to_string()
+                KASIA_PUBLIC_MAINNET_INDEXER_API.to_string()
             };
             let api_health = if use_self_hosted {
                 match self.last_probe_ok {
@@ -387,7 +400,7 @@ impl ModuleT for Kasia {
                     None => FooterConnectionHealth::Unknown,
                 }
             } else {
-                FooterConnectionHealth::Reachable
+                FooterConnectionHealth::Connected
             };
             let node_health = if core.state().is_connected() {
                 FooterConnectionHealth::Connected

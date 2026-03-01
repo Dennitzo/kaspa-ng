@@ -577,37 +577,6 @@ impl<'core> Menu<'core> {
                         ui.close_menu();
                     }
                 }
-
-                if matches!(
-                    self.core.settings.node.network,
-                    Network::Testnet10 | Network::Testnet12
-                ) {
-                    ui.separator();
-                    if self
-                        .menu_tab_button(
-                            ui,
-                            i18n("CPU Miner"),
-                            active == TypeId::of::<modules::CpuMinerLogs>(),
-                        )
-                        .clicked()
-                    {
-                        self.select::<modules::CpuMinerLogs>();
-                        ui.close_menu();
-                    }
-
-                    ui.separator();
-                    if self
-                        .menu_tab_button(
-                            ui,
-                            i18n("Rothschild"),
-                            active == TypeId::of::<modules::RothschildLogs>(),
-                        )
-                        .clicked()
-                    {
-                        self.select::<modules::RothschildLogs>();
-                        ui.close_menu();
-                    }
-                }
             }
         }
     }

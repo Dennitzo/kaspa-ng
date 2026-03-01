@@ -86,17 +86,7 @@ cfg_if! {
             type Error = Error;
             fn try_from(config: Config) -> Result<Self> {
                 let mut args = Args::default();
-                match config.network {
-                    Network::Mainnet => {}
-                    Network::Testnet10 => {
-                        args.testnet = true;
-                        args.testnet_suffix = 10;
-                    }
-                    Network::Testnet12 => {
-                        args.testnet = true;
-                        args.testnet_suffix = 12;
-                    }
-                }
+                let _ = config.network;
 
                 args.perf_metrics = true;
                 args.perf_metrics_interval_sec = 1;
@@ -125,17 +115,7 @@ cfg_if! {
             fn from(config: Config) -> Self {
                 let mut args = Arglist::default();
 
-                match config.network {
-                    Network::Mainnet => {}
-                    Network::Testnet10 => {
-                        args.push("--testnet");
-                        args.push("--netsuffix=10");
-                    }
-                    Network::Testnet12 => {
-                        args.push("--testnet");
-                        args.push("--netsuffix=12");
-                    }
-                }
+                let _ = config.network;
 
                 args.push("--perf-metrics");
                 args.push("--perf-metrics-interval-sec=1");

@@ -5,26 +5,32 @@ use kaspa_wallet_core::utxo::NetworkParams;
 
 pub const BASIC_TRANSACTION_MASS: u64 = 2036;
 
-#[derive(
-    Default, Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Default, Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Network {
     #[default]
     Mainnet,
-    #[serde(rename = "testnet-10", alias = "testnet10")]
-    Testnet10,
-    #[serde(rename = "testnet-12", alias = "testnet12")]
-    Testnet12,
+}
+
+impl<'de> Deserialize<'de> for Network {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+        match value.trim().to_ascii_lowercase().as_str() {
+            "mainnet" => Ok(Network::Mainnet),
+            _ => Err(serde::de::Error::custom(format!(
+                "invalid network value: {}",
+                value
+            ))),
+        }
+    }
 }
 
 impl std::fmt::Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Network::Mainnet => write!(f, "mainnet"),
-            Network::Testnet10 => write!(f, "testnet-10"),
-            Network::Testnet12 => write!(f, "testnet-12"),
-        }
+        let _ = self;
+        write!(f, "mainnet")
     }
 }
 
@@ -32,10 +38,8 @@ impl FromStr for Network {
     type Err = Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
+        match s.trim().to_ascii_lowercase().as_str() {
             "mainnet" => Ok(Network::Mainnet),
-            "testnet-10" => Ok(Network::Testnet10),
-            "testnet-12" => Ok(Network::Testnet12),
             _ => Err(Error::InvalidNetwork(s.to_string())),
         }
     }
@@ -43,33 +47,22 @@ impl FromStr for Network {
 
 impl From<Network> for NetworkType {
     fn from(network: Network) -> Self {
-        match network {
-            Network::Mainnet => NetworkType::Mainnet,
-            Network::Testnet10 => NetworkType::Testnet,
-            Network::Testnet12 => NetworkType::Testnet,
-        }
+        let _ = network;
+        NetworkType::Mainnet
     }
 }
 
 impl From<&Network> for NetworkType {
     fn from(network: &Network) -> Self {
-        match network {
-            Network::Mainnet => NetworkType::Mainnet,
-            Network::Testnet10 => NetworkType::Testnet,
-            Network::Testnet12 => NetworkType::Testnet,
-        }
+        let _ = network;
+        NetworkType::Mainnet
     }
 }
 
 impl From<Network> for NetworkId {
     fn from(network: Network) -> Self {
-        match network {
-            Network::Mainnet => NetworkId::new(network.into()),
-            Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
-            // Compatibility mode: wallet/rpc network id stays on testnet-10
-            // while Testnet12 uses its dedicated ports and UI profile.
-            Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
-        }
+        let _ = network;
+        NetworkId::new(NetworkType::Mainnet)
     }
 }
 
@@ -87,13 +80,8 @@ impl From<Network> for AddressPrefix {
 
 impl From<&Network> for NetworkId {
     fn from(network: &Network) -> Self {
-        match network {
-            Network::Mainnet => NetworkId::new(network.into()),
-            Network::Testnet10 => NetworkId::with_suffix(network.into(), 10),
-            // Compatibility mode: wallet/rpc network id stays on testnet-10
-            // while Testnet12 uses its dedicated ports and UI profile.
-            Network::Testnet12 => NetworkId::with_suffix(network.into(), 10),
-        }
+        let _ = network;
+        NetworkId::new(NetworkType::Mainnet)
     }
 }
 
@@ -101,12 +89,7 @@ impl From<NetworkId> for Network {
     fn from(value: NetworkId) -> Self {
         match value.network_type {
             NetworkType::Mainnet => Network::Mainnet,
-            NetworkType::Testnet => match value.suffix {
-                Some(10) => Network::Testnet10,
-                Some(12) => Network::Testnet12,
-                Some(x) => unreachable!("Testnet suffix {} is not supported", x),
-                None => panic!("Testnet suffix not provided"),
-            },
+            NetworkType::Testnet => Network::Mainnet,
             NetworkType::Devnet => unreachable!("Devnet is not supported"),
             NetworkType::Simnet => unreachable!("Simnet is not supported"),
         }
@@ -137,7 +120,7 @@ impl From<&Network> for &'static NetworkParams {
     }
 }
 
-const NETWORKS: [Network; 3] = [Network::Mainnet, Network::Testnet10, Network::Testnet12];
+const NETWORKS: [Network; 1] = [Network::Mainnet];
 
 impl Network {
     pub fn iter() -> impl Iterator<Item = &'static Network> {
@@ -145,24 +128,17 @@ impl Network {
     }
 
     pub fn name(&self) -> &str {
-        match self {
-            Network::Mainnet => i18n("Mainnet"),
-            Network::Testnet10 => i18n("Testnet 10"),
-            Network::Testnet12 => i18n("Testnet 12"),
-        }
+        let _ = self;
+        i18n("Mainnet")
     }
 
     pub fn describe(&self) -> &str {
-        match self {
-            Network::Mainnet => i18n("Main Kaspa network"),
-            Network::Testnet10 => i18n("10 BPS test network"),
-            Network::Testnet12 => i18n("Covenants test network"),
-        }
+        let _ = self;
+        i18n("Main Kaspa network")
     }
 
     pub fn tps(&self) -> u64 {
         let params = Params::from(*self);
-        // TODO: use DAA score to determine the correct BPS value
         params.max_block_mass / BASIC_TRANSACTION_MASS * params.bps_history().after()
     }
 }
@@ -213,9 +189,6 @@ impl NetworkPressure {
         } else {
             self.is_high = self.pressure > NETWORK_PRESSURE_THRESHOLD_HIGH;
         }
-
-        // println!("{:?}", self.network_pressure_samples);
-        // println!("mempool: {} capacity: {}% avg pressure: {} is high: {}", mempool_size, self.capacity(), self.pressure, self.is_high());
     }
 
     pub fn is_high(&self) -> bool {

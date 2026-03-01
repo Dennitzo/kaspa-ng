@@ -336,10 +336,27 @@ impl ModuleT for Explorer {
                 .kaspa_service()
                 .rpc_url()
                 .unwrap_or_else(|| {
-                    format!(
-                        "ws://127.0.0.1:{}",
-                        crate::settings::node_wrpc_borsh_port_for_network(core.settings.node.network,)
-                    )
+                    match core.settings.node.connection_config_kind {
+                        NodeConnectionConfigKind::PublicServerRandom
+                        | NodeConnectionConfigKind::PublicServerCustom => {
+                            "public (resolving...)".to_string()
+                        }
+                        NodeConnectionConfigKind::Custom => {
+                            let configured = core.settings.node.wrpc_url.trim();
+                            if configured.is_empty() {
+                                format!(
+                                    "ws://127.0.0.1:{}",
+                                    crate::settings::node_wrpc_borsh_port_for_network(
+                                        core.settings.node.network,
+                                    )
+                                )
+                            } else if configured.contains("://") {
+                                configured.to_string()
+                            } else {
+                                format!("ws://{configured}")
+                            }
+                        }
+                    }
                 });
             set_footer_connection_status(FooterConnectionStatus {
                 node: node_display.clone(),

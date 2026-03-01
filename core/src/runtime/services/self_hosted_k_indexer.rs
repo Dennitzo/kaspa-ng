@@ -96,10 +96,8 @@ impl SelfHostedKIndexerService {
     }
 
     fn k_network(node: &NodeSettings) -> Option<&'static str> {
-        match node.network {
-            Network::Mainnet => Some("mainnet"),
-            Network::Testnet10 | Network::Testnet12 => None,
-        }
+        let _ = node;
+        Some("mainnet")
     }
 
     pub fn new(
@@ -537,11 +535,7 @@ impl SelfHostedKIndexerService {
         let settings = self.settings.lock().unwrap().clone();
         let node = self.node_settings.lock().unwrap().clone();
         let k_web_port = settings.effective_k_web_port(node.network);
-        let network_name = match node.network {
-            Network::Mainnet => "mainnet",
-            Network::Testnet10 => "testnet-10",
-            Network::Testnet12 => "testnet-12",
-        };
+        let network_name = "mainnet";
         self.logs.push(
             "INFO",
             &format!(

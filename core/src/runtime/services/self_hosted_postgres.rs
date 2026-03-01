@@ -215,22 +215,15 @@ impl SelfHostedPostgresService {
         if base.is_empty() {
             base = "kaspa".to_string();
         }
-        if let Some(stripped) = base.strip_suffix("_tn10") {
-            return stripped.to_string();
-        }
-        if let Some(stripped) = base.strip_suffix("_tn12") {
-            return stripped.to_string();
-        }
         base
     }
 
     fn all_network_db_names(settings: &SelfHostedSettings) -> Vec<String> {
         let base = Self::normalized_db_base_name(settings);
-        vec![
-            crate::settings::self_hosted_db_name_for_network(&base, Network::Mainnet),
-            crate::settings::self_hosted_db_name_for_network(&base, Network::Testnet10),
-            crate::settings::self_hosted_db_name_for_network(&base, Network::Testnet12),
-        ]
+        vec![crate::settings::self_hosted_db_name_for_network(
+            &base,
+            Network::Mainnet,
+        )]
     }
 
     fn resolve_data_dir(settings: &SelfHostedSettings, network: Network) -> Result<PathBuf> {
@@ -772,7 +765,7 @@ impl SelfHostedPostgresService {
         );
         let primary_db_port = settings.effective_db_port(node.network);
         let mut db_ports = vec![primary_db_port];
-        for network in [Network::Mainnet, Network::Testnet10, Network::Testnet12] {
+        for network in [Network::Mainnet] {
             let port = settings.effective_db_port(network);
             if !db_ports.contains(&port) {
                 db_ports.push(port);
@@ -1508,8 +1501,7 @@ impl Service for SelfHostedPostgresService {
                             Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
                                 *this.node_settings.lock().unwrap() = settings;
                                 // Keep node context updated, but do not block this event loop here.
-                                // Loader orchestrates restart order on network switches; doing
-                                // wait_for_ready() here can stall Disable/Enable events by ~40s.
+                                // Doing wait_for_ready() here can stall Disable/Enable events by ~40s.
                             }
                             Ok(SelfHostedPostgresEvents::ResetDatabases) => {
                                 let settings = this.settings.lock().unwrap().clone();

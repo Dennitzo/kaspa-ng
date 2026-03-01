@@ -6,7 +6,7 @@ members = [
     "macros",
     "extensions/chrome",
 ]
-exclude = ["cpuminer", "Kasia", "Kasia/cipher", "Kasia/src-tauri", "kasia-indexer"]
+exclude = ["Kasia", "Kasia/cipher", "Kasia/src-tauri", "kasia-indexer"]
 default-members = ["app", "core"]
 
 [workspace.package]
@@ -211,6 +211,7 @@ ahash = "0.8.6"
 async-trait = "0.1.88"
 axum = "0.7.9"
 borsh = { version = "1.5.1", features = ["derive", "rc"] }
+blake3 = { version = "1.8.3", default-features = false }
 cfg-if = "1.0.0"
 chrome-sys = "0.2.0"
 # chrome-sys = {path = "../chrome-sys"}
@@ -218,6 +219,19 @@ chrono = "0.4.31"
 clap = { version = "4.5.35", features = ["derive", "string", "cargo"] }
 convert_case = "0.6.0"
 crypto_box = { version = "0.9.1", features = ["chacha20"] }
+ark-bn254 = "0.5.0"
+ark-ec = "0.5.0"
+ark-groth16 = "0.5"
+ark-relations = "0.5"
+ark-serialize = "0.5"
+ark-snark = "0.5.0"
+bytemuck = "1.24.0"
+risc0-binfmt = "3.0.3"
+risc0-circuit-keccak = { version = "4.0.3", default-features = false }
+risc0-circuit-recursion = { version = "4.0.3", default-features = false }
+risc0-core = "3.0.0"
+risc0-groth16 = "3.0.3"
+risc0-zkp = "3.0.3"
 ctrlc = { version = "3.4.1", features = ["termination"] }
 derivative = "2.2.0"
 downcast = "0.11.0"

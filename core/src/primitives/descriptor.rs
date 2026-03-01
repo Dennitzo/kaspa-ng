@@ -30,11 +30,8 @@ impl RenderAccountDescriptor for AccountDescriptor {
             let default_color = theme_color().default_color;
             let color = theme_color().strong_color;
 
-            let explorer = match network {
-                Network::Mainnet => MAINNET_EXPLORER,
-                Network::Testnet10 => TESTNET10_EXPLORER,
-                Network::Testnet12 => TESTNET12_EXPLORER,
-            };
+            let _ = network;
+            let explorer = MAINNET_EXPLORER;
             let pixels_per_point = ui.ctx().pixels_per_point();
             let one_char_width = ui
                 .painter()

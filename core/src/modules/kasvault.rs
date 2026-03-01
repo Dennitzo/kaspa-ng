@@ -19,6 +19,16 @@ use std::time::Duration;
 const KASVAULT_BIND_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
 const KASVAULT_PUBLIC_HOST: &str = "localhost";
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_TEAL: Color32 = Color32::from_rgb(111, 199, 186);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_NEUTRAL_BLACK: Color32 = Color32::from_rgb(35, 31, 32);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_SECONDARY_GRAY: Color32 = Color32::from_rgb(182, 182, 182);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_BRIGHT_TEAL: Color32 = Color32::from_rgb(73, 234, 203);
+#[cfg(not(target_arch = "wasm32"))]
+const KASVAULT_PRIMARY_TEXT: Color32 = Color32::from_rgb(236, 244, 242);
 
 pub struct Kasvault {
     #[allow(dead_code)]
@@ -106,7 +116,7 @@ impl ModuleT for Kasvault {
                 self.reset_server();
                 return;
             }
-            self.open_requested = true;
+            self.open_requested = false;
         }
     }
 
@@ -174,43 +184,43 @@ impl ModuleT for Kasvault {
             let url = self.server.as_ref().map(|server| server.url.clone());
             let status = self.status.clone();
 
-            if let Some(url) = &url
-                && self.open_requested
-            {
-                self.open_requested = false;
-                self.open_in_browser(core.settings.kasvault.browser, url);
-            }
-
             render_kasvault_centered_card(ui, |ui, compact| {
                 ui.vertical_centered(|ui| {
                     ui.label(
                         RichText::new(i18n("KasVault"))
                             .size(if compact { 24.0 } else { 30.0 })
                             .strong()
-                            .color(theme_color().strong_color),
+                            .color(KASPA_TEAL),
                     );
                     ui.add_space(if compact { 4.0 } else { 6.0 });
-                    ui.label(i18n(
-                        "Secure Ledger workflow in your browser with local-only hosting.",
-                    ));
+                    ui.label(
+                        RichText::new(i18n(
+                            "Secure Ledger workflow in your browser with local-only hosting.",
+                        ))
+                        .color(KASPA_SECONDARY_GRAY),
+                    );
 
                     ui.add_space(if compact { 10.0 } else { 14.0 });
-                    let field_stroke =
-                        Stroke::new(1.0, theme_color().kaspa_color.linear_multiply(0.40));
+                    let field_stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.75));
 
                     Frame::new()
                         .stroke(field_stroke)
                         .corner_radius(CornerRadius::same(12))
+                        .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
                         .inner_margin(if compact {
                             Margin::symmetric(10, 8)
                         } else {
                             Margin::symmetric(12, 10)
                         })
                         .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(i18n("URL")).strong());
+                            ui.vertical_centered(|ui| {
+                                ui.label(RichText::new(i18n("URL")).strong().color(KASPA_TEAL));
                                 if let Some(url) = &url {
-                                    ui.monospace(url.as_str());
+                                    ui.label(
+                                        RichText::new(url.as_str())
+                                            .monospace()
+                                            .color(KASVAULT_PRIMARY_TEXT),
+                                    );
                                 } else {
                                     ui.colored_label(
                                         theme_color().warning_color,
@@ -224,15 +234,22 @@ impl ModuleT for Kasvault {
                     Frame::new()
                         .stroke(field_stroke)
                         .corner_radius(CornerRadius::same(12))
+                        .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
                         .inner_margin(if compact {
                             Margin::symmetric(10, 8)
                         } else {
                             Margin::symmetric(12, 10)
                         })
                         .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(i18n("Browser")).strong());
-                                ui.monospace(core.settings.kasvault.browser.label());
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new(i18n("Browser")).strong().color(KASPA_TEAL),
+                                );
+                                ui.label(
+                                    RichText::new(core.settings.kasvault.browser.label())
+                                        .monospace()
+                                        .color(KASVAULT_PRIMARY_TEXT),
+                                );
                             });
                         });
 
@@ -243,8 +260,17 @@ impl ModuleT for Kasvault {
 
                     ui.add_space(if compact { 10.0 } else { 12.0 });
                     ui.horizontal_centered(|ui| {
+                        let button = Button::new(
+                            RichText::new(i18n("Open in Browser"))
+                                .strong()
+                                .color(KASPA_NEUTRAL_BLACK),
+                        )
+                        .fill(KASPA_TEAL)
+                        .stroke(Stroke::new(1.0, KASPA_BRIGHT_TEAL))
+                        .corner_radius(CornerRadius::same(10))
+                        .min_size(vec2(if compact { 180.0 } else { 220.0 }, 38.0));
                         if ui
-                            .add_enabled(url.is_some(), Button::new(i18n("Open in Browser")))
+                            .add_enabled(url.is_some(), button)
                             .clicked()
                             && let Some(url) = &url
                         {
@@ -287,8 +313,8 @@ where
             vec2(content_width, 0.0),
             Layout::top_down(Align::Center),
             |ui| {
-                let fill = theme_color().kaspa_color.linear_multiply(0.08);
-                let stroke = Stroke::new(1.0, theme_color().kaspa_color.linear_multiply(0.55));
+                let fill = KASPA_NEUTRAL_BLACK;
+                let stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.85));
                 Frame::new()
                     .fill(fill)
                     .stroke(stroke)

@@ -366,30 +366,12 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     })
 }
 
-fn is_transient_database_not_ready(error: &str) -> bool {
-    let lower = error.to_ascii_lowercase();
-    lower.contains("database not ready")
-        || lower.contains("failed to connect to postgres")
-        || lower.contains("error connecting to server")
-}
-
 async fn status_handler(State(state): State<AppState>) -> Response {
     match collect_stats(&state).await {
         Ok(payload) => Json(payload).into_response(),
         Err(err) => {
             let error_message = err.to_string();
-            let loader_snapshot = state.loader_status.snapshot();
-            let switching_network = loader_snapshot
-                .phase
-                .eq_ignore_ascii_case("Switching network");
-            if switching_network && is_transient_database_not_ready(&error_message) {
-                log_info!(
-                    "self-hosted-db: transient status while switching network: {}",
-                    error_message
-                );
-            } else {
-                log_warn!("self-hosted-db: status error: {}", error_message);
-            }
+            log_warn!("self-hosted-db: status error: {}", error_message);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ErrorPayload {

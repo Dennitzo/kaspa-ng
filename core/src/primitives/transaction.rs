@@ -168,11 +168,8 @@ impl Transaction {
 
         let is_transfer = record.is_transfer();
 
-        let explorer = match network {
-            Network::Mainnet => MAINNET_EXPLORER,
-            Network::Testnet10 => TESTNET10_EXPLORER,
-            Network::Testnet12 => TESTNET12_EXPLORER,
-        };
+        let _ = network;
+        let explorer = MAINNET_EXPLORER;
 
         match record.transaction_data() {
             TransactionData::Reorg { utxo_entries, .. }

@@ -412,54 +412,6 @@ impl Default for StratumBridgeSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct CpuMinerSettings {
-    pub mining_address: String,
-    pub kaspad_address: String,
-    pub kaspad_port: u16,
-    pub threads: u16,
-    pub mine_when_not_synced: bool,
-}
-
-impl Default for CpuMinerSettings {
-    fn default() -> Self {
-        Self {
-            mining_address: String::new(),
-            kaspad_address: "127.0.0.1".to_string(),
-            kaspad_port: 16210,
-            threads: 1,
-            mine_when_not_synced: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct RothschildSettings {
-    #[serde(default)]
-    pub mnemonic: String,
-    pub private_key: String,
-    #[serde(default)]
-    pub address: String,
-    pub tps: u64,
-    pub rpc_server: String,
-    pub threads: u8,
-}
-
-impl Default for RothschildSettings {
-    fn default() -> Self {
-        Self {
-            mnemonic: String::new(),
-            private_key: String::new(),
-            address: String::new(),
-            tps: 1,
-            rpc_server: "localhost:16210".to_string(),
-            threads: 1,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct NodeSettings {
     pub connection_config_kind: NodeConnectionConfigKind,
     pub rpc_kind: RpcKind,
@@ -489,14 +441,6 @@ pub struct NodeSettings {
     pub stratum_bridge: StratumBridgeSettings,
     #[serde(default = "default_stratum_bridge_enabled")]
     pub stratum_bridge_enabled: bool,
-    #[serde(default)]
-    pub cpu_miner: CpuMinerSettings,
-    #[serde(default)]
-    pub cpu_miner_enabled: bool,
-    #[serde(default)]
-    pub rothschild: RothschildSettings,
-    #[serde(default)]
-    pub rothschild_enabled: bool,
     #[serde(default = "default_true")]
     pub remove_grpc_info_in_rusty_kaspa_log: bool,
 }
@@ -532,10 +476,6 @@ impl Default for NodeSettings {
             kaspad_daemon_storage_folder: String::default(),
             stratum_bridge: StratumBridgeSettings::default(),
             stratum_bridge_enabled: default_stratum_bridge_enabled(),
-            cpu_miner: CpuMinerSettings::default(),
-            cpu_miner_enabled: false,
-            rothschild: RothschildSettings::default(),
-            rothschild_enabled: false,
             remove_grpc_info_in_rusty_kaspa_log: true,
         }
     }
@@ -614,8 +554,8 @@ impl RpcConfig {
     fn local_wrpc_ports() -> [u16; 3] {
         [
             node_wrpc_borsh_port_for_network(Network::Mainnet),
-            node_wrpc_borsh_port_for_network(Network::Testnet10),
-            node_wrpc_borsh_port_for_network(Network::Testnet12),
+            node_wrpc_borsh_port_for_network(Network::Mainnet),
+            node_wrpc_borsh_port_for_network(Network::Mainnet),
         ]
     }
 
@@ -780,7 +720,7 @@ impl Default for UserInterfaceSettings {
             disable_frame: true,
             explorer_last_path: "/".to_string(),
             explorer_port: default_explorer_ui_port(),
-            startup_network_selection_on_launch: true,
+            startup_network_selection_on_launch: false,
         }
     }
 }
@@ -833,17 +773,12 @@ impl ExplorerEndpoint {
 #[serde(rename_all = "kebab-case")]
 pub struct ExplorerNetworkProfiles {
     pub mainnet: ExplorerEndpoint,
-    pub testnet10: ExplorerEndpoint,
-    pub testnet12: ExplorerEndpoint,
 }
 
 impl ExplorerNetworkProfiles {
     pub fn for_network(&self, network: Network) -> &ExplorerEndpoint {
-        match network {
-            Network::Mainnet => &self.mainnet,
-            Network::Testnet10 => &self.testnet10,
-            Network::Testnet12 => &self.testnet12,
-        }
+        let _ = network;
+        &self.mainnet
     }
 }
 
@@ -853,16 +788,6 @@ impl Default for ExplorerNetworkProfiles {
             mainnet: ExplorerEndpoint::new(
                 "https://api.kaspa.org",
                 "wss://api.kaspa.org",
-                "/ws/socket.io",
-            ),
-            testnet10: ExplorerEndpoint::new(
-                "https://api-tn10.kaspa.org",
-                "wss://t-2.kaspa.ws",
-                "/ws/socket.io",
-            ),
-            testnet12: ExplorerEndpoint::new(
-                "https://api-tn12.kaspa.org",
-                "wss://t2-3.kaspa.ws",
                 "/ws/socket.io",
             ),
         }
@@ -937,8 +862,8 @@ pub struct SelfHostedSettings {
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum KasvaultBrowser {
-    #[default]
     SystemDefault,
+    #[default]
     Chrome,
     Firefox,
     Brave,
@@ -972,7 +897,7 @@ impl Default for KasvaultSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            browser: KasvaultBrowser::SystemDefault,
+            browser: KasvaultBrowser::Chrome,
         }
     }
 }
@@ -1026,49 +951,20 @@ struct NetworkPorts {
 }
 
 fn network_ports(network: Network) -> NetworkPorts {
-    match network {
-        Network::Mainnet => NetworkPorts {
-            explorer_ui_port: default_explorer_ui_port(),
-            kasia_ui_port: default_kasia_ui_port(),
-            kasvault_ui_port: default_kasvault_ui_port(),
-            self_hosted_api_port: 19111,
-            self_hosted_rest_port: 19112,
-            self_hosted_socket_port: 19113,
-            self_hosted_db_port: 19114,
-            self_hosted_indexer_port: 19115,
-            self_hosted_k_web_port: 19116,
-            self_hosted_kasia_indexer_port: 19117,
-            node_grpc_port: 16110,
-            node_wrpc_borsh_port: 17110,
-        },
-        Network::Testnet10 => NetworkPorts {
-            explorer_ui_port: 19218,
-            kasia_ui_port: 19219,
-            kasvault_ui_port: 3000,
-            self_hosted_api_port: 19211,
-            self_hosted_rest_port: 19212,
-            self_hosted_socket_port: 19213,
-            self_hosted_db_port: 19214,
-            self_hosted_indexer_port: 19215,
-            self_hosted_k_web_port: 19216,
-            self_hosted_kasia_indexer_port: 19217,
-            node_grpc_port: 16210,
-            node_wrpc_borsh_port: 17210,
-        },
-        Network::Testnet12 => NetworkPorts {
-            explorer_ui_port: 19318,
-            kasia_ui_port: 19319,
-            kasvault_ui_port: 3000,
-            self_hosted_api_port: 19311,
-            self_hosted_rest_port: 19312,
-            self_hosted_socket_port: 19313,
-            self_hosted_db_port: 19314,
-            self_hosted_indexer_port: 19315,
-            self_hosted_k_web_port: 19316,
-            self_hosted_kasia_indexer_port: 19317,
-            node_grpc_port: 16310,
-            node_wrpc_borsh_port: 17310,
-        },
+    let _ = network;
+    NetworkPorts {
+        explorer_ui_port: default_explorer_ui_port(),
+        kasia_ui_port: default_kasia_ui_port(),
+        kasvault_ui_port: default_kasvault_ui_port(),
+        self_hosted_api_port: 19111,
+        self_hosted_rest_port: 19112,
+        self_hosted_socket_port: 19113,
+        self_hosted_db_port: 19114,
+        self_hosted_indexer_port: 19115,
+        self_hosted_k_web_port: 19116,
+        self_hosted_kasia_indexer_port: 19117,
+        node_grpc_port: 16110,
+        node_wrpc_borsh_port: 17110,
     }
 }
 
@@ -1084,19 +980,13 @@ pub fn node_wrpc_borsh_port_for_network(network: Network) -> u16 {
 static ACTIVE_NETWORK_LOCK_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 
 pub fn network_profile_slug(network: Network) -> &'static str {
-    match network {
-        Network::Mainnet => "mainnet",
-        Network::Testnet10 => "tn10",
-        Network::Testnet12 => "tn12",
-    }
+    let _ = network;
+    "mainnet"
 }
 
 pub fn network_settings_filename(network: Network) -> &'static str {
-    match network {
-        Network::Mainnet => "kaspa-ng.mainnet.settings",
-        Network::Testnet10 => "kaspa-ng.tn10.settings",
-        Network::Testnet12 => "kaspa-ng.tn12.settings",
-    }
+    let _ = network;
+    "kaspa-ng.mainnet.settings"
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1285,23 +1175,8 @@ pub fn self_hosted_db_name_for_network(base: &str, network: Network) -> String {
         }
     };
 
-    match network {
-        Network::Mainnet => normalized,
-        Network::Testnet10 => {
-            if normalized.ends_with("_tn10") {
-                normalized
-            } else {
-                format!("{normalized}_tn10")
-            }
-        }
-        Network::Testnet12 => {
-            if normalized.ends_with("_tn12") {
-                normalized
-            } else {
-                format!("{normalized}_tn12")
-            }
-        }
-    }
+    let _ = network;
+    normalized
 }
 
 pub fn self_hosted_explorer_profiles_from_settings(
@@ -1326,8 +1201,6 @@ pub fn self_hosted_explorer_profiles_from_settings(
 
     ExplorerNetworkProfiles {
         mainnet: endpoint(settings, Network::Mainnet),
-        testnet10: endpoint(settings, Network::Testnet10),
-        testnet12: endpoint(settings, Network::Testnet12),
     }
 }
 
@@ -1335,10 +1208,6 @@ pub fn should_auto_sync_self_hosted_explorer_profiles(profiles: &ExplorerNetwork
     let urls = [
         profiles.mainnet.api_base.as_str(),
         profiles.mainnet.socket_url.as_str(),
-        profiles.testnet10.api_base.as_str(),
-        profiles.testnet10.socket_url.as_str(),
-        profiles.testnet12.api_base.as_str(),
-        profiles.testnet12.socket_url.as_str(),
     ];
 
     urls.iter().all(|url| {
@@ -1614,7 +1483,7 @@ fn default_settings_for_network(network: Network) -> Settings {
 #[cfg(not(target_arch = "wasm32"))]
 fn latest_settings_network() -> Network {
     let mut latest: Option<(std::time::SystemTime, Network)> = None;
-    for network in [Network::Mainnet, Network::Testnet10, Network::Testnet12] {
+    for network in [Network::Mainnet] {
         let Ok(storage) = settings_storage(network) else {
             continue;
         };
@@ -1660,7 +1529,7 @@ impl Settings {
                         settings.user_interface.explorer_port = default_explorer_ui_port();
                         migrated = true;
                     }
-                    if settings.self_hosted.db_user != "kaspadb" {
+                    if settings.self_hosted.db_user.trim().is_empty() {
                         settings.self_hosted.db_user = "kaspadb".to_string();
                         migrated = true;
                     }
@@ -1668,20 +1537,12 @@ impl Settings {
                         settings.self_hosted.db_name = "kaspa".to_string();
                         migrated = true;
                     }
-                    if settings.self_hosted.db_password != "kaspadb" {
+                    if settings.self_hosted.db_password.trim().is_empty() {
                         settings.self_hosted.db_password = "kaspadb".to_string();
                         migrated = true;
                     }
                     if settings.self_hosted.db_port == 0 {
                         settings.self_hosted.db_port = network_ports(network).self_hosted_db_port;
-                        migrated = true;
-                    }
-                    if !settings.self_hosted.postgres_enabled {
-                        settings.self_hosted.postgres_enabled = true;
-                        migrated = true;
-                    }
-                    if !settings.self_hosted.indexer_enabled {
-                        settings.self_hosted.indexer_enabled = true;
                         migrated = true;
                     }
                     if settings.self_hosted.explorer_rest_port == 0
@@ -1793,8 +1654,12 @@ impl Settings {
                         Ok(settings)
                     } else {
                         let mut migrated = false;
-                        if settings.node.network != network {
-                            settings.node.network = network;
+                        if settings.node.network != Network::Mainnet {
+                            settings.node.network = Network::Mainnet;
+                            migrated = true;
+                        }
+                        if settings.user_interface.startup_network_selection_on_launch {
+                            settings.user_interface.startup_network_selection_on_launch = false;
                             migrated = true;
                         }
                         if matches!(
@@ -1819,84 +1684,11 @@ impl Settings {
                             settings.node.stratum_bridge.var_diff_stats = true;
                             migrated = true;
                         }
-                        if settings.node.cpu_miner.kaspad_address.trim().is_empty() {
-                            settings.node.cpu_miner.kaspad_address = "127.0.0.1".to_string();
-                            migrated = true;
-                        }
-                        if settings.node.cpu_miner.kaspad_port == 0 {
-                            settings.node.cpu_miner.kaspad_port = 16210;
-                            migrated = true;
-                        }
-                        if settings.node.cpu_miner.threads == 0 {
-                            settings.node.cpu_miner.threads = 1;
-                            migrated = true;
-                        }
-                        if settings.node.rothschild.rpc_server.trim().is_empty() {
-                            settings.node.rothschild.rpc_server = "localhost:16210".to_string();
-                            migrated = true;
-                        }
-                        if settings.node.rothschild.tps == 0 {
-                            settings.node.rothschild.tps = 1;
-                            migrated = true;
-                        }
-                        if settings.node.rothschild_enabled
-                            && settings.node.rothschild.private_key.trim().is_empty()
-                            && matches!(
-                                settings.node.network,
-                                Network::Testnet10 | Network::Testnet12
-                            )
-                        {
-                            let (private_key, address) =
-                                generate_rothschild_credentials(settings.node.network);
-                            settings.node.rothschild.private_key = private_key;
-                            settings.node.rothschild.address = address;
-                            if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
-                                &settings.node.rothschild.private_key,
-                            ) {
-                                settings.node.rothschild.mnemonic = mnemonic;
-                            }
-                            if settings.node.cpu_miner.mining_address.trim().is_empty() {
-                                settings.node.cpu_miner.mining_address =
-                                    settings.node.rothschild.address.clone();
-                            }
-                            migrated = true;
-                        }
-                        if settings.node.rothschild_enabled
-                            && settings.node.rothschild.mnemonic.trim().is_empty()
-                            && settings.node.rothschild.private_key.trim().is_not_empty()
-                        {
-                            if let Ok(mnemonic) = rothschild_mnemonic_from_private_key(
-                                &settings.node.rothschild.private_key,
-                            ) {
-                                settings.node.rothschild.mnemonic = mnemonic;
-                                migrated = true;
-                            }
-                        }
-                        if settings.node.rothschild_enabled
-                            && settings.node.rothschild.mnemonic.trim().is_not_empty()
-                        {
-                            if let Ok(private_key) = rothschild_private_key_from_mnemonic(
-                                settings.node.rothschild.mnemonic.as_str(),
-                            ) {
-                                if settings.node.rothschild.private_key != private_key {
-                                    settings.node.rothschild.private_key = private_key;
-                                    migrated = true;
-                                }
-                                if let Ok(address) = rothschild_address_from_private_key(
-                                    settings.node.network,
-                                    settings.node.rothschild.private_key.as_str(),
-                                ) && settings.node.rothschild.address != address
-                                {
-                                    settings.node.rothschild.address = address;
-                                    migrated = true;
-                                }
-                            }
-                        }
                         if settings.user_interface.explorer_port == 0 {
                             settings.user_interface.explorer_port = default_explorer_ui_port();
                             migrated = true;
                         }
-                        if settings.self_hosted.db_user != "kaspadb" {
+                        if settings.self_hosted.db_user.trim().is_empty() {
                             settings.self_hosted.db_user = "kaspadb".to_string();
                             migrated = true;
                         }
@@ -1904,21 +1696,13 @@ impl Settings {
                             settings.self_hosted.db_name = "kaspa".to_string();
                             migrated = true;
                         }
-                        if settings.self_hosted.db_password != "kaspadb" {
+                        if settings.self_hosted.db_password.trim().is_empty() {
                             settings.self_hosted.db_password = "kaspadb".to_string();
                             migrated = true;
                         }
                         if settings.self_hosted.db_port == 0 {
                             settings.self_hosted.db_port =
                                 network_ports(settings.node.network).self_hosted_db_port;
-                            migrated = true;
-                        }
-                        if !settings.self_hosted.postgres_enabled {
-                            settings.self_hosted.postgres_enabled = true;
-                            migrated = true;
-                        }
-                        if !settings.self_hosted.indexer_enabled {
-                            settings.self_hosted.indexer_enabled = true;
                             migrated = true;
                         }
                         if settings.self_hosted.explorer_rest_port == 0 {
@@ -1965,14 +1749,6 @@ impl Settings {
                             == "http://127.0.0.1:8000"
                             && settings.explorer.self_hosted.mainnet.socket_url
                                 == "http://127.0.0.1:8001"
-                            && settings.explorer.self_hosted.testnet10.api_base
-                                == "http://127.0.0.1:8000"
-                            && settings.explorer.self_hosted.testnet10.socket_url
-                                == "http://127.0.0.1:8001"
-                            && settings.explorer.self_hosted.testnet12.api_base
-                                == "http://127.0.0.1:8000"
-                            && settings.explorer.self_hosted.testnet12.socket_url
-                                == "http://127.0.0.1:8001"
                         {
                             settings.explorer.self_hosted =
                                 self_hosted_explorer_profiles_from_settings(&settings.self_hosted);
@@ -1987,14 +1763,6 @@ impl Settings {
                             .is_empty()
                         {
                             settings.explorer = ExplorerSettings::default();
-                            migrated = true;
-                        }
-                        if settings.explorer.official.mainnet.api_base == "https://api.kaspa.org"
-                            && settings.explorer.official.mainnet.socket_url
-                                == "wss://t2-3.kaspa.ws"
-                        {
-                            settings.explorer.official.mainnet.socket_url =
-                                "wss://api.kaspa.org".to_string();
                             migrated = true;
                         }
                         if settings.self_hosted.enabled
