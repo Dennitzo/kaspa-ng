@@ -82,20 +82,14 @@ try_stage_from_known_locations() {
   fi
 
   # Linux distro layout (versioned PostgreSQL tree).
-  local linux_dirs=()
-  for prefix in /usr/lib/postgresql/*; do
-    [ -d "$prefix" ] || continue
-    linux_dirs+=("$prefix")
-  done
-  if [ "${#linux_dirs[@]}" -gt 0 ]; then
-    IFS=$'\n' linux_dirs=($(printf '%s\n' "${linux_dirs[@]}" | sort -Vr))
-    unset IFS
+  if compgen -G "/usr/lib/postgresql/*" >/dev/null 2>&1; then
+    while IFS= read -r prefix; do
+      [ -d "$prefix" ] || continue
+      if stage_tree "$prefix" "/usr/share/postgresql/$(basename "$prefix")" "system package"; then
+        return 0
+      fi
+    done < <(printf '%s\n' /usr/lib/postgresql/* | sort -Vr)
   fi
-  for prefix in "${linux_dirs[@]}"; do
-    if stage_tree "$prefix" "/usr/share/postgresql/$(basename "$prefix")" "system package"; then
-      return 0
-    fi
-  done
 
   # Generic PATH-based installation layout.
   if command -v postgres >/dev/null 2>&1; then
