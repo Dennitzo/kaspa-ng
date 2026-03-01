@@ -56,6 +56,53 @@ pub enum ModuleCaps {
     Extension,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy)]
+pub(crate) enum ApiOverlaySource {
+    Public,
+    SelfHosted,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FooterConnectionHealth {
+    Connected,
+    Reachable,
+    Unreachable,
+    Unknown,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+pub(crate) struct FooterConnectionStatus {
+    pub node: String,
+    pub node_health: FooterConnectionHealth,
+    pub api: String,
+    pub api_health: FooterConnectionHealth,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn footer_connection_status_store() -> &'static std::sync::Mutex<Option<FooterConnectionStatus>> {
+    static STORE: std::sync::OnceLock<std::sync::Mutex<Option<FooterConnectionStatus>>> =
+        std::sync::OnceLock::new();
+    STORE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn set_footer_connection_status(status: FooterConnectionStatus) {
+    *footer_connection_status_store().lock().unwrap() = Some(status);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn clear_footer_connection_status() {
+    *footer_connection_status_store().lock().unwrap() = None;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn footer_connection_status_snapshot() -> Option<FooterConnectionStatus> {
+    footer_connection_status_store().lock().unwrap().clone()
+}
+
 pub trait ModuleT: Downcast {
     fn name(&self) -> Option<&'static str> {
         None

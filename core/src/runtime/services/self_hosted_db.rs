@@ -1,5 +1,7 @@
 use crate::imports::*;
-use crate::runtime::services::{LoaderStatusSnapshot, LogStores, SharedLoaderStatus};
+use crate::runtime::services::{
+    LoaderStatusSnapshot, LogStores, SelfHostedKasiaIndexerService, SharedLoaderStatus,
+};
 use axum::{
     Json, Router,
     extract::{Path as AxumPath, Query, State},
@@ -567,11 +569,14 @@ impl SelfHostedDbService {
             node_settings.network,
         );
         let api_host = Self::resolve_api_host(&settings.api_bind);
-        let kasia_metrics_url = format!(
-            "http://{}:{}/metrics",
-            api_host,
-            settings.effective_kasia_indexer_port(node_settings.network)
-        );
+        let kasia_ports =
+            SelfHostedKasiaIndexerService::health_probe_ports(&settings, &node_settings);
+        let kasia_metrics_port = kasia_ports
+            .iter()
+            .copied()
+            .find(|port| *port == SelfHostedKasiaIndexerService::RUNTIME_API_PORT)
+            .unwrap_or_else(|| settings.effective_kasia_indexer_port(node_settings.network));
+        let kasia_metrics_url = format!("http://{}:{}/metrics", api_host, kasia_metrics_port);
         let kasia_partitions_root = workflow_core::dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".kasia-indexer")

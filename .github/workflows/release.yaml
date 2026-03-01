@@ -24,12 +24,24 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Clone KasVault
+      - name: Sync external repositories
         shell: bash
         run: |
-          if [ ! -d kasvault ]; then
-            git clone --depth 1 https://github.com/coderofstuff/kasvault.git kasvault
-          fi
+          set -euo pipefail
+          while IFS='|' read -r dir url; do
+            [ -n "${dir}" ] || continue
+            if [ ! -d "${dir}/.git" ]; then
+              rm -rf "${dir}"
+              git clone --depth 1 "${url}" "${dir}"
+            fi
+          done <<'EOF'
+          K|https://github.com/thesheepcat/K.git
+          K-indexer|https://github.com/thesheepcat/K-indexer.git
+          simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git
+          Kasia|https://github.com/K-Kluster/Kasia.git
+          kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git
+          kasvault|https://github.com/coderofstuff/kasvault.git
+          EOF
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -41,6 +53,15 @@ jobs:
             K/package-lock.json
             Kasia/package-lock.json
             kasvault/package-lock.json
+
+      - name: Verify Node and npm
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -v
+          npm -v
+          npm install -g npm@latest || true
+          npm -v
 
       - name: Set up Python
         uses: actions/setup-python@v5

@@ -1,4 +1,9 @@
 use crate::imports::*;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::modules::{
+    clear_footer_connection_status, set_footer_connection_status, FooterConnectionHealth,
+    FooterConnectionStatus,
+};
 use crate::settings::self_hosted_explorer_profiles_from_settings;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -286,15 +291,21 @@ impl ModuleT for Explorer {
 
     fn deactivate(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
     fn hide(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
@@ -321,6 +332,25 @@ impl ModuleT for Explorer {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.ensure_server_for_active_network(core);
+            let node_display = runtime()
+                .kaspa_service()
+                .rpc_url()
+                .unwrap_or_else(|| {
+                    format!(
+                        "ws://127.0.0.1:{}",
+                        crate::settings::node_wrpc_borsh_port_for_network(core.settings.node.network,)
+                    )
+                });
+            set_footer_connection_status(FooterConnectionStatus {
+                node: node_display.clone(),
+                node_health: if core.state().is_connected() {
+                    FooterConnectionHealth::Connected
+                } else {
+                    FooterConnectionHealth::Reachable
+                },
+                api: "unknown".to_string(),
+                api_health: FooterConnectionHealth::Unknown,
+            });
 
             #[cfg(target_os = "linux")]
             {
@@ -372,7 +402,27 @@ impl ModuleT for Explorer {
                     endpoint.socket_url.clone(),
                     endpoint.socket_path.clone(),
                 ));
-
+                let node_display = node_display.clone();
+                let node_health = if core.state().is_connected() {
+                    FooterConnectionHealth::Connected
+                } else if node_display.is_empty() {
+                    FooterConnectionHealth::Unknown
+                } else {
+                    FooterConnectionHealth::Reachable
+                };
+                let api_health = if self.status.is_some() {
+                    FooterConnectionHealth::Unreachable
+                } else if self.webview.is_some() {
+                    FooterConnectionHealth::Connected
+                } else {
+                    FooterConnectionHealth::Reachable
+                };
+                set_footer_connection_status(FooterConnectionStatus {
+                    node: node_display.clone(),
+                    node_health,
+                    api: endpoint.api_base.clone(),
+                    api_health,
+                });
                 if self.webview.is_some() && self.last_endpoint_signature != endpoint_signature {
                     self.webview.take();
                     self.last_bounds = None;
@@ -397,6 +447,7 @@ impl ModuleT for Explorer {
                         &endpoint,
                         core.settings.node.network,
                         core.settings.explorer.source,
+                        node_display.as_str(),
                     );
                     match WebViewBuilder::new()
                         .with_url(start_url.as_str())
@@ -862,6 +913,7 @@ fn explorer_runtime_config_script(
     endpoint: &ExplorerEndpoint,
     network: Network,
     source: ExplorerDataSource,
+    _node_url: &str,
 ) -> String {
     let source = match source {
         ExplorerDataSource::Official => "official",
@@ -873,6 +925,6 @@ fn explorer_runtime_config_script(
         js_quote(endpoint.socket_url.as_str()),
         js_quote(endpoint.socket_path.as_str()),
         js_quote(network.to_string().as_str()),
-        js_quote(source)
+        js_quote(source),
     )
 }

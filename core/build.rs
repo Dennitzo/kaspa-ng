@@ -15,10 +15,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
+    ensure_node_and_npm_ready()?;
     sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
     sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
     sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
     sync_external_repo_if_needed("kasvault", "https://github.com/coderofstuff/kasvault.git")?;
+    sync_external_repo_if_needed(
+        "simply-kaspa-indexer",
+        "https://github.com/supertypo/simply-kaspa-indexer.git",
+    )?;
     sync_external_repo_if_needed(
         "kasia-indexer",
         "https://github.com/K-Kluster/kasia-indexer.git",
@@ -38,6 +43,105 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     build_stratum_bridge_if_needed()?;
     Ok(())
+}
+
+const MIN_NODE_MAJOR: u32 = 22;
+
+fn ensure_node_and_npm_ready() -> Result<(), Box<dyn Error>> {
+    if node_and_npm_ready(MIN_NODE_MAJOR) {
+        return Ok(());
+    }
+
+    println!(
+        "cargo:warning=Node.js/npm missing or outdated; attempting auto-install/update (required Node major >= {MIN_NODE_MAJOR})"
+    );
+
+    let _ = install_or_update_node_and_npm();
+    if node_and_npm_ready(MIN_NODE_MAJOR) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Node.js/npm prerequisite check failed. Ensure node >= {MIN_NODE_MAJOR} and npm are installed and available in PATH."
+    )
+    .into())
+}
+
+fn node_and_npm_ready(min_major: u32) -> bool {
+    let node_version = command_output_line("node", &["--version"]);
+    let npm_ok = command_succeeds("npm", &["--version"]);
+    let node_ok = node_version
+        .as_deref()
+        .and_then(parse_node_major)
+        .map(|major| major >= min_major)
+        .unwrap_or(false);
+    node_ok && npm_ok
+}
+
+fn parse_node_major(version: &str) -> Option<u32> {
+    let trimmed = version.trim().trim_start_matches('v');
+    trimmed.split('.').next()?.parse::<u32>().ok()
+}
+
+fn command_output_line(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if line.is_empty() { None } else { Some(line) }
+}
+
+fn command_succeeds(program: &str, args: &[&str]) -> bool {
+    Command::new(program)
+        .args(args)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn install_or_update_node_and_npm() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let installed = command_succeeds(
+            "choco",
+            &["install", "nodejs-lts", "--yes", "--no-progress"],
+        ) || command_succeeds(
+            "winget",
+            &[
+                "install",
+                "-e",
+                "--id",
+                "OpenJS.NodeJS.LTS",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+                "--silent",
+            ],
+        );
+        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
+        return installed;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let installed = command_succeeds("brew", &["install", "node@22"])
+            || command_succeeds("brew", &["install", "node"]);
+        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
+        return installed;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let direct = command_succeeds("apt-get", &["update"])
+            && command_succeeds("apt-get", &["install", "-y", "nodejs", "npm"]);
+        let sudo = command_succeeds("sudo", &["-n", "apt-get", "update"])
+            && command_succeeds("sudo", &["-n", "apt-get", "install", "-y", "nodejs", "npm"]);
+        let _ = command_succeeds("npm", &["install", "-g", "npm@latest"]);
+        return direct || sudo;
+    }
+
+    #[allow(unreachable_code)]
+    false
 }
 
 fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
@@ -419,17 +523,6 @@ fn external_builds_enabled() -> bool {
 }
 
 fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Error>> {
-    if std::env::var("CI")
-        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-        && !std::env::var("KASPA_NG_FORCE_EXTERNAL_SYNC")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    {
-        println!("cargo:warning=Skipping sync for {name} in CI");
-        return Ok(());
-    }
-
     if std::env::var("KASPA_NG_SKIP_EXTERNAL_SYNC")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
@@ -442,219 +535,52 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         .parent()
         .ok_or("failed to resolve repo root")?
         .to_path_buf();
+    ensure_external_repo_not_tracked(&repo_root, name);
     let target = repo_root.join(name);
 
     if !target.exists() {
         println!("cargo:warning=Cloning {name}...");
-        let status = Command::new("git")
-            .current_dir(&repo_root)
-            .args(["clone", "--depth", "1", url, name])
-            .status();
-        if status.map(|s| !s.success()).unwrap_or(true) {
-            println!(
-                "cargo:warning=Failed to clone {name}; continuing with existing workspace state"
-            );
-        }
+        clone_external_repo(&repo_root, name, url)?;
         return Ok(());
     }
 
     if !target.join(".git").exists() {
-        println!("cargo:warning={name} has no .git; bootstrapping git metadata");
-        if !bootstrap_git_metadata(&repo_root, &target, name, url)? {
-            println!("cargo:warning=Skipping sync for {name} (not a git repository)");
-            return Ok(());
-        }
-        // Freshly bootstrapped metadata can report the current directory contents as local
-        // changes depending on checkout provenance. Defer pull/stash to the next build to
-        // avoid noisy stash/apply conflicts in CI and preserve local edits safely.
-        println!("cargo:warning=Skipping pull for {name} on first metadata bootstrap");
+        println!("cargo:warning={name} has no .git; replacing with a fresh clone");
+        let _ = std::fs::remove_dir_all(&target);
+        clone_external_repo(&repo_root, name, url)?;
         return Ok(());
     }
-
-    let stashed_ref = if has_local_git_changes(&target)? {
-        match stash_local_git_changes(&target, name)? {
-            Some(stash_ref) => {
-                println!(
-                    "cargo:warning={name} has local changes; stashed before pull ({stash_ref})"
-                );
-                Some(stash_ref)
-            }
-            None => {
-                println!(
-                    "cargo:warning={name} has local changes but stash failed; skipping git pull"
-                );
-                return Ok(());
-            }
-        }
-    } else {
-        None
-    };
 
     let status = Command::new("git")
         .current_dir(&target)
         .args(["pull", "--ff-only"])
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=Failed to update {name} via git pull --ff-only");
-    }
-
-    if let Some(stash_ref) = stashed_ref
-        && !apply_stash_ref(&target, &stash_ref)?
-    {
-        println!("cargo:warning=Failed to re-apply stashed local changes for {name} ({stash_ref})");
+        return Err(format!("Failed to update {name} via git pull --ff-only").into());
     }
 
     Ok(())
 }
 
-fn bootstrap_git_metadata(
-    repo_root: &Path,
-    target: &Path,
-    name: &str,
-    url: &str,
-) -> Result<bool, Box<dyn Error>> {
-    let target_git = target.join(".git");
-    if target_git.exists() {
-        return Ok(true);
-    }
-
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp_name = format!(".kaspa-ng-sync-{name}-{pid}-{nanos}");
-    let tmp_clone = repo_root.join(tmp_name);
-
-    let cloned = Command::new("git")
+fn ensure_external_repo_not_tracked(repo_root: &Path, name: &str) {
+    // Keep external repos out of the index when .gitignore rules are added/changed.
+    // This is best-effort and intentionally non-fatal.
+    let _ = Command::new("git")
         .current_dir(repo_root)
-        .args(["clone", "--depth", "1", "--no-checkout", url])
-        .arg(&tmp_clone)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !cloned {
-        let _ = std::fs::remove_dir_all(&tmp_clone);
-        return Ok(false);
-    }
-
-    let tmp_git = tmp_clone.join(".git");
-    if !tmp_git.exists() {
-        let _ = std::fs::remove_dir_all(&tmp_clone);
-        return Ok(false);
-    }
-
-    let moved = std::fs::rename(&tmp_git, &target_git).is_ok();
-    let _ = std::fs::remove_dir_all(&tmp_clone);
-    if !moved {
-        return Ok(false);
-    }
-
-    let ok = Command::new("git")
-        .current_dir(target)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !ok {
-        let _ = std::fs::remove_dir_all(&target_git);
-        return Ok(false);
-    }
-
-    println!(
-        "cargo:warning={name} git metadata bootstrapped; local changes will be stashed before pull"
-    );
-    Ok(true)
+        .args(["rm", "-r", "--cached", "--ignore-unmatch", name])
+        .status();
 }
 
-fn has_local_git_changes(repo_dir: &Path) -> Result<bool, Box<dyn Error>> {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["status", "--porcelain"])
-        .output()?;
-    Ok(!output.stdout.is_empty())
-}
-
-fn current_stash_ref(repo_dir: &Path) -> Result<Option<String>, Box<dyn Error>> {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["rev-parse", "--verify", "refs/stash"])
-        .output()?;
-    if output.status.success() {
-        let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !hash.is_empty() {
-            return Ok(Some(hash));
-        }
-    }
-    Ok(None)
-}
-
-fn stash_local_git_changes(repo_dir: &Path, name: &str) -> Result<Option<String>, Box<dyn Error>> {
-    let before = current_stash_ref(repo_dir)?;
-    let stash_message = format!("kaspa-ng auto-sync stash ({name})");
+fn clone_external_repo(repo_root: &Path, name: &str, url: &str) -> Result<(), Box<dyn Error>> {
     let status = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["stash", "push", "--include-untracked", "-m", &stash_message])
-        .status()?;
-    if !status.success() {
-        return Ok(None);
+        .current_dir(repo_root)
+        .args(["clone", "--depth", "1", url, name])
+        .status();
+    if status.map(|s| s.success()).unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(format!("Failed to clone external repo {name} from {url}").into())
     }
-
-    let after = current_stash_ref(repo_dir)?;
-    if after.is_none() || after == before {
-        return Ok(None);
-    }
-
-    Ok(after)
-}
-
-fn apply_stash_ref(repo_dir: &Path, stash_ref: &str) -> Result<bool, Box<dyn Error>> {
-    let apply_ok = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["stash", "apply", "--index", stash_ref])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !apply_ok {
-        return Ok(false);
-    }
-
-    let drop_target =
-        resolve_stash_drop_target(repo_dir, stash_ref)?.unwrap_or_else(|| stash_ref.to_string());
-    let drop_ok = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["stash", "drop", &drop_target])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !drop_ok {
-        println!("cargo:warning=Applied stash but failed to drop stash entry {drop_target}");
-    }
-
-    Ok(true)
-}
-
-fn resolve_stash_drop_target(
-    repo_dir: &Path,
-    stash_ref: &str,
-) -> Result<Option<String>, Box<dyn Error>> {
-    let output = Command::new("git")
-        .current_dir(repo_dir)
-        .args(["stash", "list", "--format=%H %gd"])
-        .output()?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    let lines = String::from_utf8_lossy(&output.stdout);
-    for line in lines.lines() {
-        let mut parts = line.split_whitespace();
-        let hash = parts.next().unwrap_or_default();
-        let label = parts.next().unwrap_or_default();
-        if hash == stash_ref && !label.is_empty() {
-            return Ok(Some(label.to_string()));
-        }
-    }
-    Ok(None)
 }
 
 fn export_rusty_kaspa_workspace_version() -> Result<(), Box<dyn Error>> {
@@ -767,15 +693,14 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
             npm_cmd(&["install", "--no-audit", "--no-fund"]).status()
         };
         if status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=kaspa-explorer-ng npm install failed; skipping build");
-            return Ok(());
+            return Err("kaspa-explorer-ng npm install failed".into());
         }
     }
 
     let status = npm_cmd(&["run", "build"]).status();
 
     if status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=kaspa-explorer-ng build failed; skipping");
+        return Err("kaspa-explorer-ng build failed".into());
     }
 
     sync_explorer_build(&explorer_root, &repo_root)?;
@@ -821,7 +746,7 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
             .display()
     );
 
-    apply_k_runtime_patches(&k_root)?;
+    // Keep upstream repos unmodified during build; no local source patching.
 
     let latest_src = newest_mtime(&package_json)
         .into_iter()
@@ -855,8 +780,7 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
                 .status()
         };
         if status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=K npm install failed; skipping build");
-            return Ok(());
+            return Err("K npm install failed".into());
         }
     }
 
@@ -865,7 +789,7 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
         .args(["run", "build"])
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=K build failed; skipping");
+        return Err("K build failed".into());
     }
 
     sync_k_social_build(&k_root, &repo_root)?;
@@ -909,8 +833,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         kasia_root.join("vite.config.ts").display()
     );
 
-    apply_kasia_runtime_patches(&kasia_root)?;
-    ensure_kasia_biometry_stub(&biometry_vendor_dir)?;
+    // Keep upstream repos unmodified during build; no local patching/stubbing in external repos.
 
     let latest_src = newest_mtime(&package_json)
         .into_iter()
@@ -951,16 +874,16 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
             npm_cmd(&["install", "--no-audit", "--no-fund"]).status()
         };
         if status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=Kasia npm install failed; skipping build");
-            return Ok(());
+            return Err("Kasia npm install failed".into());
         }
     }
 
     if !biometry_vendor_package.exists() {
-        println!(
-            "cargo:warning=Kasia biometry package is missing; creating no-op local plugin stub"
-        );
-        ensure_kasia_biometry_stub(&biometry_vendor_dir)?;
+        return Err(format!(
+            "Kasia dependency missing: {}. Build does not patch external repos automatically.",
+            biometry_vendor_package.display()
+        )
+        .into());
     }
 
     if !wasm_package_json.exists() {
@@ -979,6 +902,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     // npm optional native packages are frequently missing on CI/local due npm optional-dep bugs.
     // Proactively repair before build to avoid false-negative Kasia build failures.
     let _ = ensure_kasia_native_optional_deps(&npm_cmd);
+    let _ = prune_kasia_nested_swc_native_binding(&kasia_root);
 
     let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
     if wasm_status.map(|s| !s.success()).unwrap_or(true) {
@@ -995,6 +919,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
             println!(
                 "cargo:warning=Kasia build:production failed; retried after repairing native npm optional deps"
             );
+            let _ = prune_kasia_nested_swc_native_binding(&kasia_root);
             status_ok = npm_cmd(&["run", "build:production"])
                 .status()
                 .map(|s| s.success())
@@ -1014,6 +939,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
                 println!(
                     "cargo:warning=Kasia vite fallback failed; retrying after repairing native npm optional deps"
                 );
+                let _ = prune_kasia_nested_swc_native_binding(&kasia_root);
                 fallback_ok = npm_cmd(&["exec", "--", "vite", "build"])
                     .status()
                     .map(|s| s.success())
@@ -1021,7 +947,27 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
             }
         }
         if !fallback_ok {
-            println!("cargo:warning=Kasia build failed; skipping");
+            let deep_repaired = reset_kasia_native_bindings(&kasia_root, &npm_cmd);
+            if deep_repaired {
+                println!(
+                    "cargo:warning=Kasia build failed after optional-deps repair; retrying after deep native reset"
+                );
+                let mut recovered = npm_cmd(&["run", "build:production"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if !recovered {
+                    recovered = npm_cmd(&["exec", "--", "vite", "build"])
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+                }
+                if !recovered {
+                    return Err("Kasia build failed".into());
+                }
+            } else {
+                return Err("Kasia build failed".into());
+            }
         }
     }
 
@@ -1164,6 +1110,39 @@ fn kasia_native_optional_packages() -> Vec<&'static str> {
         packages.push(pkg);
     }
 
+    // SWC native package used by @swc/core (required by Vite config in Kasia).
+    let swc_pkg = if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            Some("@swc/core-darwin-arm64")
+        } else if cfg!(target_arch = "x86_64") {
+            Some("@swc/core-darwin-x64")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@swc/core-linux-x64-gnu")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@swc/core-linux-arm64-gnu")
+        } else {
+            None
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            Some("@swc/core-win32-x64-msvc")
+        } else if cfg!(target_arch = "aarch64") {
+            Some("@swc/core-win32-arm64-msvc")
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(pkg) = swc_pkg {
+        packages.push(pkg);
+    }
+
     packages
 }
 
@@ -1183,6 +1162,72 @@ fn ensure_kasia_native_optional_deps(npm_cmd: &dyn Fn(&[&str]) -> std::process::
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn reset_kasia_native_bindings(
+    kasia_root: &Path,
+    npm_cmd: &dyn Fn(&[&str]) -> std::process::Command,
+) -> bool {
+    let native_dirs = [
+        kasia_root.join("node_modules").join("@swc"),
+        kasia_root.join("node_modules").join("@esbuild"),
+        kasia_root.join("node_modules").join("@rollup"),
+        kasia_root.join("node_modules").join("lightningcss"),
+        kasia_root
+            .join("node_modules")
+            .join("@tailwindcss")
+            .join("oxide"),
+    ];
+    for dir in native_dirs {
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    let lockfile = kasia_root.join("package-lock.json");
+    let reinstall_ok = if lockfile.exists() {
+        npm_cmd(&["ci", "--no-audit", "--no-fund", "--include=optional"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    } else {
+        npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    };
+
+    reinstall_ok && ensure_kasia_native_optional_deps(npm_cmd)
+}
+
+fn prune_kasia_nested_swc_native_binding(kasia_root: &Path) -> bool {
+    let nested_parent = kasia_root
+        .join("node_modules")
+        .join("@swc")
+        .join("core")
+        .join("node_modules");
+    if !nested_parent.exists() {
+        return false;
+    }
+
+    let entries = match std::fs::read_dir(&nested_parent) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+
+    let mut removed_any = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("@swc") || name.starts_with("core-") {
+            if std::fs::remove_dir_all(&path).is_ok() {
+                removed_any = true;
+            }
+        }
+    }
+
+    removed_any
 }
 
 fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
@@ -1242,8 +1287,7 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
                 .status()
         };
         if status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=KasVault npm install failed; skipping build");
-            return Ok(());
+            return Err("KasVault npm install failed".into());
         }
     }
 
@@ -1252,13 +1296,14 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
         .args(["run", "build"])
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=KasVault build failed; skipping");
+        return Err("KasVault build failed".into());
     }
 
     sync_kasvault_build(&kasvault_root, &repo_root)?;
     Ok(())
 }
 
+#[allow(dead_code)]
 fn apply_k_runtime_patches(k_root: &Path) -> Result<(), Box<dyn Error>> {
     let enabled = std::env::var("KASPA_NG_ENABLE_K_PRIVATE_KEY_PATCH")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -1312,157 +1357,6 @@ fn apply_k_runtime_patches(k_root: &Path) -> Result<(), Box<dyn Error>> {
                     "      const reason = error instanceof Error ? error.message : 'unknown error';\n      throw new Error(`Invalid private key or encryption failed (${reason})`);",
                 ),
             ],
-        )?;
-    }
-
-    Ok(())
-}
-
-fn apply_kasia_runtime_patches(kasia_root: &Path) -> Result<(), Box<dyn Error>> {
-    let init_ts = kasia_root.join("src").join("init.ts");
-    if init_ts.exists() {
-        patch_file_replace_all(
-            &init_ts,
-            &[
-                (
-                    "import initKaspaWasm, { initConsolePanicHook } from \"kaspa-wasm\";",
-                    "import * as kaspaWasm from \"kaspa-wasm\";",
-                ),
-                (
-                    "let splashElement: HTMLElement;\n",
-                    "let splashElement: HTMLElement;\n\ntype KaspaInitModule = {\n  default?: () => Promise<unknown>;\n  init?: () => Promise<unknown>;\n  initSync?: (...args: unknown[]) => unknown;\n  initConsolePanicHook?: () => void;\n};\n\nasync function initKaspaWasmCompat() {\n  const mod = kaspaWasm as unknown as KaspaInitModule;\n\n  if (typeof mod.default === \"function\") {\n    await mod.default();\n    return;\n  }\n\n  if (typeof mod.init === \"function\") {\n    await mod.init();\n    return;\n  }\n\n  throw new Error(\n    \"kaspa-wasm init function not found (expected default export or init())\"\n  );\n}\n",
-                ),
-                (
-                    "  await Promise.all([initKaspaWasm(), initCipherWasm()]);",
-                    "  await Promise.all([initKaspaWasmCompat(), initCipherWasm()]);",
-                ),
-                (
-                    "  initConsolePanicHook();",
-                    "  const panicHook = (kaspaWasm as unknown as KaspaInitModule)\n    .initConsolePanicHook;\n  if (typeof panicHook === \"function\") {\n    panicHook();\n  }",
-                ),
-                (
-                    "  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
-                    "  const runtimeConfig =\n    (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n      .__KASPA_NG_KASIA_CONFIG ?? {};\n\n  indexerClient.setConfig({\n    baseUrl:\n      import.meta.env.VITE_DEFAULT_KASPA_NETWORK === \"mainnet\"\n        ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n        : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n  });",
-                ),
-            ],
-        )?;
-    }
-
-    let orchestrator = kasia_root
-        .join("src")
-        .join("hooks")
-        .join("useOrchestrator.ts");
-    if orchestrator.exists() {
-        patch_file_replace_all(
-            &orchestrator,
-            &[(
-                "    // update indexer base url\n    indexerClient.setConfig({\n      baseUrl:\n        (opts?.networkType ?? baseNetwork) === \"mainnet\"\n          ? import.meta.env.VITE_INDEXER_MAINNET_URL\n          : import.meta.env.VITE_INDEXER_TESTNET_URL,\n    });",
-                "    const runtimeConfig =\n      (globalThis as { __KASPA_NG_KASIA_CONFIG?: { indexerMainnetUrl?: string; indexerTestnetUrl?: string } })\n        .__KASPA_NG_KASIA_CONFIG ?? {};\n\n    // update indexer base url\n    indexerClient.setConfig({\n      baseUrl:\n        (opts?.networkType ?? baseNetwork) === \"mainnet\"\n          ? runtimeConfig.indexerMainnetUrl ?? import.meta.env.VITE_INDEXER_MAINNET_URL\n          : runtimeConfig.indexerTestnetUrl ?? import.meta.env.VITE_INDEXER_TESTNET_URL,\n    });",
-            )],
-        )?;
-    }
-
-    let network_store = kasia_root
-        .join("src")
-        .join("store")
-        .join("network.store.ts");
-    if network_store.exists() {
-        patch_file_replace_all(
-            &network_store,
-            &[(
-                "      const kasiaNodeUrl =\n        rpc.networkId?.toString() === \"mainnet\"\n          ? import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL\n          : import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;",
-                "      const runtimeConfig =\n        (globalThis as {\n          __KASPA_NG_KASIA_CONFIG?: {\n            defaultMainnetNodeUrl?: string;\n            defaultTestnetNodeUrl?: string;\n          };\n        }).__KASPA_NG_KASIA_CONFIG ?? {};\n\n      const kasiaNodeUrl =\n        rpc.networkId?.toString() === \"mainnet\"\n          ? runtimeConfig.defaultMainnetNodeUrl ??\n            import.meta.env.VITE_DEFAULT_MAINNET_KASPA_NODE_URL\n          : runtimeConfig.defaultTestnetNodeUrl ??\n            import.meta.env.VITE_DEFAULT_TESTNET_KASPA_NODE_URL;",
-            )],
-        )?;
-    }
-
-    let session_store = kasia_root
-        .join("src")
-        .join("store")
-        .join("session.store.ts");
-    if session_store.exists() {
-        patch_file_replace_all(
-            &session_store,
-            &[
-                (
-                    "import {\n  hasData,\n  setData,\n  getData,\n  checkStatus,\n} from \"@tauri-apps/plugin-biometry\";\n",
-                    "",
-                ),
-                (
-                    "    async supportSecuredBiometry() {\n      try {\n        if (!core.isTauri()) {\n          return false;\n        }\n\n        // temporary disable for iOS\n        if (platform() === \"ios\") {\n          return false;\n        }\n\n        const status = await checkStatus();\n\n        return status.isAvailable;\n      } catch (error) {\n        console.error(error);\n        return false;\n      }\n    },",
-                    "    async supportSecuredBiometry() {\n      return false;\n    },",
-                ),
-                (
-                    "    async getSession(tenantId) {\n      // safeguard is case of mis-use in browser context\n      if (!core.isTauri()) {\n        return null;\n      }\n\n      // temporary disable for iOS\n      if (platform() === \"ios\") {\n        return null;\n      }\n\n      const data = await getData({\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n        reason: \"Access your messages\",\n        cancelTitle: \"Use Password\",\n      });\n\n      return data?.data ?? null;\n    },",
-                    "    async getSession(_tenantId) {\n      return null;\n    },",
-                ),
-                (
-                    "    async hasSession(tenantId) {\n      // temporary disable for iOS\n      if (!core.isTauri() || platform() === \"ios\") {\n        return false;\n      }\n\n      if (!(await get().supportSecuredBiometry())) {\n        return false;\n      }\n\n      return hasData({\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n      });\n    },",
-                    "    async hasSession(_tenantId) {\n      return false;\n    },",
-                ),
-                (
-                    "    async setSession(tenantId, password) {\n      // temporary disable for iOS\n      if (!core.isTauri() || platform() === \"ios\") {\n        return;\n      }\n\n      if (!(await get().supportSecuredBiometry())) {\n        return;\n      }\n\n      await setData({\n        data: password,\n        domain: \"kas.kluster.kasia\",\n        name: `${tenantId}.password`,\n      });\n    },",
-                    "    async setSession(_tenantId, _password) {\n      return;\n    },",
-                ),
-            ],
-        )?;
-    }
-
-    let resizable_container = kasia_root
-        .join("src")
-        .join("components")
-        .join("Layout")
-        .join("ResizableAppContainer.tsx");
-    if resizable_container.exists() {
-        patch_file_replace_all(
-            &resizable_container,
-            &[
-                (
-                    "const [width, setWidth] = useState<number>(CONTAINER_DEFAULT); // set default to 1600",
-                    "const [width, setWidth] = useState<number>(window.innerWidth);",
-                ),
-                (
-                    "    const handleResize = () => {\n      setWindowWidth(window.innerWidth);\n    };",
-                    "    const handleResize = () => {\n      setWindowWidth(window.innerWidth);\n      setWidth(window.innerWidth);\n    };",
-                ),
-                (
-                    "        isMobile ? \"w-full\" : \"relative mx-auto rounded-lg shadow-2xl\"",
-                    "        isMobile ? \"w-full\" : \"relative w-full\"",
-                ),
-                (
-                    "              width,",
-                    "              width: Math.min(width, windowWidth),",
-                ),
-            ],
-        )?;
-    }
-
-    Ok(())
-}
-
-fn ensure_kasia_biometry_stub(vendor_dir: &Path) -> Result<(), Box<dyn Error>> {
-    std::fs::create_dir_all(vendor_dir)?;
-    let package_json = vendor_dir.join("package.json");
-    if !package_json.exists() {
-        std::fs::write(
-            &package_json,
-            "{\n  \"name\": \"@tauri-apps/plugin-biometry\",\n  \"version\": \"0.0.0-kaspa-ng-stub\",\n  \"type\": \"module\",\n  \"main\": \"index.js\",\n  \"types\": \"index.d.ts\"\n}\n",
-        )?;
-    }
-
-    let index_js = vendor_dir.join("index.js");
-    if !index_js.exists() {
-        std::fs::write(
-            &index_js,
-            "export async function checkStatus() { return { isAvailable: false }; }\nexport async function hasData() { return false; }\nexport async function getData() { return null; }\nexport async function setData() { return; }\n",
-        )?;
-    }
-
-    let index_d_ts = vendor_dir.join("index.d.ts");
-    if !index_d_ts.exists() {
-        std::fs::write(
-            &index_d_ts,
-            "export declare function checkStatus(): Promise<{ isAvailable: boolean }>;\nexport declare function hasData(_args: { domain: string; name: string }): Promise<boolean>;\nexport declare function getData(_args: { domain: string; name: string; reason?: string; cancelTitle?: string }): Promise<{ data: string } | null>;\nexport declare function setData(_args: { domain: string; name: string; data: string }): Promise<void>;\n",
         )?;
     }
 
@@ -1741,6 +1635,7 @@ fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn patch_file_replace_all(
     path: &Path,
     replacements: &[(&str, &str)],
@@ -2079,9 +1974,10 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     if !k_indexer_root.exists() {
         return Ok(());
     }
-    apply_k_indexer_runtime_patches(&k_indexer_root)?;
+    // Keep upstream repos unmodified during build; no local source patching.
 
     let k_indexer_toml = k_indexer_root.join("Cargo.toml");
+    let k_indexer_lock = k_indexer_root.join("Cargo.lock");
     let web_src = k_indexer_root.join("K-webserver").join("src");
     let web_toml = k_indexer_root.join("K-webserver").join("Cargo.toml");
     let processor_src = k_indexer_root.join("K-transaction-processor").join("src");
@@ -2090,6 +1986,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
         .join("Cargo.toml");
 
     println!("cargo:rerun-if-changed={}", k_indexer_toml.display());
+    println!("cargo:rerun-if-changed={}", k_indexer_lock.display());
     println!("cargo:rerun-if-changed={}", web_toml.display());
     println!("cargo:rerun-if-changed={}", web_src.display());
     println!("cargo:rerun-if-changed={}", processor_toml.display());
@@ -2117,6 +2014,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
 
     let latest_src = newest_mtime(&k_indexer_toml)
         .into_iter()
+        .chain(newest_mtime(&k_indexer_lock))
         .chain(newest_mtime(&web_toml))
         .chain(newest_mtime(&web_src))
         .chain(newest_mtime(&processor_toml))
@@ -2139,6 +2037,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Building K-indexer components (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    normalize_k_indexer_wasm_dependency_lock(&cargo, &k_indexer_root)?;
     let status = child_cargo_command(&cargo, &k_indexer_root)
         .args([
             "build",
@@ -2146,6 +2045,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
             "K-webserver",
             "-p",
             "K-transaction-processor",
+            "--locked",
             "--release",
         ])
         .status()?;
@@ -2158,6 +2058,43 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn normalize_k_indexer_wasm_dependency_lock(
+    cargo: &str,
+    k_indexer_root: &Path,
+) -> Result<(), Box<dyn Error>> {
+    if !k_indexer_root.join("Cargo.lock").exists() {
+        return Ok(());
+    }
+
+    // Keep K-indexer aligned with the Rusty-Kaspa wasm dependency stack used by kaspa-ng.
+    // Without this, fresh lockfiles can pull newer wasm-bindgen/js-sys releases that break
+    // workflow-node and kaspa-rpc-core under current toolchains.
+    let required_versions = [
+        ("js-sys", "0.3.77"),
+        ("web-sys", "0.3.77"),
+        ("wasm-bindgen", "0.2.100"),
+        ("wasm-bindgen-futures", "0.4.50"),
+        ("wasm-bindgen-macro", "0.2.100"),
+        ("wasm-bindgen-macro-support", "0.2.100"),
+        ("wasm-bindgen-shared", "0.2.100"),
+        ("serde-wasm-bindgen", "0.6.1"),
+    ];
+
+    for (package, version) in required_versions {
+        let status = child_cargo_command(cargo, k_indexer_root)
+            .args(["update", "-p", package, "--precise", version])
+            .status()?;
+        if !status.success() {
+            return Err(
+                format!("failed to normalize K-indexer dependency {package} to {version}").into(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
 fn apply_k_indexer_runtime_patches(k_indexer_root: &Path) -> Result<(), Box<dyn Error>> {
     let processor_toml = k_indexer_root
         .join("K-transaction-processor")
@@ -2204,6 +2141,7 @@ fn apply_k_indexer_runtime_patches(k_indexer_root: &Path) -> Result<(), Box<dyn 
     Ok(())
 }
 
+#[allow(dead_code)]
 fn replace_dependency_line(
     path: &Path,
     dep_name: &str,

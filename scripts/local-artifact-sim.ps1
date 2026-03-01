@@ -130,6 +130,59 @@ function Copy-DirContent {
     Copy-Item -LiteralPath $items.FullName -Destination $Destination -Recurse -Force
 }
 
+function Sync-ExternalRepo {
+    param(
+        [string]$Dir,
+        [string]$Url
+    )
+
+    $target = Join-Path $RootDir $Dir
+    $gitDir = Join-Path $target ".git"
+
+    if (Test-Path -LiteralPath $gitDir) {
+        $currentUrl = ""
+        try {
+            $currentUrl = (& git -C $target remote get-url origin).Trim()
+        } catch {
+            $currentUrl = ""
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($currentUrl) -and $currentUrl -ne $Url) {
+            Write-Host "External repo remote mismatch for $Dir; recloning ($currentUrl -> $Url)"
+            Remove-Item -LiteralPath $target -Recurse -Force
+            Invoke-Native -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) | Out-Null
+            return
+        }
+
+        Write-Host "Updating external repo $Dir via git pull --ff-only"
+        Invoke-Native -File "git" -Arguments @("-C", $target, "pull", "--ff-only") | Out-Null
+        return
+    }
+
+    if (Test-Path -LiteralPath $target) {
+        Write-Host "External repo $Dir exists without .git; recloning"
+        Remove-Item -LiteralPath $target -Recurse -Force
+    }
+
+    Write-Host "Cloning external repo $Dir"
+    Invoke-Native -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) | Out-Null
+}
+
+function Sync-ExternalRepos {
+    $repos = @(
+        @{ Dir = "K"; Url = "https://github.com/thesheepcat/K.git" },
+        @{ Dir = "K-indexer"; Url = "https://github.com/thesheepcat/K-indexer.git" },
+        @{ Dir = "simply-kaspa-indexer"; Url = "https://github.com/supertypo/simply-kaspa-indexer.git" },
+        @{ Dir = "kasia-indexer"; Url = "https://github.com/K-Kluster/kasia-indexer.git" },
+        @{ Dir = "Kasia"; Url = "https://github.com/K-Kluster/Kasia.git" },
+        @{ Dir = "kasvault"; Url = "https://github.com/coderofstuff/kasvault.git" }
+    )
+
+    foreach ($repo in $repos) {
+        Sync-ExternalRepo -Dir $repo.Dir -Url $repo.Url
+    }
+}
+
 function Is-CompatibleKaspaWasmDir {
     param([string]$Dir)
 
@@ -660,39 +713,43 @@ if (-not (Get-Command "pwsh" -ErrorAction SilentlyContinue) -and -not (Get-Comma
 }
 
 try {
-    Invoke-LoggedStage -Description "==> [1/4] Prepare Kasia wasm package" -LogFile (Join-Path $LogDir "prepare-kasia-wasm.log") -Action {
+    Invoke-LoggedStage -Description "==> [0/5] Sync external repositories" -LogFile (Join-Path $LogDir "external-repo-sync.log") -Action {
+        Sync-ExternalRepos
+    }
+
+    Invoke-LoggedStage -Description "==> [1/5] Prepare Kasia wasm package" -LogFile (Join-Path $LogDir "prepare-kasia-wasm.log") -Action {
         Prepare-KasiaWasm
     }
 
     if (-not $skipKasiaValue) {
-        Invoke-LoggedStage -Description "==> [2/4] Build Kasia frontend" -LogFile (Join-Path $LogDir "kasia-build.log") -Action {
+        Invoke-LoggedStage -Description "==> [2/5] Build Kasia frontend" -LogFile (Join-Path $LogDir "kasia-build.log") -Action {
             Build-Kasia
         }
     }
     else {
-        Write-Host "==> [2/4] Skipped Kasia build"
+        Write-Host "==> [2/5] Skipped Kasia build"
     }
 
     if (-not $skipCargoValue) {
-        Invoke-LoggedStage -Description "==> [3/4] Cargo release build" -LogFile (Join-Path $LogDir "cargo-build-release.log") -Action {
+        Invoke-LoggedStage -Description "==> [3/5] Cargo release build" -LogFile (Join-Path $LogDir "cargo-build-release.log") -Action {
             Build-Release
         }
 
-        Invoke-LoggedStage -Description "==> [3b/4] Stage internal PostgreSQL runtime" -LogFile (Join-Path $LogDir "postgres-runtime-stage.log") -Action {
+        Invoke-LoggedStage -Description "==> [3b/5] Stage internal PostgreSQL runtime" -LogFile (Join-Path $LogDir "postgres-runtime-stage.log") -Action {
             Stage-PostgresRuntime
         }
     }
     else {
-        Write-Host "==> [3/4] Skipped cargo build"
+        Write-Host "==> [3/5] Skipped cargo build"
     }
 
     if (-not $skipPackageValue) {
-        Invoke-LoggedStage -Description "==> [4/4] Package + verify artifact layout" -LogFile (Join-Path $LogDir "package-verify.log") -Action {
+        Invoke-LoggedStage -Description "==> [4/5] Package + verify artifact layout" -LogFile (Join-Path $LogDir "package-verify.log") -Action {
             Package-AndVerify
         }
     }
     else {
-        Write-Host "==> [4/4] Skipped package/verify"
+        Write-Host "==> [4/5] Skipped package/verify"
     }
 
     Write-Host "Done. Logs in: $LogDir"

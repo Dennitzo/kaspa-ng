@@ -1,10 +1,16 @@
 use crate::imports::*;
+use crate::modules::{
+    clear_footer_connection_status, set_footer_connection_status, ApiOverlaySource,
+    FooterConnectionHealth, FooterConnectionStatus,
+};
 use std::collections::VecDeque;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(target_arch = "wasm32"))]
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
 #[cfg(not(target_arch = "wasm32"))]
@@ -37,6 +43,16 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
   }, true);
 })();
 "#;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+struct KOverlayState {
+    source: ApiOverlaySource,
+    api_display: String,
+    node_display: String,
+    api_health: FooterConnectionHealth,
+    node_health: FooterConnectionHealth,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn webview_bounds_from_rect(rect: egui::Rect, _pixels_per_point: f32) -> WryRect {
@@ -198,15 +214,21 @@ impl ModuleT for KSocial {
 
     fn deactivate(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
     fn hide(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
@@ -228,6 +250,7 @@ impl ModuleT for KSocial {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if !matches!(core.settings.node.network, Network::Mainnet) {
+                clear_footer_connection_status();
                 ui.label(i18n("K-Social is available only on Mainnet."));
                 return;
             }
@@ -325,6 +348,76 @@ impl ModuleT for KSocial {
                     );
                 }
             }
+
+            let default_node = runtime()
+                .kaspa_service()
+                .rpc_url()
+                .map(normalize_k_node_url)
+                .unwrap_or_else(|| {
+                    format!(
+                        "ws://127.0.0.1:{}",
+                        crate::settings::node_wrpc_borsh_port_for_network(core.settings.node.network,)
+                    )
+                });
+            let default_api = if use_self_hosted {
+                format!("http://{}:{}", api_host, api_port)
+            } else {
+                K_OFFICIAL_MAINNET_API.to_string()
+            };
+            let (node, node_health, api, api_health) = self
+                .server
+                .as_ref()
+                .map(|server| server.overlay_snapshot())
+                .map(|snapshot| {
+                    let mut api = if snapshot.api_display.is_empty() {
+                        default_api.clone()
+                    } else {
+                        snapshot.api_display
+                    };
+                    let mut api_health = snapshot.api_health;
+                    if matches!(snapshot.source, ApiOverlaySource::Public) {
+                        if api.eq_ignore_ascii_case("public") {
+                            api = default_api.clone();
+                        }
+                        if !matches!(api_health, FooterConnectionHealth::Unreachable) {
+                            api_health = FooterConnectionHealth::Connected;
+                        }
+                    }
+                    (
+                        if snapshot.node_display.is_empty() {
+                            default_node.clone()
+                        } else {
+                            snapshot.node_display
+                        },
+                        snapshot.node_health,
+                        api,
+                        api_health,
+                    )
+                })
+                .unwrap_or((
+                    default_node,
+                    if core.state().is_connected() {
+                        FooterConnectionHealth::Connected
+                    } else {
+                        FooterConnectionHealth::Reachable
+                    },
+                    default_api,
+                    if use_self_hosted {
+                        match self.last_probe_ok {
+                            Some(true) => FooterConnectionHealth::Connected,
+                            Some(false) => FooterConnectionHealth::Unreachable,
+                            None => FooterConnectionHealth::Unknown,
+                        }
+                    } else {
+                        FooterConnectionHealth::Reachable
+                    },
+                ));
+            set_footer_connection_status(FooterConnectionStatus {
+                node,
+                node_health,
+                api,
+                api_health,
+            });
 
             if use_self_hosted && !k_api_ready {
                 return;
@@ -462,6 +555,7 @@ struct KSocialServer {
     port: u16,
     api_host: String,
     api_port: u16,
+    overlay_state: Arc<Mutex<KOverlayState>>,
     stop_tx: std::sync::mpsc::Sender<()>,
     join: Option<JoinHandle<()>>,
 }
@@ -484,6 +578,14 @@ impl KSocialServer {
         let host = addr.ip().to_string();
         let port = addr.port();
         let thread_api_host = api_host.clone();
+        let overlay_state = Arc::new(Mutex::new(KOverlayState {
+            source: ApiOverlaySource::Public,
+            api_display: K_OFFICIAL_MAINNET_API.to_string(),
+            node_display: "unknown".to_string(),
+            api_health: FooterConnectionHealth::Unknown,
+            node_health: FooterConnectionHealth::Unknown,
+        }));
+        let thread_overlay_state = overlay_state.clone();
 
         let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
         let join = std::thread::Builder::new()
@@ -497,10 +599,17 @@ impl KSocialServer {
                     Ok((stream, _)) => {
                         let root = root.clone();
                         let api_host = thread_api_host.clone();
+                        let overlay_state = thread_overlay_state.clone();
                         let _ = std::thread::Builder::new()
                             .name("k-social-conn".to_string())
                             .spawn(move || {
-                                handle_k_request(stream, root.as_path(), api_host.as_str(), api_port);
+                                handle_k_request(
+                                    stream,
+                                    root.as_path(),
+                                    api_host.as_str(),
+                                    api_port,
+                                    overlay_state,
+                                );
                             });
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
@@ -516,9 +625,14 @@ impl KSocialServer {
             port,
             api_host,
             api_port,
+            overlay_state,
             stop_tx,
             join: Some(join),
         })
+    }
+
+    fn overlay_snapshot(&self) -> KOverlayState {
+        self.overlay_state.lock().unwrap().clone()
     }
 }
 
@@ -577,7 +691,13 @@ fn find_k_build_root() -> Option<PathBuf> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn handle_k_request(mut stream: TcpStream, root: &Path, api_host: &str, api_port: u16) {
+fn handle_k_request(
+    mut stream: TcpStream,
+    root: &Path,
+    api_host: &str,
+    api_port: u16,
+    overlay_state: Arc<Mutex<KOverlayState>>,
+) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
@@ -663,6 +783,75 @@ fn handle_k_request(mut stream: TcpStream, root: &Path, api_host: &str, api_port
         let _ = write_all_with_retry(&mut stream, body);
         let _ = stream.flush();
         log_info!("k-social-server: {} {} -> 404 Not Found (sw disabled)", method, normalized);
+        return;
+    }
+
+    if normalized == "/__kaspa_ng_overlay" && method.eq_ignore_ascii_case("POST") {
+        let body = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .map(|idx| &request[idx + 4..])
+            .unwrap_or_default();
+
+        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) {
+            let source = value
+                .get("source")
+                .and_then(|v| v.as_str())
+                .map(|v| v.eq_ignore_ascii_case("self-hosted"))
+                .unwrap_or(false);
+            let api_display = value
+                .get("api")
+                .or_else(|| value.get("apiDisplay"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let node_display = value
+                .get("node")
+                .or_else(|| value.get("nodeDisplay"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim();
+            let api_health = value
+                .get("apiStatus")
+                .and_then(|v| v.as_str())
+                .map(parse_overlay_health)
+                .unwrap_or(FooterConnectionHealth::Unknown);
+            let node_health = value
+                .get("nodeStatus")
+                .and_then(|v| v.as_str())
+                .map(parse_overlay_health)
+                .unwrap_or(FooterConnectionHealth::Unknown);
+
+            let mut guard = overlay_state.lock().unwrap();
+            guard.source = if source {
+                ApiOverlaySource::SelfHosted
+            } else {
+                ApiOverlaySource::Public
+            };
+            if !api_display.is_empty() {
+                guard.api_display = api_display.to_string();
+            }
+            if !node_display.is_empty() {
+                guard.node_display = node_display.to_string();
+            }
+            guard.api_health = api_health;
+            guard.node_health = node_health;
+        }
+
+        let body = b"ok";
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: {}\r\n{}\r\n",
+            body.len(),
+            if keep_alive { "keep-alive" } else { "close" },
+            if keep_alive {
+                "Keep-Alive: timeout=5, max=100"
+            } else {
+                ""
+            }
+        );
+        let _ = write_all_with_retry(&mut stream, headers.as_bytes());
+        let _ = write_all_with_retry(&mut stream, body);
+        let _ = stream.flush();
         return;
     }
 
@@ -892,6 +1081,19 @@ fn handle_k_request(mut stream: TcpStream, root: &Path, api_host: &str, api_port
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn parse_overlay_health(value: &str) -> FooterConnectionHealth {
+    if value.eq_ignore_ascii_case("connected") {
+        FooterConnectionHealth::Connected
+    } else if value.eq_ignore_ascii_case("reachable") {
+        FooterConnectionHealth::Reachable
+    } else if value.eq_ignore_ascii_case("unreachable") {
+        FooterConnectionHealth::Unreachable
+    } else {
+        FooterConnectionHealth::Unknown
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn write_all_with_retry(stream: &mut TcpStream, mut bytes: &[u8]) -> std::io::Result<()> {
     let mut retries = 0_u8;
     while !bytes.is_empty() {
@@ -1093,6 +1295,138 @@ fn k_runtime_config_script(
     let self_hosted_api_url = format!("http://{indexer_host}:{indexer_port}");
     let local_proxy_api_url = format!("http://{K_HOST}:{DEFAULT_K_PORT}/api");
 
+    let telemetry_script = r##"
+function __kaspaNgReadSettings() {
+  try {
+    const key = "kaspa_user_settings";
+    const current = localStorage.getItem(key);
+    const parsed = current ? JSON.parse(current) : {};
+    const indexerType = String(parsed.indexerType || "").toLowerCase();
+    const apiBaseUrl = String(parsed.apiBaseUrl || "");
+    const customIndexerUrl = String(parsed.customIndexerUrl || "");
+    const source = indexerType === "custom" || apiBaseUrl === "/api" ? "self-hosted" : "public";
+    const publicApi = (apiBaseUrl && apiBaseUrl !== "/api")
+      ? apiBaseUrl
+      : "https://mainnet.kaspatalk.net";
+    const api = source === "self-hosted"
+      ? (customIndexerUrl || apiBaseUrl || "/api")
+      : publicApi;
+    const nodeType = String(parsed.kaspaConnectionType || "").toLowerCase();
+    const customNode = String(parsed.customKaspaNodeUrl || "").trim();
+    let node = "";
+    if (nodeType === "public-node") {
+      node = "wss://node.k-social.network";
+    } else if (nodeType === "custom-node") {
+      node = customNode;
+    } else if (nodeType === "resolver") {
+      node = "resolver";
+    } else {
+      node = customNode;
+    }
+    return { source, api, node };
+  } catch (_) {
+    return { source: "public", api: "https://mainnet.kaspatalk.net", node: "" };
+  }
+}
+async function __kaspaNgProbeApi() {
+  try {
+    const s = __kaspaNgReadSettings();
+    if (s.source === "public") {
+      window.__kaspaNgApiStatus = "connected";
+      return;
+    }
+    const base = String(s.api || "").trim();
+    if (!base) {
+      window.__kaspaNgApiStatus = "unknown";
+      return;
+    }
+    const response = await fetch(base, { method: "GET", cache: "no-store" });
+    window.__kaspaNgApiStatus = response.ok ? "connected" : "reachable";
+  } catch (_) {
+    window.__kaspaNgApiStatus = "unreachable";
+  }
+}
+
+function __kaspaNgProbeNode() {
+  try {
+    const s = __kaspaNgReadSettings();
+    const node = String(s.node || "").trim();
+    if (node === "resolver") {
+      window.__kaspaNgNodeStatus = "reachable";
+      return;
+    }
+    if (!/^wss?:\/\//i.test(node)) {
+      window.__kaspaNgNodeStatus = node ? "reachable" : "unknown";
+      return;
+    }
+    let settled = false;
+    const ws = new WebSocket(node);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      window.__kaspaNgNodeStatus = "unreachable";
+      try { ws.close(); } catch (_) {}
+    }, 1400);
+    ws.onopen = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.__kaspaNgNodeStatus = "connected";
+      try { ws.close(); } catch (_) {}
+    };
+    ws.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.__kaspaNgNodeStatus = "unreachable";
+    };
+    ws.onclose = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.__kaspaNgNodeStatus = "reachable";
+    };
+  } catch (_) {
+    window.__kaspaNgNodeStatus = "unreachable";
+  }
+}
+function __kaspaNgReportOverlayState() {
+  try {
+    const payload = __kaspaNgReadSettings();
+    payload.apiStatus = window.__kaspaNgApiStatus || "unknown";
+    payload.nodeStatus = window.__kaspaNgNodeStatus || "unknown";
+    fetch("/__kaspa_ng_overlay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (_) {}
+}
+if (!window.__kaspaNgOverlayTelemetryInstalled) {
+  window.__kaspaNgOverlayTelemetryInstalled = true;
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(k, v) {
+    originalSetItem(k, v);
+    if (k === "kaspa_user_settings") {
+      __kaspaNgReportOverlayState();
+      __kaspaNgProbeApi().catch(() => {});
+      __kaspaNgProbeNode();
+    }
+  };
+  window.addEventListener("storage", __kaspaNgReportOverlayState);
+  setInterval(() => {
+    __kaspaNgReportOverlayState();
+    __kaspaNgProbeApi().catch(() => {});
+    __kaspaNgProbeNode();
+  }, 3000);
+}
+setTimeout(() => {
+  __kaspaNgReportOverlayState();
+  __kaspaNgProbeApi().catch(() => {});
+  __kaspaNgProbeNode();
+}, 50);
+"##;
+
     if use_self_hosted {
         return format!(
             r#"
@@ -1113,6 +1447,7 @@ fn k_runtime_config_script(
       kaspaNodeUrl: "{kaspa_node_url}",
       network: "{network}"
     }};
+    {telemetry_script}
   }} catch (_) {{}}
 }})();
 "#
@@ -1138,6 +1473,7 @@ fn k_runtime_config_script(
       kaspaNodeUrl: "{kaspa_node_url}",
       network: "{network}"
     }};
+    {telemetry_script}
   }} catch (_) {{}}
 }})();
 "#

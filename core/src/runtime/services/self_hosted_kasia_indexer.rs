@@ -29,6 +29,17 @@ pub struct SelfHostedKasiaIndexerService {
 }
 
 impl SelfHostedKasiaIndexerService {
+    pub const RUNTIME_API_PORT: u16 = 8080;
+
+    pub fn health_probe_ports(settings: &SelfHostedSettings, node: &NodeSettings) -> Vec<u16> {
+        let configured = settings.effective_kasia_indexer_port(node.network);
+        if configured == Self::RUNTIME_API_PORT {
+            vec![configured]
+        } else {
+            vec![configured, Self::RUNTIME_API_PORT]
+        }
+    }
+
     fn should_run(settings: &SelfHostedSettings, node: &NodeSettings) -> bool {
         settings.enabled && settings.kasia_enabled && matches!(node.network, Network::Mainnet)
     }
@@ -345,14 +356,12 @@ impl SelfHostedKasiaIndexerService {
         };
 
         let bind_host = Self::resolve_bind_host(&settings.api_bind);
-        let listen = format!(
-            "{}:{}",
-            bind_host,
-            settings.effective_kasia_indexer_port(node.network)
-        );
-        if !Self::listen_addr_available(&listen) {
+        let configured_port = settings.effective_kasia_indexer_port(node.network);
+        let runtime_port = Self::RUNTIME_API_PORT;
+        let runtime_listen = format!("{bind_host}:{runtime_port}");
+        if !Self::listen_addr_available(&runtime_listen) {
             self.log_blocked_once(format!(
-                "kasia-indexer API port already in use on {listen}; refusing to start"
+                "kasia-indexer API port already in use on {runtime_listen}; refusing to start"
             ));
             return Ok(());
         }
@@ -374,13 +383,7 @@ impl SelfHostedKasiaIndexerService {
         cmd.env("NETWORK_TYPE", network_type)
             .env("KASPA_NODE_WBORSH_URL", Self::effective_wrpc_url(&node))
             .env("KASIA_INDEXER_DB_ROOT", Self::default_db_root())
-            .env(
-                "KASIA_INDEXER_API_BIND",
-                format!(
-                    "0.0.0.0:{}",
-                    settings.effective_kasia_indexer_port(node.network)
-                ),
-            )
+            .env("KASIA_INDEXER_API_BIND", format!("0.0.0.0:{runtime_port}"))
             .env("RUST_BACKTRACE", rust_backtrace)
             .env("RUST_LIB_BACKTRACE", rust_lib_backtrace)
             .stdout(Stdio::piped())
@@ -410,9 +413,20 @@ impl SelfHostedKasiaIndexerService {
         };
 
         self.clear_blocked_reason();
+        if configured_port != runtime_port {
+            self.logs.push(
+                "WARN",
+                &format!(
+                    "configured kasia-indexer port {} differs from runtime port {}; probing uses both",
+                    configured_port, runtime_port
+                ),
+            );
+        }
         self.logs.push(
             "INFO",
-            &format!("started kasia-indexer (network={network_type}, api=http://{listen})"),
+            &format!(
+                "started kasia-indexer (network={network_type}, api=http://{bind_host}:{runtime_port})"
+            ),
         );
 
         let logs_out = self.logs.clone();

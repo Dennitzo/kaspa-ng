@@ -99,6 +99,50 @@ require_cmd npm
 require_cmd python3
 require_cmd curl
 
+sync_external_repo() {
+  local dir="$1"
+  local url="$2"
+  local target="$ROOT_DIR/$dir"
+
+  if [[ -d "$target/.git" ]]; then
+    local current_url
+    current_url="$(git -C "$target" remote get-url origin 2>/dev/null || true)"
+    if [[ -n "$current_url" && "$current_url" != "$url" ]]; then
+      echo "External repo remote mismatch for $dir; recloning ($current_url -> $url)"
+      nuke_dir "$target"
+      git clone --depth 1 "$url" "$target"
+      return 0
+    fi
+    echo "Updating external repo $dir via git pull --ff-only"
+    git -C "$target" pull --ff-only
+    return 0
+  fi
+
+  if [[ -e "$target" ]]; then
+    echo "External repo $dir exists without .git; recloning"
+    nuke_dir "$target"
+  fi
+
+  echo "Cloning external repo $dir"
+  git clone --depth 1 "$url" "$target"
+}
+
+sync_external_repos() {
+  local repos=(
+    "K|https://github.com/thesheepcat/K.git"
+    "K-indexer|https://github.com/thesheepcat/K-indexer.git"
+    "simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git"
+    "kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git"
+    "Kasia|https://github.com/K-Kluster/Kasia.git"
+    "kasvault|https://github.com/coderofstuff/kasvault.git"
+  )
+  local entry dir url
+  for entry in "${repos[@]}"; do
+    IFS='|' read -r dir url <<<"$entry"
+    sync_external_repo "$dir" "$url"
+  done
+}
+
 nuke_dir() {
   local dir="$1"
   local attempt
@@ -459,30 +503,33 @@ package_and_verify() {
   echo "LOCAL_ARTIFACT_SIM_OK root=$root"
 }
 
-echo "==> [1/4] Prepare Kasia wasm package"
+echo "==> [0/5] Sync external repositories"
+sync_external_repos 2>&1 | tee "$LOG_DIR/external-repo-sync.log"
+
+echo "==> [1/5] Prepare Kasia wasm package"
 prepare_kasia_wasm 2>&1 | tee "$LOG_DIR/prepare-kasia-wasm.log"
 
 if [[ "$SKIP_KASIA" != "1" ]]; then
-  echo "==> [2/4] Build Kasia frontend"
+  echo "==> [2/5] Build Kasia frontend"
   build_kasia 2>&1 | tee "$LOG_DIR/kasia-build.log"
 else
-  echo "==> [2/4] Skipped Kasia build"
+  echo "==> [2/5] Skipped Kasia build"
 fi
 
 if [[ "$SKIP_CARGO" != "1" ]]; then
-  echo "==> [3/4] Cargo release build"
+  echo "==> [3/5] Cargo release build"
   build_release 2>&1 | tee "$LOG_DIR/cargo-build-release.log"
-  echo "==> [3b/4] Stage internal PostgreSQL runtime"
+  echo "==> [3b/5] Stage internal PostgreSQL runtime"
   stage_postgres_runtime 2>&1 | tee "$LOG_DIR/postgres-runtime-stage.log"
 else
-  echo "==> [3/4] Skipped cargo build"
+  echo "==> [3/5] Skipped cargo build"
 fi
 
 if [[ "$SKIP_PACKAGE" != "1" ]]; then
-  echo "==> [4/4] Package + verify artifact layout"
+  echo "==> [4/5] Package + verify artifact layout"
   package_and_verify 2>&1 | tee "$LOG_DIR/package-verify.log"
 else
-  echo "==> [4/4] Skipped package/verify"
+  echo "==> [4/5] Skipped package/verify"
 fi
 
 echo "Done. Logs in: $LOG_DIR"

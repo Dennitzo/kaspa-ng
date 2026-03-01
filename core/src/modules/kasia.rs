@@ -1,4 +1,11 @@
 use crate::imports::*;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::modules::{
+    clear_footer_connection_status, set_footer_connection_status, FooterConnectionHealth,
+    FooterConnectionStatus,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::runtime::services::SelfHostedKasiaIndexerService;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Write};
@@ -241,13 +248,18 @@ impl Kasia {
         } else {
             core.settings.self_hosted.api_bind.clone()
         };
-        let indexer_url = format!(
-            "http://{}:{}",
-            host,
+        let indexer_port = SelfHostedKasiaIndexerService::health_probe_ports(
+            &core.settings.self_hosted,
+            &core.settings.node,
+        )
+        .into_iter()
+        .find(|port| *port == SelfHostedKasiaIndexerService::RUNTIME_API_PORT)
+        .unwrap_or_else(|| {
             core.settings
                 .self_hosted
                 .effective_kasia_indexer_port(core.settings.node.network)
-        );
+        });
+        let indexer_url = format!("http://{}:{}", host, indexer_port);
 
         KasiaRuntimeConfig {
             indexer_mainnet_url: Some(indexer_url.clone()),
@@ -273,15 +285,21 @@ impl ModuleT for Kasia {
 
     fn deactivate(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
     fn hide(&mut self, _core: &mut Core) {
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(webview) = &self.webview {
-            let _ = webview.set_visible(false);
+        {
+            clear_footer_connection_status();
+            if let Some(webview) = &self.webview {
+                let _ = webview.set_visible(false);
+            }
         }
     }
 
@@ -303,6 +321,7 @@ impl ModuleT for Kasia {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if !matches!(core.settings.node.network, Network::Mainnet) {
+                clear_footer_connection_status();
                 if let Some(webview) = &self.webview {
                     let _ = webview.set_visible(false);
                 }
@@ -328,10 +347,15 @@ impl ModuleT for Kasia {
             } else {
                 core.settings.self_hosted.api_bind.clone()
             };
-            let port = core
+            let configured_port = core
                 .settings
                 .self_hosted
                 .effective_kasia_indexer_port(core.settings.node.network);
+            let probe_ports = SelfHostedKasiaIndexerService::health_probe_ports(
+                &core.settings.self_hosted,
+                &core.settings.node,
+            );
+            let api_port = configured_port;
 
             if use_self_hosted {
                 let should_probe = self
@@ -339,7 +363,7 @@ impl ModuleT for Kasia {
                     .map(|last| last.elapsed() >= Duration::from_secs(2))
                     .unwrap_or(true);
                 if should_probe {
-                    let probe = kasia_indexer_health(&host, port);
+                    let probe = kasia_indexer_health(&host, &probe_ports);
                     self.last_probe_ok = Some(probe.ready);
                     self.last_probe_status = Some(probe.status);
                     self.last_probe_at = Some(std::time::Instant::now());
@@ -349,6 +373,33 @@ impl ModuleT for Kasia {
                 self.last_probe_status = None;
                 self.last_probe_at = None;
             }
+
+            let node_display = Self::normalized_node_url_from_runtime(core.settings.node.network);
+            let api_display = if use_self_hosted {
+                format!("http://{}:{}", host, api_port)
+            } else {
+                "public".to_string()
+            };
+            let api_health = if use_self_hosted {
+                match self.last_probe_ok {
+                    Some(true) => FooterConnectionHealth::Connected,
+                    Some(false) => FooterConnectionHealth::Unreachable,
+                    None => FooterConnectionHealth::Unknown,
+                }
+            } else {
+                FooterConnectionHealth::Reachable
+            };
+            let node_health = if core.state().is_connected() {
+                FooterConnectionHealth::Connected
+            } else {
+                FooterConnectionHealth::Reachable
+            };
+            set_footer_connection_status(FooterConnectionStatus {
+                node: node_display.clone(),
+                node_health,
+                api: api_display,
+                api_health,
+            });
 
             let kasia_ui_port = core
                 .settings
@@ -380,7 +431,7 @@ impl ModuleT for Kasia {
                         "{} http://{}:{}/metrics ({status})",
                         i18n("Waiting for Kasia Indexer API:"),
                         host,
-                        port
+                        api_port
                     ),
                 );
             }
@@ -745,57 +796,60 @@ struct KasiaIndexerHealth {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn kasia_indexer_health(host: &str, port: u16) -> KasiaIndexerHealth {
-    let target = format!("{host}:{port}");
-    if let Ok(addrs) = target.to_socket_addrs() {
-        for addr in addrs {
-            let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
-                Ok(stream) => stream,
-                Err(_) => continue,
-            };
-            let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-            let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+fn kasia_indexer_health(host: &str, ports: &[u16]) -> KasiaIndexerHealth {
+    for port in ports {
+        let target = format!("{host}:{port}");
+        if let Ok(addrs) = target.to_socket_addrs() {
+            for addr in addrs {
+                let mut stream =
+                    match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
+                        Ok(stream) => stream,
+                        Err(_) => continue,
+                    };
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
 
-            let request = format!(
-                "GET /metrics HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
-            );
-            if stream.write_all(request.as_bytes()).is_err() {
-                return KasiaIndexerHealth {
-                    ready: false,
-                    status: "connected, request failed".to_string(),
+                let request = format!(
+                    "GET /metrics HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+                );
+                if stream.write_all(request.as_bytes()).is_err() {
+                    return KasiaIndexerHealth {
+                        ready: false,
+                        status: "connected, request failed".to_string(),
+                    };
+                }
+
+                let mut response = [0_u8; 256];
+                let bytes_read = stream.read(&mut response).unwrap_or_default();
+                if bytes_read == 0 {
+                    return KasiaIndexerHealth {
+                        ready: false,
+                        status: "connected, empty response".to_string(),
+                    };
+                }
+
+                let text = String::from_utf8_lossy(&response[..bytes_read]);
+                let line = text.lines().next().unwrap_or_default();
+                let code = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|value| value.parse::<u16>().ok());
+
+                return match code {
+                    Some(200..=299) => KasiaIndexerHealth {
+                        ready: true,
+                        status: format!("ready ({line})"),
+                    },
+                    Some(code) => KasiaIndexerHealth {
+                        ready: false,
+                        status: format!("not ready (HTTP {code})"),
+                    },
+                    None => KasiaIndexerHealth {
+                        ready: false,
+                        status: "connected, invalid HTTP response".to_string(),
+                    },
                 };
             }
-
-            let mut response = [0_u8; 256];
-            let bytes_read = stream.read(&mut response).unwrap_or_default();
-            if bytes_read == 0 {
-                return KasiaIndexerHealth {
-                    ready: false,
-                    status: "connected, empty response".to_string(),
-                };
-            }
-
-            let text = String::from_utf8_lossy(&response[..bytes_read]);
-            let line = text.lines().next().unwrap_or_default();
-            let code = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|value| value.parse::<u16>().ok());
-
-            return match code {
-                Some(200..=299) => KasiaIndexerHealth {
-                    ready: true,
-                    status: format!("ready ({line})"),
-                },
-                Some(code) => KasiaIndexerHealth {
-                    ready: false,
-                    status: format!("not ready (HTTP {code})"),
-                },
-                None => KasiaIndexerHealth {
-                    ready: false,
-                    status: "connected, invalid HTTP response".to_string(),
-                },
-            };
         }
     }
 

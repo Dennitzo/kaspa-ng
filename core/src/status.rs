@@ -1,4 +1,6 @@
 use crate::imports::*;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::modules::{FooterConnectionHealth, footer_connection_status_snapshot};
 use crate::sync::SyncStatus;
 // use kaspa_metrics_core::MetricsSnapshot;
 
@@ -193,6 +195,52 @@ impl<'core> Status<'core> {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn footer_connection_health_color(health: FooterConnectionHealth) -> Color32 {
+        match health {
+            FooterConnectionHealth::Connected => Color32::from_rgb(16, 185, 129),
+            FooterConnectionHealth::Reachable => Color32::from_rgb(245, 158, 11),
+            FooterConnectionHealth::Unreachable => Color32::from_rgb(239, 68, 68),
+            FooterConnectionHealth::Unknown => Color32::from_rgb(156, 163, 175),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_footer_connection_status(&mut self, ui: &mut egui::Ui) {
+        let active = self.core.module().type_id();
+        let prefix = if active == TypeId::of::<modules::Explorer>() {
+            "Explorer"
+        } else if active == TypeId::of::<modules::Kasia>() {
+            "Kasia"
+        } else if active == TypeId::of::<modules::KSocial>() {
+            "K"
+        } else {
+            ""
+        };
+        if prefix.is_empty() {
+            return;
+        }
+
+        let Some(status) = footer_connection_status_snapshot() else {
+            return;
+        };
+
+        self.render_separator(ui);
+        ui.label(
+            RichText::new("●")
+                .color(Self::footer_connection_health_color(status.node_health))
+                .strong(),
+        );
+        ui.label(format!("{prefix} Node {}", status.node));
+        self.render_separator(ui);
+        ui.label(
+            RichText::new("●")
+                .color(Self::footer_connection_health_color(status.api_health))
+                .strong(),
+        );
+        ui.label(format!("{prefix} API {}", status.api));
+    }
+
     fn render_connected_state(&mut self, ui: &mut egui::Ui, state: ConnectionStatus) {
         let status_area_width = ui.available_width() - 24.;
         let status_icon_size = theme_style().status_icon_size;
@@ -377,6 +425,8 @@ impl<'core> Status<'core> {
                 }
 
                 if !self.device().single_pane() {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    self.render_footer_connection_status(ui);
                     module.status_bar(self.core, ui);
                 }
             }
@@ -410,6 +460,8 @@ impl<'core> Status<'core> {
                                 }
                             }
 
+                            #[cfg(not(target_arch = "wasm32"))]
+                            self.render_footer_connection_status(ui);
                             module.status_bar(self.core, ui);
                         }
                     });

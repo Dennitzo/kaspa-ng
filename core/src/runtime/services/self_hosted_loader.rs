@@ -389,6 +389,15 @@ impl SelfHostedLoaderService {
         )
     }
 
+    async fn check_tcp_any(host: &str, ports: &[u16]) -> bool {
+        for port in ports {
+            if Self::check_tcp(host, *port).await {
+                return true;
+            }
+        }
+        false
+    }
+
     async fn check_postgres(settings: &SelfHostedSettings, node: &NodeSettings) -> bool {
         let conn_str = format!(
             "host={} port={} user={} password={} dbname=postgres connect_timeout=3",
@@ -795,11 +804,8 @@ impl SelfHostedLoaderService {
 
         let kasia_required = Self::should_run_kasia_indexer(&settings, &node);
         let kasia_ready = if kasia_required {
-            Self::check_tcp(
-                &probe_host,
-                settings.effective_kasia_indexer_port(node.network),
-            )
-            .await
+            let ports = SelfHostedKasiaIndexerService::health_probe_ports(&settings, &node);
+            Self::check_tcp_any(&probe_host, &ports).await
         } else {
             true
         };
