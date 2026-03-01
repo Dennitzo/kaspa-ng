@@ -9,6 +9,7 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      KASPA_NG_SKIP_EXTERNAL_BUILDS: "1"
     steps:
 
       - name: Install desktop dependencies
@@ -105,6 +106,7 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      KASPA_NG_SKIP_EXTERNAL_BUILDS: "1"
     strategy:
       fail-fast: false
       # matrix:
@@ -225,6 +227,7 @@ jobs:
     env:
       CI_LOG_DIR: ci-logs
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+      KASPA_NG_SKIP_EXTERNAL_BUILDS: "1"
     steps:
 
       - name: Install desktop dependencies

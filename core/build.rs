@@ -16,11 +16,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     sync_external_repo_if_needed("rusty-kaspa", "https://github.com/kaspanet/rusty-kaspa.git")?;
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
-    ensure_node_and_npm_ready()?;
-    sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
-    sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
-    sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
-    sync_external_repo_if_needed("kasvault", "https://github.com/coderofstuff/kasvault.git")?;
+
+    let external_enabled = external_builds_enabled();
+    if external_enabled {
+        ensure_node_and_npm_ready()?;
+    }
+
+    if external_enabled {
+        sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
+        sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
+        sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
+        sync_external_repo_if_needed("kasvault", "https://github.com/coderofstuff/kasvault.git")?;
+    }
     sync_external_repo_if_needed(
         "simply-kaspa-indexer",
         "https://github.com/supertypo/simply-kaspa-indexer.git",
@@ -29,14 +36,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         "kasia-indexer",
         "https://github.com/K-Kluster/kasia-indexer.git",
     )?;
-    build_explorer_if_needed()?;
-    if external_builds_enabled() {
+    if external_enabled {
+        build_explorer_if_needed()?;
         build_k_social_if_needed()?;
         build_kasia_if_needed()?;
         build_kasvault_if_needed()?;
+    } else {
+        println!("cargo:warning=Skipping external web builds (KASPA_NG_SKIP_EXTERNAL_BUILDS=1)");
     }
     build_simply_kaspa_indexer_if_needed()?;
-    if external_builds_enabled() {
+    if external_enabled {
         build_k_indexer_if_needed()?;
         build_kasia_indexer_if_needed()?;
     }
