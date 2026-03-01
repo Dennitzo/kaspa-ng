@@ -118,7 +118,7 @@ class BlockModel(BaseModel):
     header: BlockHeader
     transactions: List[BlockTxModel] | None
     verboseData: VerboseDataModel
-    extra: ExtraModel | None
+    extra: ExtraModel | None = None
 
 
 class BlockResponse(BaseModel):

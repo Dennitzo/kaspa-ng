@@ -415,7 +415,15 @@ impl Core {
 
     pub fn change_current_network(&mut self, network: Network) {
         if self.settings.node.network != network {
-            self.settings.node.network = network;
+            let initialized = self.settings.initialized;
+            let mut next_settings = crate::settings::Settings::load_for_network_sync(network)
+                .unwrap_or_else(|_| {
+                    let mut fallback = self.settings.clone();
+                    fallback.node.network = network;
+                    fallback
+                });
+            next_settings.initialized = initialized;
+            self.settings = next_settings;
             self.settings
                 .self_hosted
                 .enforce_mainnet_only_services(network);
@@ -433,8 +441,8 @@ impl Core {
             self.runtime
                 .stratum_bridge_service()
                 .enable(bridge_enabled, &self.settings.node);
-            self.get_mut::<modules::Settings>()
-                .change_current_network(network);
+            let settings_snapshot = self.settings.clone();
+            self.get_mut::<modules::Settings>().load(settings_snapshot);
             self.runtime
                 .cpu_miner_service()
                 .update_settings(&self.settings.node, &self.settings.node.cpu_miner);

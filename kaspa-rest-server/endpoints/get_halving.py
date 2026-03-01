@@ -26,9 +26,10 @@ async def get_halving(field: str | None = None):
 
     reward_info = calc_block_reward(daa_score)
 
-    next_halving_timestamp = datetime.now(timezone.utc).timestamp() + int(
+    next_halving_timestamp = int(datetime.now(timezone.utc).timestamp()) + int(
         (reward_info["daa_next_halving"] - daa_score) / BPS
     )
+    next_halving_amount = float(reward_info["next"])
 
     if field == "nextHalvingTimestamp":
         return PlainTextResponse(content=str(next_halving_timestamp))
@@ -39,11 +40,11 @@ async def get_halving(field: str | None = None):
         )
 
     elif field == "nextHalvingAmount":
-        return PlainTextResponse(content=str(reward_info["next"]))
+        return PlainTextResponse(content=str(next_halving_amount))
 
     else:
         return {
             "nextHalvingTimestamp": next_halving_timestamp,
             "nextHalvingDate": datetime.utcfromtimestamp(next_halving_timestamp).strftime("%Y-%m-%d %H:%M:%S UTC"),
-            "nextHalvingAmount": str(reward_info["next"]),
+            "nextHalvingAmount": next_halving_amount,
         }

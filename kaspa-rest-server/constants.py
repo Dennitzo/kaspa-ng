@@ -15,6 +15,13 @@ HASHRATE_HISTORY = os.getenv("HASHRATE_HISTORY", "false").lower() == "true"
 ADDRESS_RANKINGS = os.getenv("ADDRESS_RANKINGS", "false").lower() == "true"
 
 NETWORK_TYPE = os.getenv("NETWORK_TYPE", "mainnet").lower()
+APP_NETWORK_ID = os.getenv("APP_NETWORK_ID", "").strip().lower()
+
+# UI/display network id (can differ from RPC compatibility network id).
+if APP_NETWORK_ID in {"mainnet", "testnet-10", "testnet-12"}:
+    DISPLAY_NETWORK_ID = APP_NETWORK_ID
+else:
+    DISPLAY_NETWORK_ID = "testnet-10" if NETWORK_TYPE == "testnet" else "mainnet"
 BPS = int(os.getenv("BPS", "10"))
 
 SOMPI_PER_KAS = 100_000_000

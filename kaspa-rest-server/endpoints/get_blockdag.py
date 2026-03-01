@@ -5,6 +5,7 @@ from typing import List
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from constants import DISPLAY_NETWORK_ID
 from kaspad.KaspadRpcClient import kaspad_rpc_client
 from server import app, kaspad_client
 
@@ -24,6 +25,17 @@ class BlockdagResponse(BaseModel):
     sink: str = Field(..., example="366b1cf51146cc002672b79948634751a2914a2cc9e273afe358bdc1ae19dce9")
 
 
+def _apply_display_network_name(info: dict) -> dict:
+    if DISPLAY_NETWORK_ID == "testnet-12":
+        info["networkName"] = "kaspa-testnet-12"
+        return info
+
+    if "networkName" not in info:
+        network_name = info.get("network", "mainnet")
+        info["networkName"] = f"kaspa-{network_name}"
+    return info
+
+
 @app.get("/info/network", response_model=BlockdagResponse, tags=["Kaspa network info"], deprecated=True)
 async def get_network():
     """
@@ -40,10 +52,9 @@ async def get_blockdag():
     rpc_client = await kaspad_rpc_client()
     if rpc_client:
         info = await wait_for(rpc_client.get_block_dag_info(), 10)
-        info["networkName"] = f"kaspa-{info['network']}"
-        return info
+        return _apply_display_network_name(info)
     else:
         resp = await kaspad_client.request("getBlockDagInfoRequest")
         if "error" in resp:
             raise HTTPException(500, resp["error"])
-        return resp["getBlockDagInfoResponse"]
+        return _apply_display_network_name(resp["getBlockDagInfoResponse"])

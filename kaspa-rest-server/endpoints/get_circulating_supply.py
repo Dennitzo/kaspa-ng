@@ -30,8 +30,8 @@ async def get_coinsupply():
         coin_supply = resp["getCoinSupplyResponse"]
 
     return {
-        "circulatingSupply": coin_supply["circulatingSompi"],
-        "maxSupply": MAX_SUPPLY_KAS * SOMPI_PER_KAS,
+        "circulatingSupply": str(coin_supply["circulatingSompi"]),
+        "maxSupply": str(MAX_SUPPLY_KAS * SOMPI_PER_KAS),
     }
 
 

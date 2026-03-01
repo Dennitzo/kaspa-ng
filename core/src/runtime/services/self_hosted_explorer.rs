@@ -171,6 +171,14 @@ impl SelfHostedExplorerService {
         }
     }
 
+    fn network_id(settings: &NodeSettings) -> &'static str {
+        match settings.network {
+            Network::Mainnet => "mainnet",
+            Network::Testnet10 => "testnet-10",
+            Network::Testnet12 => "testnet-12",
+        }
+    }
+
     fn build_sql_uri(settings: &SelfHostedSettings, node: &NodeSettings) -> String {
         let db_name = crate::settings::self_hosted_db_name_for_network(
             settings.db_name.as_str(),
@@ -878,6 +886,7 @@ impl SelfHostedExplorerService {
         cmd.env("ADDRESS_RANKINGS", "true");
         cmd.env("HASHRATE_HISTORY", "true");
         cmd.env("NETWORK_TYPE", Self::network_type(node));
+        cmd.env("APP_NETWORK_ID", Self::network_id(node));
         cmd.env("DEBUG", "false");
         cmd.env("PYTHONUNBUFFERED", "1");
         if std::env::var_os("LANG").is_none() {

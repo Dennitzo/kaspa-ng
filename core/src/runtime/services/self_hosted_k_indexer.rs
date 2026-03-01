@@ -486,6 +486,14 @@ impl SelfHostedKIndexerService {
     async fn stop_processor(&self) -> Result<()> {
         let child = self.processor_child.lock().unwrap().take();
         if let Some(mut child) = child {
+            let pid = child.id();
+            self.logs.push(
+                "INFO",
+                &format!(
+                    "stopping K-transaction-processor{}",
+                    pid.map(|v| format!(" (pid={v})")).unwrap_or_default()
+                ),
+            );
             #[cfg(unix)]
             {
                 Self::terminate_process_tree(&mut child).await;
@@ -495,6 +503,7 @@ impl SelfHostedKIndexerService {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
             }
+            self.logs.push("INFO", "K-transaction-processor stopped");
         }
         Ok(())
     }
@@ -502,6 +511,14 @@ impl SelfHostedKIndexerService {
     async fn stop_webserver(&self) -> Result<()> {
         let child = self.webserver_child.lock().unwrap().take();
         if let Some(mut child) = child {
+            let pid = child.id();
+            self.logs.push(
+                "INFO",
+                &format!(
+                    "stopping K-webserver{}",
+                    pid.map(|v| format!(" (pid={v})")).unwrap_or_default()
+                ),
+            );
             #[cfg(unix)]
             {
                 Self::terminate_process_tree(&mut child).await;
@@ -511,6 +528,7 @@ impl SelfHostedKIndexerService {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
             }
+            self.logs.push("INFO", "K-webserver stopped");
         }
         Ok(())
     }
