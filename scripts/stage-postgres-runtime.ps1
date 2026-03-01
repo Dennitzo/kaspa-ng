@@ -76,18 +76,50 @@ function Get-InstalledPostgresRoots {
         | Select-Object -ExpandProperty Root
 }
 
-if (Test-Path -LiteralPath $OutDir) {
-    Remove-Item -LiteralPath $OutDir -Recurse -Force
+function Test-UsablePostgresRoot {
+    param([string]$Root)
+    if (-not $Root) { return $false }
+    $exe = Join-Path $Root "bin\postgres.exe"
+    if (-not (Test-Path -LiteralPath $exe)) { return $false }
+    try {
+        & $exe --version *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
 }
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-$sourceRoot = $null
-$candidates = Get-InstalledPostgresRoots
-if ($candidates.Count -gt 0) {
-    $sourceRoot = $candidates[0]
+function Try-StagePostgresRuntime {
+    param(
+        [string]$SourceRoot,
+        [string]$TargetOutDir
+    )
+
+    if (Test-Path -LiteralPath $TargetOutDir) {
+        Remove-Item -LiteralPath $TargetOutDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Force -Path $TargetOutDir | Out-Null
+
+    $ok = $true
+    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "bin") -Dst (Join-Path $TargetOutDir "bin")) -and $ok
+    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "lib") -Dst (Join-Path $TargetOutDir "lib")) -and $ok
+    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "share") -Dst (Join-Path $TargetOutDir "share")) -and $ok
+
+    if (-not $ok) { return $false }
+    if (-not (Test-Path -LiteralPath (Join-Path $TargetOutDir "bin\postgres.exe"))) { return $false }
+    return $true
 }
 
-if (-not $sourceRoot -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+$candidateSet = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+$orderedCandidates = New-Object System.Collections.Generic.List[string]
+
+foreach ($candidate in (Get-InstalledPostgresRoots)) {
+    if ($candidateSet.Add($candidate)) {
+        $orderedCandidates.Add($candidate) | Out-Null
+    }
+}
+
+if ($orderedCandidates.Count -eq 0 -and (Get-Command winget -ErrorAction SilentlyContinue)) {
     $wingetIds = @(
         "PostgreSQL.PostgreSQL.15",
         "PostgreSQL.PostgreSQL.16",
@@ -97,25 +129,36 @@ if (-not $sourceRoot -and (Get-Command winget -ErrorAction SilentlyContinue)) {
 
     foreach ($id in $wingetIds) {
         & winget install -e --id $id --accept-package-agreements --accept-source-agreements --silent | Out-Null
-        $candidates = Get-InstalledPostgresRoots
-        if ($candidates.Count -gt 0) {
-            $sourceRoot = $candidates[0]
+        foreach ($candidate in (Get-InstalledPostgresRoots)) {
+            if ($candidateSet.Add($candidate)) {
+                $orderedCandidates.Add($candidate) | Out-Null
+            }
+        }
+        if ($orderedCandidates.Count -gt 0) {
             break
         }
     }
 }
 
-if (-not $sourceRoot) {
+if ($orderedCandidates.Count -eq 0) {
     throw "Unable to find a PostgreSQL installation to stage runtime (checked Program Files, PATH, and winget installs)."
 }
 
-$ok = $true
-$ok = (Copy-Tree -Src (Join-Path $sourceRoot "bin") -Dst (Join-Path $OutDir "bin")) -and $ok
-$ok = (Copy-Tree -Src (Join-Path $sourceRoot "lib") -Dst (Join-Path $OutDir "lib")) -and $ok
-$ok = (Copy-Tree -Src (Join-Path $sourceRoot "share") -Dst (Join-Path $OutDir "share")) -and $ok
+$sourceRoot = $null
+foreach ($candidate in $orderedCandidates) {
+    if (-not (Test-UsablePostgresRoot -Root $candidate)) {
+        Write-Host "[postgres] skipping unusable installation '$candidate'"
+        continue
+    }
+    if (Try-StagePostgresRuntime -SourceRoot $candidate -TargetOutDir $OutDir) {
+        $sourceRoot = $candidate
+        break
+    }
+    Write-Host "[postgres] failed to stage runtime from '$candidate', trying next candidate"
+}
 
-if (-not (Test-Path -LiteralPath (Join-Path $OutDir "bin\postgres.exe"))) {
-    throw "Staged postgres runtime is invalid (bin\\postgres.exe missing)."
+if (-not $sourceRoot) {
+    throw "Staged postgres runtime is invalid (bin\\postgres.exe missing). No usable installation candidates succeeded."
 }
 
 Write-Host "[postgres] staged runtime from '$sourceRoot' to '$OutDir'"
