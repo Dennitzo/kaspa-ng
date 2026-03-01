@@ -32,15 +32,31 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
-    const REQUIRED_PY_MODULES: [&'static str; 4] =
-        ["uvicorn", "fastapi_utils", "typing_inspect", "sqlalchemy"];
-    const REQUIRED_PIP_PACKAGES: [&'static str; 6] = [
+    const REQUIRED_PY_MODULES: [&'static str; 8] = [
+        "uvicorn",
+        "fastapi_utils",
+        "typing_inspect",
+        "sqlalchemy",
+        "socketio",
+        "asyncpg",
+        "grpc",
+        "requests",
+    ];
+    const REQUIRED_PIP_PACKAGES: [&'static str; 14] = [
         "uvicorn",
         "fastapi",
         "fastapi-utils",
         "typing-inspect",
         "sqlalchemy",
         "python-socketio",
+        "grpcio",
+        "grpcio-tools",
+        "requests",
+        "websockets",
+        "asyncpg",
+        "cachetools",
+        "psycopg2-binary",
+        "waitress",
     ];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)
