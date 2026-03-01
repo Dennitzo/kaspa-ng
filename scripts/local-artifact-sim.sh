@@ -439,7 +439,15 @@ package_and_verify() {
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
   if [[ ! -x "$root/postgres/bin/postgres" && ! -x "$root/postgres/bin/postgres.exe" ]]; then
-    echo "Missing PostgreSQL runtime binary in packaged layout" >&2
+    echo "Missing PostgreSQL runtime binary in packaged layout (postgres)" >&2
+    exit 1
+  fi
+  if [[ ! -x "$root/postgres/bin/initdb" && ! -x "$root/postgres/bin/initdb.exe" ]]; then
+    echo "Missing PostgreSQL runtime binary in packaged layout (initdb)" >&2
+    exit 1
+  fi
+  if [[ ! -x "$root/postgres/bin/pg_ctl" && ! -x "$root/postgres/bin/pg_ctl.exe" ]]; then
+    echo "Missing PostgreSQL runtime binary in packaged layout (pg_ctl)" >&2
     exit 1
   fi
   if [[ "$os" == "Darwin" ]]; then

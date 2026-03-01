@@ -341,6 +341,39 @@ impl SelfHostedLoaderService {
                     .unwrap_or_else(|| "not found".to_string())
             ),
         );
+
+        let mut candidate_dirs = Self::postgres_candidate_bin_dirs();
+        candidate_dirs.truncate(3);
+        for dir in candidate_dirs {
+            let postgres_path = dir.join(if cfg!(windows) {
+                "postgres.exe"
+            } else {
+                "postgres"
+            });
+            let initdb_path = dir.join(if cfg!(windows) {
+                "initdb.exe"
+            } else {
+                "initdb"
+            });
+            let pg_ctl_path = dir.join(if cfg!(windows) {
+                "pg_ctl.exe"
+            } else {
+                "pg_ctl"
+            });
+            self.logs.push(
+                "INFO",
+                &format!(
+                    "postgres debug ({context}): probe dir={} postgres(exists={},file={}) initdb(exists={},file={}) pg_ctl(exists={},file={})",
+                    dir.display(),
+                    postgres_path.exists(),
+                    postgres_path.is_file(),
+                    initdb_path.exists(),
+                    initdb_path.is_file(),
+                    pg_ctl_path.exists(),
+                    pg_ctl_path.is_file(),
+                ),
+            );
+        }
     }
 
     async fn check_tcp(host: &str, port: u16) -> bool {

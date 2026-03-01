@@ -38,6 +38,24 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
 })();
 "#;
 
+#[cfg(not(target_arch = "wasm32"))]
+fn webview_bounds_from_rect(rect: egui::Rect, _pixels_per_point: f32) -> WryRect {
+    #[cfg(target_os = "linux")]
+    let overscan = 2.0 / f64::from(_pixels_per_point.max(1.0));
+    #[cfg(not(target_os = "linux"))]
+    let overscan = 0.0;
+
+    let min_x = (f64::from(rect.min.x) - overscan).floor();
+    let min_y = (f64::from(rect.min.y) - overscan).floor();
+    let max_x = (f64::from(rect.max.x) + overscan).ceil();
+    let max_y = (f64::from(rect.max.y) + overscan).ceil();
+
+    WryRect {
+        position: LogicalPosition::new(min_x, min_y).into(),
+        size: LogicalSize::new((max_x - min_x).max(1.0), (max_y - min_y).max(1.0)).into(),
+    }
+}
+
 pub struct KSocial {
     #[allow(dead_code)]
     runtime: Runtime,
@@ -326,25 +344,7 @@ impl ModuleT for KSocial {
             {
                 let available_rect = ui.available_rect_before_wrap();
                 ui.allocate_rect(available_rect, Sense::hover());
-                #[cfg(target_os = "linux")]
-                let available_rect = {
-                    // Linux WebKit child windows can end up slightly smaller from DPI rounding.
-                    let pad = 1.0 / _ctx.pixels_per_point().max(1.0);
-                    available_rect.expand2(egui::vec2(pad, pad))
-                };
-
-                let bounds = WryRect {
-                    position: LogicalPosition::new(
-                        available_rect.min.x as f64,
-                        available_rect.min.y as f64,
-                    )
-                    .into(),
-                    size: LogicalSize::new(
-                        available_rect.width() as f64,
-                        available_rect.height() as f64,
-                    )
-                    .into(),
-                };
+                let bounds = webview_bounds_from_rect(available_rect, _ctx.pixels_per_point());
                 let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
                 let signature = Some((core.settings.node.network, api_host.clone(), api_port));

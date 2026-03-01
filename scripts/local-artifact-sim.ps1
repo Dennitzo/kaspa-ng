@@ -621,7 +621,13 @@ function Package-AndVerify {
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $rootPath "postgres\bin\postgres.exe"))) {
-        throw "Missing PostgreSQL runtime binary in packaged layout"
+        throw "Missing PostgreSQL runtime binary in packaged layout (postgres.exe)"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $rootPath "postgres\bin\initdb.exe"))) {
+        throw "Missing PostgreSQL runtime binary in packaged layout (initdb.exe)"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $rootPath "postgres\bin\pg_ctl.exe"))) {
+        throw "Missing PostgreSQL runtime binary in packaged layout (pg_ctl.exe)"
     }
 
     Write-Host "LOCAL_ARTIFACT_SIM_OK root=$root"
