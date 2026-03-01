@@ -34,6 +34,20 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Sync Rust workspace repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r dir url; do
+            [ -n "${dir}" ] || continue
+            if [ ! -d "${dir}/.git" ]; then
+              rm -rf "${dir}"
+              git clone --depth 1 "${url}" "${dir}"
+            fi
+          done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
+          EOF
+
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -113,6 +127,20 @@ jobs:
 
       - name: Checkout sources
         uses: actions/checkout@v4
+
+      - name: Sync Rust workspace repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r dir url; do
+            [ -n "${dir}" ] || continue
+            if [ ! -d "${dir}/.git" ]; then
+              rm -rf "${dir}"
+              git clone --depth 1 "${url}" "${dir}"
+            fi
+          done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
+          EOF
 
       - name: Fix CRLF on Windows
         if: runner.os == 'Windows'
@@ -212,6 +240,20 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Sync Rust workspace repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r dir url; do
+            [ -n "${dir}" ] || continue
+            if [ ! -d "${dir}/.git" ]; then
+              rm -rf "${dir}"
+              git clone --depth 1 "${url}" "${dir}"
+            fi
+          done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
+          EOF
+
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -274,6 +316,20 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
+
+      - name: Sync Rust workspace repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r dir url; do
+            [ -n "${dir}" ] || continue
+            if [ ! -d "${dir}/.git" ]; then
+              rm -rf "${dir}"
+              git clone --depth 1 "${url}" "${dir}"
+            fi
+          done <<'EOF'
+          rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
+          EOF
 
       - name: Install llvm
         id: install_llvm

@@ -163,6 +163,19 @@ nuke_dir() {
   return 1
 }
 
+resign_native_nodes() {
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  command -v codesign >/dev/null 2>&1 || return 0
+
+  local search_dir="$1"
+  [[ -d "$search_dir" ]] || return 0
+
+  local node_file
+  while IFS= read -r -d '' node_file; do
+    codesign --force --sign - "$node_file" >/dev/null 2>&1 || true
+  done < <(find "$search_dir" -type f -name '*.node' -print0 2>/dev/null)
+}
+
 ensure_rollup_native() {
   [[ -f node_modules/rollup/dist/native.js ]] || return 0
 
@@ -192,13 +205,149 @@ ensure_rollup_native() {
   node -e "require('rollup/dist/native.js')" >/dev/null
 }
 
-npm_install_with_fallback() {
-  if [[ -f package-lock.json ]]; then
-    npm ci --prefer-offline --no-audit --no-fund || npm install --no-audit --no-fund
-  else
-    npm install --no-audit --no-fund
+ensure_swc_native() {
+  [[ -d node_modules/@swc/core ]] || return 0
+
+  if node -e "require('@swc/core')" >/dev/null 2>&1; then
+    return 0
   fi
+
+  local os arch pkg
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os/$arch" in
+    Darwin/arm64)
+      pkg="@swc/core-darwin-arm64"
+      ;;
+    Darwin/x86_64)
+      pkg="@swc/core-darwin-x64"
+      ;;
+    Linux/x86_64)
+      pkg="@swc/core-linux-x64-gnu"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      pkg="@swc/core-linux-arm64-gnu"
+      ;;
+    *)
+      echo "swc native binding missing; unsupported auto-fix target: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+
+  echo "swc native binding missing; reinstalling @swc/core and ${pkg}"
+  npm install --no-audit --no-fund --no-save @swc/core "$pkg"
+  resign_native_nodes "node_modules/@swc"
+  node -e "require('@swc/core')" >/dev/null
+}
+
+ensure_tailwind_oxide_native() {
+  [[ -d node_modules/@tailwindcss/oxide ]] || return 0
+
+  if node -e "require('@tailwindcss/oxide')" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local os arch pkg
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os/$arch" in
+    Darwin/arm64)
+      pkg="@tailwindcss/oxide-darwin-arm64"
+      ;;
+    Darwin/x86_64)
+      pkg="@tailwindcss/oxide-darwin-x64"
+      ;;
+    Linux/x86_64)
+      pkg="@tailwindcss/oxide-linux-x64-gnu"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      pkg="@tailwindcss/oxide-linux-arm64-gnu"
+      ;;
+    *)
+      echo "tailwindcss oxide native binding missing; unsupported auto-fix target: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+
+  echo "tailwindcss oxide native binding missing; reinstalling @tailwindcss/oxide and ${pkg}"
+  npm install --no-audit --no-fund --no-save @tailwindcss/oxide "$pkg"
+  resign_native_nodes "node_modules/@tailwindcss"
+  node -e "require('@tailwindcss/oxide')" >/dev/null
+}
+
+ensure_js_native_bundle() {
+  local os arch swc_pkg tailwind_pkg
+  local pkgs=()
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "$os/$arch" in
+    Darwin/arm64)
+      swc_pkg="@swc/core-darwin-arm64"
+      tailwind_pkg="@tailwindcss/oxide-darwin-arm64"
+      ;;
+    Darwin/x86_64)
+      swc_pkg="@swc/core-darwin-x64"
+      tailwind_pkg="@tailwindcss/oxide-darwin-x64"
+      ;;
+    Linux/x86_64)
+      swc_pkg="@swc/core-linux-x64-gnu"
+      tailwind_pkg="@tailwindcss/oxide-linux-x64-gnu"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      swc_pkg="@swc/core-linux-arm64-gnu"
+      tailwind_pkg="@tailwindcss/oxide-linux-arm64-gnu"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  if [[ -d node_modules/@swc/core ]]; then
+    pkgs+=("@swc/core" "$swc_pkg")
+  fi
+  if [[ -d node_modules/@tailwindcss/oxide ]]; then
+    pkgs+=("@tailwindcss/oxide" "$tailwind_pkg")
+  fi
+
+  if [[ ${#pkgs[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "ensuring native JS binding bundle: ${pkgs[*]}"
+  npm install --no-audit --no-fund --no-save "${pkgs[@]}"
+  resign_native_nodes "node_modules/@swc"
+  resign_native_nodes "node_modules/@tailwindcss"
+
+  [[ -d node_modules/@swc/core ]] && node -e "require('@swc/core')" >/dev/null
+  [[ -d node_modules/@tailwindcss/oxide ]] && node -e "require('@tailwindcss/oxide')" >/dev/null
+}
+
+npm_install_with_fallback() {
+  local install_ok=0
+
+  if [[ -f package-lock.json ]]; then
+    npm ci --prefer-offline --no-audit --no-fund && install_ok=1 || true
+    if [[ "$install_ok" != "1" ]]; then
+      echo "npm ci failed; resetting node_modules and retrying npm install"
+      nuke_dir node_modules
+      npm install --no-audit --no-fund && install_ok=1
+    fi
+  else
+    npm install --no-audit --no-fund && install_ok=1 || true
+    if [[ "$install_ok" != "1" ]]; then
+      echo "npm install failed; resetting node_modules and retrying once"
+      nuke_dir node_modules
+      npm install --no-audit --no-fund && install_ok=1
+    fi
+  fi
+
   ensure_rollup_native
+  ensure_js_native_bundle
+  ensure_tailwind_oxide_native
+  ensure_swc_native
 }
 
 ensure_wasm_pack() {
