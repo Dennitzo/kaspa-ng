@@ -765,7 +765,8 @@ impl SelfHostedPostgresService {
         );
         let primary_db_port = settings.effective_db_port(node.network);
         let mut db_ports = vec![primary_db_port];
-        for network in [Network::Mainnet] {
+        {
+            let network = Network::Mainnet;
             let port = settings.effective_db_port(network);
             if !db_ports.contains(&port) {
                 db_ports.push(port);
