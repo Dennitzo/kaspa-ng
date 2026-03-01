@@ -84,7 +84,7 @@ impl SelfHostedExplorerService {
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
             node_settings: Mutex::new(settings.node.clone()),
-            is_enabled: AtomicBool::new(settings.self_hosted.enabled),
+            is_enabled: AtomicBool::new(false),
             rest_logs: logs.rest,
             socket_logs: logs.socket,
             rest_child: Mutex::new(None),

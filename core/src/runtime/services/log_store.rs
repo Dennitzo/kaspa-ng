@@ -48,6 +48,7 @@ impl LogStore {
 
 #[derive(Clone)]
 pub struct LogStores {
+    pub loader: Arc<LogStore>,
     pub postgres: Arc<LogStore>,
     pub indexer: Arc<LogStore>,
     pub k_indexer: Arc<LogStore>,

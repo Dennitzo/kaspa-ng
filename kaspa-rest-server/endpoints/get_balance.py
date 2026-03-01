@@ -36,7 +36,7 @@ class BalanceResponse(BaseModel):
 
 @app.get("/addresses/{kaspaAddress}/balance", response_model=BalanceResponse, tags=["Kaspa addresses"])
 async def get_balance_from_kaspa_address(
-    kaspaAddress: str = Path(description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", regex=REGEX_KASPA_ADDRESS),
+    kaspaAddress: str = Path(description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", pattern=REGEX_KASPA_ADDRESS),
 ):
     """
     Get balance for a given kaspa address
@@ -75,7 +75,7 @@ class AddressBalanceHistory(BaseModel):
 @sql_db_only
 async def get_balance_history_for_kaspa_address(
     response: Response,
-    kaspaAddress: str = Path(description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", regex=REGEX_KASPA_ADDRESS),
+    kaspaAddress: str = Path(description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", pattern=REGEX_KASPA_ADDRESS),
     day_or_month: str = Path(pattern=REGEX_DATE_OPTIONAL_DAY),
 ):
     if not ADDRESS_RANKINGS:

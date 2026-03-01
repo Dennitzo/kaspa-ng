@@ -26,6 +26,19 @@ struct LogResponse {
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct LoaderStatus {
+    phase: String,
+    message: String,
+    connected: bool,
+    postgres_ready: bool,
+    indexers_ready: bool,
+    rest_ready: bool,
+    socket_ready: bool,
+    last_ping_at: String,
+}
+
+#[derive(Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DatabaseStatus {
     db_size_bytes: i64,
     connected_clients: i64,
@@ -36,10 +49,14 @@ struct DatabaseStatus {
 #[derive(Default)]
 struct DatabaseState {
     status: Option<DatabaseStatus>,
+    loader_status: Option<LoaderStatus>,
     last_error: Option<String>,
     last_updated: Option<Instant>,
     in_flight: bool,
-    db_restart_last_attempt: Option<Instant>,
+    loader_last_error: Option<String>,
+    loader_last_updated: Option<Instant>,
+    loader_in_flight: bool,
+    logs_loader: Vec<LogLine>,
     logs_postgres: Vec<LogLine>,
     logs_indexer: Vec<LogLine>,
     logs_k_indexer: Vec<LogLine>,
@@ -53,6 +70,7 @@ struct DatabaseState {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LogService {
+    Loader,
     Postgres,
     Indexer,
     KIndexer,
@@ -73,9 +91,6 @@ pub struct Database {
 }
 
 impl Database {
-    const DB_RESTART_COOLDOWN: Duration = Duration::from_secs(8);
-    const DB_RESTART_RETRY_DELAY: Duration = Duration::from_millis(750);
-
     const INDEXER_TABLES: [&'static str; 36] = [
         // simply-kaspa-indexer (Postgres)
         "vars",
@@ -123,7 +138,7 @@ impl Database {
             state: Arc::new(Mutex::new(DatabaseState::default())),
             poll_interval: Duration::from_secs(8),
             log_poll_interval: Duration::from_secs(2),
-            log_service: LogService::Postgres,
+            log_service: LogService::Loader,
             log_autoscroll: true,
             log_limit: 1000,
         }
@@ -147,6 +162,15 @@ impl Database {
         )
     }
 
+    fn loader_url(settings: &SelfHostedSettings, network: Network) -> String {
+        let host = Self::resolve_api_host(&settings.api_bind);
+        format!(
+            "http://{}:{}/api/loader-status",
+            host,
+            settings.effective_api_port(network)
+        )
+    }
+
     fn logs_url(
         settings: &SelfHostedSettings,
         network: Network,
@@ -155,6 +179,7 @@ impl Database {
     ) -> String {
         let host = Self::resolve_api_host(&settings.api_bind);
         let service = match service {
+            LogService::Loader => "loader",
             LogService::Postgres => "postgres",
             LogService::Indexer => "indexer",
             LogService::KIndexer => "k-indexer",
@@ -196,12 +221,9 @@ impl Database {
 
         let url = Self::api_url(settings, network);
         let state = self.state.clone();
-        let runtime_handle = self.runtime.clone();
-        let keep_enabled = settings.enabled;
         spawn(async move {
             let result = http::get_json::<DatabaseStatus>(&url).await;
-            let restart_db_service = {
-                let mut restart = false;
+            {
                 let mut guard = state.lock().unwrap();
                 guard.in_flight = false;
                 guard.last_updated = Some(Instant::now());
@@ -211,27 +233,53 @@ impl Database {
                         guard.last_error = None;
                     }
                     Err(err) => {
-                        let raw = err.to_string();
-                        if Self::is_db_restartable_error(&raw)
-                            && guard
-                                .db_restart_last_attempt
-                                .map(|time| time.elapsed() >= Self::DB_RESTART_COOLDOWN)
-                                .unwrap_or(true)
-                        {
-                            guard.db_restart_last_attempt = Some(Instant::now());
-                            restart = true;
-                        }
-                        guard.last_error = Some(raw);
+                        guard.last_error = Some(err.to_string());
                     }
                 }
-                restart
-            };
-            if restart_db_service {
-                runtime_handle.self_hosted_db_service().enable(false);
-                sleep(Self::DB_RESTART_RETRY_DELAY).await;
-                runtime_handle.self_hosted_db_service().enable(keep_enabled);
-                sleep(Self::DB_RESTART_RETRY_DELAY).await;
-                runtime_handle.self_hosted_db_service().enable(keep_enabled);
+            }
+            runtime().request_repaint();
+            Ok(())
+        });
+    }
+
+    fn schedule_loader_fetch(&self, settings: &SelfHostedSettings, network: Network) {
+        let should_fetch = {
+            let mut state = self.state.lock().unwrap();
+            if state.loader_in_flight {
+                false
+            } else {
+                let elapsed = state
+                    .loader_last_updated
+                    .map(|time| time.elapsed() >= self.log_poll_interval)
+                    .unwrap_or(true);
+                if elapsed {
+                    state.loader_in_flight = true;
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+
+        if !should_fetch {
+            return;
+        }
+
+        let url = Self::loader_url(settings, network);
+        let state = self.state.clone();
+        spawn(async move {
+            let result = http::get_json::<LoaderStatus>(&url).await;
+            let mut guard = state.lock().unwrap();
+            guard.loader_in_flight = false;
+            guard.loader_last_updated = Some(Instant::now());
+            match result {
+                Ok(status) => {
+                    guard.loader_status = Some(status);
+                    guard.loader_last_error = None;
+                }
+                Err(err) => {
+                    guard.loader_last_error = Some(err.to_string());
+                }
             }
             runtime().request_repaint();
             Ok(())
@@ -271,6 +319,7 @@ impl Database {
             match result {
                 Ok(response) => {
                     match service {
+                        LogService::Loader => guard.logs_loader = response.lines,
                         LogService::Postgres => guard.logs_postgres = response.lines,
                         LogService::Indexer => guard.logs_indexer = response.lines,
                         LogService::KIndexer => guard.logs_k_indexer = response.lines,
@@ -304,18 +353,6 @@ impl Database {
         } else {
             value.to_string()
         }
-    }
-
-    fn is_db_restartable_error(error: &str) -> bool {
-        let lower = error.to_ascii_lowercase();
-        (lower.contains("error sending request for url")
-            && lower.contains("/api/status"))
-            || lower.contains("connection refused")
-            || lower.contains("error connecting to server")
-            || lower.contains("service unavailable")
-            || lower.contains("timed out")
-            || lower.contains("unable to collect indexer metrics")
-            || lower.contains("database not ready")
     }
 
     fn render_disabled(&self, _core: &mut Core, ui: &mut Ui) {
@@ -369,11 +406,17 @@ impl ModuleT for Database {
 
         let network = core.settings.node.network;
         self.schedule_fetch(&core.settings.self_hosted, network);
+        self.schedule_loader_fetch(&core.settings.self_hosted, network);
         self.schedule_logs_fetch(&core.settings.self_hosted, network, self.log_service);
 
-        let (status, error) = {
+        let (status, error, loader_status, loader_error) = {
             let state = self.state.lock().unwrap();
-            (state.status.clone(), state.last_error.clone())
+            (
+                state.status.clone(),
+                state.last_error.clone(),
+                state.loader_status.clone(),
+                state.loader_last_error.clone(),
+            )
         };
 
         ScrollArea::vertical()
@@ -383,7 +426,18 @@ impl ModuleT for Database {
                     ui.heading(i18n("Database"));
                     ui.separator();
 
-                    if let Some(error) = &error {
+                    if let Some(loader_error) = &loader_error {
+                        ui.label(
+                            RichText::new(loader_error)
+                                .color(theme_color().warning_color)
+                                .size(12.0),
+                        );
+                    } else if let Some(error) = &error
+                        && loader_status
+                            .as_ref()
+                            .map(|status| status.connected)
+                            .unwrap_or(false)
+                    {
                         ui.label(
                             RichText::new(error)
                                 .color(theme_color().warning_color)
@@ -397,24 +451,56 @@ impl ModuleT for Database {
                         .default_open(true)
                         .show(ui, |ui| {
                             let value_color = theme_color().node_data_color;
-                            let healthy = status.is_some() && error.is_none();
-                            let connection_text = if healthy { "Connected" } else { "Offline" };
-                    let (db_size, tables, clients) = if let Some(status) = &status {
-                        (
-                            Self::format_bytes(status.db_size_bytes),
-                            status.table_count.to_string(),
-                            status.connected_clients.to_string(),
-                        )
-                    } else {
-                        ("--".to_string(), "--".to_string(), "--".to_string())
-                    };
+                            let loader_connected = loader_status
+                                .as_ref()
+                                .map(|value| value.connected)
+                                .unwrap_or(false);
+                            let loader_phase = loader_status
+                                .as_ref()
+                                .map(|value| value.phase.as_str())
+                                .unwrap_or("Initialisation");
+                            let loader_message = loader_status
+                                .as_ref()
+                                .map(|value| value.message.clone())
+                                .unwrap_or_else(|| "Waiting for Loader".to_string());
+                            let (db_size, tables, clients) = if let Some(status) = &status {
+                                (
+                                    Self::format_bytes(status.db_size_bytes),
+                                    status.table_count.to_string(),
+                                    status.connected_clients.to_string(),
+                                )
+                            } else {
+                                ("--".to_string(), "--".to_string(), "--".to_string())
+                            };
 
                             Grid::new("db_overview_grid")
                                 .num_columns(2)
                                 .spacing([16.0, 6.0])
                                 .show(ui, |ui| {
                                     ui.label(i18n("Status"));
-                                    ui.colored_label(value_color, connection_text);
+                                    ui.horizontal(|ui| {
+                                        if loader_connected {
+                                            ui.colored_label(Color32::from_rgb(80, 200, 120), "●");
+                                            ui.colored_label(value_color, i18n("Connected"));
+                                        } else {
+                                            ui.add(egui::Spinner::new().size(14.0));
+                                            let status_label = if loader_phase
+                                                .eq_ignore_ascii_case("Switching network")
+                                            {
+                                                "Switching network".to_string()
+                                            } else {
+                                                i18n("Initialisation").to_string()
+                                            };
+                                            ui.colored_label(value_color, status_label);
+                                        }
+                                    });
+                                    ui.end_row();
+
+                                    ui.label(i18n("Loader"));
+                                    ui.colored_label(
+                                        value_color,
+                                        format!("{loader_phase}: {loader_message}"),
+                                    );
                                     ui.end_row();
 
                                     ui.label(i18n("Database Size"));
@@ -428,6 +514,25 @@ impl ModuleT for Database {
                             ui.label(i18n("Connections"));
                             ui.colored_label(value_color, clients);
                             ui.end_row();
+
+                            if let Some(loader) = &loader_status {
+                                ui.label(i18n("Checks"));
+                                ui.colored_label(
+                                    value_color,
+                                    format!(
+                                        "postgres={} indexers={} rest={} socket={}",
+                                        if loader.postgres_ready { "ok" } else { "waiting" },
+                                        if loader.indexers_ready { "ok" } else { "waiting" },
+                                        if loader.rest_ready { "ok" } else { "waiting" },
+                                        if loader.socket_ready { "ok" } else { "waiting" }
+                                    ),
+                                );
+                                ui.end_row();
+
+                                ui.label(i18n("Last Ping"));
+                                ui.colored_label(value_color, loader.last_ping_at.as_str());
+                                ui.end_row();
+                            }
                         });
                 });
 
@@ -486,6 +591,7 @@ impl ModuleT for Database {
                         ui.label(i18n("Service"));
                         ComboBox::from_id_salt("db_logs_service")
                             .selected_text(match self.log_service {
+                                LogService::Loader => i18n("Loader"),
                                 LogService::Postgres => i18n("Postgres"),
                                 LogService::Indexer => i18n("Indexer"),
                                 LogService::KIndexer => i18n("K-indexer"),
@@ -494,6 +600,11 @@ impl ModuleT for Database {
                                 LogService::Socket => i18n("Socket"),
                             })
                             .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.log_service,
+                                    LogService::Loader,
+                                    i18n("Loader"),
+                                );
                                 ui.selectable_value(
                                     &mut self.log_service,
                                     LogService::Postgres,
@@ -529,6 +640,7 @@ impl ModuleT for Database {
                         if ui.small_button(i18n("Copy Logs")).clicked() {
                             let state = self.state.lock().unwrap();
                             let lines = match self.log_service {
+                                LogService::Loader => &state.logs_loader,
                                 LogService::Postgres => &state.logs_postgres,
                                 LogService::Indexer => &state.logs_indexer,
                                 LogService::KIndexer => &state.logs_k_indexer,
@@ -551,6 +663,7 @@ impl ModuleT for Database {
                     let (lines, log_error) = {
                         let state = self.state.lock().unwrap();
                         let lines = match self.log_service {
+                            LogService::Loader => state.logs_loader.clone(),
                             LogService::Postgres => state.logs_postgres.clone(),
                             LogService::Indexer => state.logs_indexer.clone(),
                             LogService::KIndexer => state.logs_k_indexer.clone(),
@@ -609,22 +722,7 @@ impl ModuleT for Database {
             ui.separator();
             ui.add_space(8.0);
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(i18n("API endpoint:"));
-                        ui.label(
-                            RichText::new(Self::api_url(
-                                &core.settings.self_hosted,
-                                core.settings.node.network,
-                            ))
-                                .monospace()
-                                .color(theme_color().hyperlink_color),
-                        );
-                        if ui.small_button(i18n("Copy")).clicked() {
-                            ui.ctx().copy_text(Self::api_url(
-                                &core.settings.self_hosted,
-                                core.settings.node.network,
-                            ));
-                            runtime().notify_clipboard(i18n("Copied to clipboard"));
-                        }
+                        ui.label(i18n("Loader manages startup order and health checks."));
                     });
                 });
             });

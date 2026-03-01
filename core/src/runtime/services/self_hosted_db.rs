@@ -1,5 +1,5 @@
 use crate::imports::*;
-use crate::runtime::services::LogStores;
+use crate::runtime::services::{LoaderStatusSnapshot, LogStores, SharedLoaderStatus};
 use axum::{
     Json, Router,
     extract::{Path as AxumPath, Query, State},
@@ -53,6 +53,7 @@ impl DbConfig {
 struct AppState {
     db: DbConfig,
     logs: LogStores,
+    loader_status: SharedLoaderStatus,
     kasia_metrics_url: String,
     kasia_partitions_root: PathBuf,
 }
@@ -363,15 +364,32 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     })
 }
 
+fn is_transient_database_not_ready(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("database not ready")
+        || lower.contains("failed to connect to postgres")
+        || lower.contains("error connecting to server")
+}
+
 async fn status_handler(State(state): State<AppState>) -> Response {
     match collect_stats(&state).await {
         Ok(payload) => Json(payload).into_response(),
         Err(err) => {
-            log_warn!("self-hosted-db: status error: {err}");
+            let error_message = err.to_string();
+            let loader_snapshot = state.loader_status.snapshot();
+            let switching_network = loader_snapshot.phase.eq_ignore_ascii_case("Switching network");
+            if switching_network && is_transient_database_not_ready(&error_message) {
+                log_info!(
+                    "self-hosted-db: transient status while switching network: {}",
+                    error_message
+                );
+            } else {
+                log_warn!("self-hosted-db: status error: {}", error_message);
+            }
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(ErrorPayload {
-                    error: err.to_string(),
+                    error: error_message,
                 }),
             )
                 .into_response()
@@ -420,6 +438,11 @@ async fn health_handler() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
 }
 
+async fn loader_status_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let snapshot: LoaderStatusSnapshot = state.loader_status.snapshot();
+    Json(snapshot)
+}
+
 #[derive(Deserialize)]
 struct LogsQuery {
     limit: Option<usize>,
@@ -432,6 +455,7 @@ async fn logs_handler(
 ) -> Response {
     let limit = query.limit.unwrap_or(10).clamp(10, 1000);
     let lines = match service.as_str() {
+        "loader" => state.logs.loader.snapshot(limit),
         "postgres" => state.logs.postgres.snapshot(limit),
         "indexer" => state.logs.indexer.snapshot(limit),
         "k-indexer" => state.logs.k_indexer.snapshot(limit),
@@ -467,6 +491,7 @@ pub struct SelfHostedDbService {
     pub node_settings: Mutex<NodeSettings>,
     pub is_enabled: AtomicBool,
     logs: LogStores,
+    loader_status: SharedLoaderStatus,
     server: Mutex<Option<ServerHandle>>,
 }
 
@@ -484,6 +509,7 @@ impl SelfHostedDbService {
         application_events: ApplicationEventsChannel,
         settings: &Settings,
         logs: LogStores,
+        loader_status: SharedLoaderStatus,
     ) -> Self {
         Self {
             application_events,
@@ -491,8 +517,9 @@ impl SelfHostedDbService {
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
             node_settings: Mutex::new(settings.node.clone()),
-            is_enabled: AtomicBool::new(settings.self_hosted.enabled),
+            is_enabled: AtomicBool::new(false),
             logs,
+            loader_status,
             server: Mutex::new(None),
         }
     }
@@ -558,6 +585,7 @@ impl SelfHostedDbService {
                 dbname: db_name,
             },
             logs: self.logs.clone(),
+            loader_status: self.loader_status.clone(),
             kasia_metrics_url,
             kasia_partitions_root,
         };
@@ -566,6 +594,7 @@ impl SelfHostedDbService {
             .route("/api/status", get(status_handler))
             .route("/api/status/stream", get(status_stream_handler))
             .route("/api/healthz", get(health_handler))
+            .route("/api/loader-status", get(loader_status_handler))
             .route("/api/logs/:service", get(logs_handler))
             .with_state(state);
 

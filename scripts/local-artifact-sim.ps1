@@ -544,7 +544,7 @@ function Package-AndVerify {
         Copy-Item -LiteralPath $explorerLocal -Destination (Join-Path $dst "build") -Recurse -Force
     }
 
-    foreach ($dir in @("kaspa-rest-server", "kaspa-socket-server")) {
+    foreach ($dir in @("kaspa-rest-server", "kaspa-socket-server", "Loader")) {
         $src = Join-Path $RootDir $dir
         if (Test-Path -LiteralPath $src) {
             Copy-Item -LiteralPath $src -Destination (Join-Path $rootPath $dir) -Recurse -Force
@@ -614,7 +614,7 @@ function Package-AndVerify {
         }
     }
 
-    foreach ($dir in @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "K", "Kasia", "KasVault", "postgres")) {
+    foreach ($dir in @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader", "K", "Kasia", "KasVault", "postgres")) {
         if (-not (Test-Path -LiteralPath (Join-Path $rootPath $dir))) {
             throw "Missing packaged directory: $dir"
         }

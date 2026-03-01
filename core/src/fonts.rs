@@ -55,6 +55,13 @@ pub fn init_fonts(cc: &eframe::CreationContext<'_>) {
             "../resources/fonts/UbuntuMono/UbuntuMono-Regular.ttf"
         ))),
     );
+    // Keep a text fallback for phosphor icon rendering so missing icons
+    // produce a visible placeholder instead of an empty glyph warning.
+    fonts
+        .families
+        .entry(egui::FontFamily::Name("phosphor".into()))
+        .or_default()
+        .push("ubuntu_mono".to_owned());
     // ---
 
     fonts.font_data.insert(

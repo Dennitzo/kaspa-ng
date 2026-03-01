@@ -232,14 +232,10 @@ impl Core {
 
         #[cfg(not(target_arch = "wasm32"))]
         if this.startup_network_selection_pending {
-            this.runtime.self_hosted_postgres_service().enable(false);
-            this.runtime.self_hosted_indexer_service().enable(false);
             this.runtime.self_hosted_db_service().enable(false);
-            this.runtime.self_hosted_explorer_service().enable(false);
-            this.runtime.self_hosted_k_indexer_service().enable(false);
-            this.runtime
-                .self_hosted_kasia_indexer_service()
-                .enable(false);
+            this.runtime.self_hosted_loader_service().enable(false);
+        } else {
+            this.apply_self_hosted_enable_state();
         }
 
         this.wallet_update_list();
@@ -420,6 +416,9 @@ impl Core {
     pub fn change_current_network(&mut self, network: Network) {
         if self.settings.node.network != network {
             self.settings.node.network = network;
+            self.settings
+                .self_hosted
+                .enforce_mainnet_only_services(network);
             if crate::settings::should_auto_sync_self_hosted_explorer_profiles(
                 &self.settings.explorer.self_hosted,
             ) {
@@ -459,19 +458,7 @@ impl Core {
                     .self_hosted_db_service()
                     .update_node_settings(self.settings.node.clone());
                 self.runtime
-                    .self_hosted_explorer_service()
-                    .update_node_settings(self.settings.node.clone());
-                self.runtime
-                    .self_hosted_indexer_service()
-                    .update_node_settings(self.settings.node.clone());
-                self.runtime
-                    .self_hosted_postgres_service()
-                    .update_node_settings(self.settings.node.clone());
-                self.runtime
-                    .self_hosted_k_indexer_service()
-                    .update_node_settings(self.settings.node.clone());
-                self.runtime
-                    .self_hosted_kasia_indexer_service()
+                    .self_hosted_loader_service()
                     .update_node_settings(self.settings.node.clone());
             }
             self.store_settings();
@@ -573,33 +560,12 @@ impl Core {
     #[cfg(not(target_arch = "wasm32"))]
     fn apply_self_hosted_enable_state(&self) {
         let self_hosted_enabled = self.settings.self_hosted.enabled;
-        let postgres_enabled = self_hosted_enabled && self.settings.self_hosted.postgres_enabled;
-        let indexer_enabled = self_hosted_enabled && self.settings.self_hosted.indexer_enabled;
-        let k_enabled = self_hosted_enabled
-            && self.settings.self_hosted.k_enabled
-            && matches!(self.settings.node.network, Network::Mainnet);
-        let kasia_enabled = self_hosted_enabled
-            && self.settings.self_hosted.kasia_enabled
-            && matches!(self.settings.node.network, Network::Mainnet);
-
-        self.runtime
-            .self_hosted_postgres_service()
-            .enable(postgres_enabled);
-        self.runtime
-            .self_hosted_indexer_service()
-            .enable(indexer_enabled);
         self.runtime
             .self_hosted_db_service()
             .enable(self_hosted_enabled);
         self.runtime
-            .self_hosted_explorer_service()
+            .self_hosted_loader_service()
             .enable(self_hosted_enabled);
-        self.runtime
-            .self_hosted_k_indexer_service()
-            .enable(k_enabled);
-        self.runtime
-            .self_hosted_kasia_indexer_service()
-            .enable(kasia_enabled);
     }
 
     pub fn complete_startup_network_selection(&mut self) {

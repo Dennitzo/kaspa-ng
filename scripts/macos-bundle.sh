@@ -93,6 +93,9 @@ copy_dir_if_exists \
 copy_dir_if_exists \
   "${ROOT}/kaspa-socket-server" \
   "${MACOS_DIR}/kaspa-socket-server" || true
+copy_dir_if_exists \
+  "${ROOT}/Loader" \
+  "${MACOS_DIR}/Loader" || true
 
 # Bundle K-Social frontend assets if present.
 if [ -d "${ROOT}/K/dist" ]; then

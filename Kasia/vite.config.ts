@@ -15,10 +15,9 @@ function resolveReactPlugin(): PluginOption[] {
     const reactFactory = plugin?.default ?? plugin;
     return typeof reactFactory === "function" ? [reactFactory({})] : [];
   } catch (error) {
-    console.warn(
-      "Failed to load @vitejs/plugin-react-swc, continuing without it:",
-      error,
-    );
+    // Optional dependency on native SWC bindings may fail on some local setups.
+    // Vite can still build with the default transform pipeline.
+    console.info("Skipping @vitejs/plugin-react-swc; using default Vite transform.");
     return [];
   }
 }
@@ -54,6 +53,15 @@ const config = defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      onwarn(warning, warn) {
+        if (warning.code === "MODULE_LEVEL_DIRECTIVE") {
+          return;
+        }
+        warn(warning);
+      },
+    },
   },
   esbuild: {
     keepNames: true,

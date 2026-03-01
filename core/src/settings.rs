@@ -1383,6 +1383,28 @@ impl Default for SelfHostedSettings {
 }
 
 impl SelfHostedSettings {
+    pub fn mainnet_only_services_allowed(network: Network) -> bool {
+        matches!(network, Network::Mainnet)
+    }
+
+    pub fn enforce_mainnet_only_services(&mut self, network: Network) -> bool {
+        if Self::mainnet_only_services_allowed(network) {
+            return false;
+        }
+
+        let mut changed = false;
+        if self.k_enabled {
+            self.k_enabled = false;
+            changed = true;
+        }
+        if self.kasia_enabled {
+            self.kasia_enabled = false;
+            changed = true;
+        }
+
+        changed
+    }
+
     pub fn effective_api_port(&self, network: Network) -> u16 {
         network_ports(network).self_hosted_api_port
     }

@@ -270,6 +270,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server dist/
           fi
+          if [ -d Loader ]; then
+            cp -r Loader dist/
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres dist/postgres
           elif [ -d postgres ]; then
@@ -282,7 +285,7 @@ jobs:
               exit 1
             fi
           done
-          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server)
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader)
           for d in "${required_dirs[@]}"; do
             if [ ! -d "dist/${d}" ]; then
               echo "Missing packaged directory: ${d}"
@@ -393,6 +396,9 @@ jobs:
           if (Test-Path kaspa-socket-server) {
             Copy-Item -Recurse -Force kaspa-socket-server dist\
           }
+          if (Test-Path Loader) {
+            Copy-Item -Recurse -Force Loader dist\
+          }
           if (Test-Path target\release\postgres) {
             Copy-Item -Recurse -Force target\release\postgres dist\postgres
           } elseif (Test-Path postgres) {
@@ -413,7 +419,7 @@ jobs:
               throw "Missing packaged binary: $f"
             }
           }
-          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server")
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader")
           foreach ($d in $requiredDirs) {
             if (-not (Test-Path "dist\\$d")) {
               throw "Missing packaged directory: $d"

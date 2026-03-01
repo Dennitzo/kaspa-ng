@@ -99,6 +99,25 @@ require_cmd npm
 require_cmd python3
 require_cmd curl
 
+nuke_dir() {
+  local dir="$1"
+  local attempt
+  if [[ ! -e "$dir" ]]; then
+    return 0
+  fi
+
+  chmod -R u+w "$dir" 2>/dev/null || true
+  for attempt in 1 2 3 4 5; do
+    rm -rf "$dir" 2>/dev/null || true
+    [[ ! -e "$dir" ]] && return 0
+    find "$dir" -name '.DS_Store' -type f -delete 2>/dev/null || true
+    sleep 0.2
+  done
+
+  echo "Failed to remove directory: $dir" >&2
+  return 1
+}
+
 ensure_rollup_native() {
   [[ -f node_modules/rollup/dist/native.js ]] || return 0
 
@@ -245,9 +264,14 @@ build_kasia() {
   ensure_wasm_pack
   (
     cd Kasia
+    export BROWSERSLIST_IGNORE_OLD_DATA=1
     npm_install_with_fallback
-    npm run wasm:build
-    npm run build:production || npm exec vite build
+    npm run wasm:build \
+      2> >(grep -vF "[WARN  wasm_pack::install] could not download pre-built \`wasm-bindgen\`" >&2 || true)
+    npm run build:production -- --logLevel error \
+      2> >(grep -vF "[baseline-browser-mapping]" >&2 || true) \
+      || npm exec vite build -- --logLevel error \
+        2> >(grep -vF "[baseline-browser-mapping]" >&2 || true)
   )
 }
 
@@ -341,7 +365,7 @@ package_and_verify() {
   root="${ARTIFACT_ROOT:-kaspa-ng-${short_sha}-${platform}-local-sim}"
   os="$(uname -s)"
 
-  rm -rf "$root"
+  nuke_dir "$root"
   mkdir -p "$root"
 
   build_explorer_if_missing
@@ -376,6 +400,7 @@ package_and_verify() {
 
   copy_dir_filtered "kaspa-rest-server" "$root/kaspa-rest-server"
   copy_dir_filtered "kaspa-socket-server" "$root/kaspa-socket-server"
+  copy_dir_filtered "Loader" "$root/Loader"
 
   if [[ -d target/release/postgres ]]; then
     cp -r target/release/postgres "$root/postgres"
@@ -410,7 +435,7 @@ package_and_verify() {
   for bin in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
     [[ -f "$root/$bin" ]] || { echo "Missing packaged binary: $bin" >&2; exit 1; }
   done
-  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server K Kasia KasVault postgres; do
+  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader K Kasia KasVault postgres; do
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
   if [[ ! -x "$root/postgres/bin/postgres" && ! -x "$root/postgres/bin/postgres.exe" ]]; then

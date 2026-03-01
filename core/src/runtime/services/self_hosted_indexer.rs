@@ -147,9 +147,7 @@ impl SelfHostedIndexerService {
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
             node_settings: Mutex::new(settings.node.clone()),
-            is_enabled: AtomicBool::new(
-                settings.self_hosted.enabled && settings.self_hosted.indexer_enabled,
-            ),
+            is_enabled: AtomicBool::new(false),
             logs: logs.indexer,
             child: Mutex::new(None),
         }

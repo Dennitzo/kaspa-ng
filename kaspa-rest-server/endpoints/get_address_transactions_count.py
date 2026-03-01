@@ -33,7 +33,7 @@ class TransactionCount(BaseModel):
 async def get_transaction_count_for_address(
     response: Response,
     kaspa_address: str = Path(
-        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", regex=REGEX_KASPA_ADDRESS
+        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", pattern=REGEX_KASPA_ADDRESS
     ),
 ):
     """

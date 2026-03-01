@@ -693,6 +693,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           fi
+          if [ -d Loader ]; then
+            cp -r Loader kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           elif [ -d postgres ]; then
@@ -722,7 +725,7 @@ jobs:
           for f in kaspa-ng.exe stratum-bridge.exe kaspa-miner.exe rothschild.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
@@ -816,6 +819,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d Loader ]; then
+            cp -r Loader "$ROOT/"
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres "$ROOT/"
           elif [ -d postgres ]; then
@@ -845,7 +851,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
@@ -957,6 +963,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server "$ROOT/"
           fi
+          if [ -d Loader ]; then
+            cp -r Loader "$ROOT/"
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres "$ROOT/"
           elif [ -d postgres ]; then
@@ -986,7 +995,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
@@ -1092,6 +1101,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           fi
+          if [ -d Loader ]; then
+            cp -r Loader kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           elif [ -d postgres ]; then
@@ -1150,6 +1162,9 @@ jobs:
           if [ -d kaspa-socket-server ]; then
             cp -r kaspa-socket-server .debpkg/usr/bin/
           fi
+          if [ -d Loader ]; then
+            cp -r Loader .debpkg/usr/bin/
+          fi
           if [ -d target/release/postgres ]; then
             cp -r target/release/postgres .debpkg/usr/bin/
           elif [ -d postgres ]; then
@@ -1179,7 +1194,7 @@ jobs:
           for f in kaspa-ng stratum-bridge kaspa-miner rothschild simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }

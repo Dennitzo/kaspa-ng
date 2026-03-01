@@ -35,6 +35,9 @@ impl Settings {
 
     pub fn change_current_network(&mut self, network : Network) {
         self.settings.node.network = network;
+        self.settings
+            .self_hosted
+            .enforce_mainnet_only_services(network);
         if crate::settings::should_auto_sync_self_hosted_explorer_profiles(
             &self.settings.explorer.self_hosted,
         ) {
@@ -51,52 +54,6 @@ impl Settings {
             "0.0.0.0" | "::" | "[::]" | "" => "127.0.0.1",
             other => other,
         }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn port_accepts_connections(host: &str, port: u16) -> bool {
-        use std::net::{TcpStream, ToSocketAddrs};
-        use std::time::Duration;
-
-        let Ok(addresses) = (host, port).to_socket_addrs() else {
-            return false;
-        };
-
-        addresses.into_iter().any(|addr| {
-            TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
-        })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn wait_for_self_hosted_ready(settings: &SelfHostedSettings, network: Network) -> bool {
-        use std::thread::sleep;
-        use std::time::{Duration, Instant};
-
-        let host = Self::connect_host_for_bind(&settings.api_bind);
-        let deadline = Instant::now() + Duration::from_secs(15);
-
-        while Instant::now() < deadline {
-            let rest_ready =
-                Self::port_accepts_connections(host, settings.effective_explorer_rest_port(network));
-            let socket_ready = Self::port_accepts_connections(
-                host,
-                settings.effective_explorer_socket_port(network),
-            );
-            let indexer_ready =
-                Self::port_accepts_connections(host, settings.effective_api_port(network));
-            let postgres_ready = Self::port_accepts_connections(
-                &settings.db_host,
-                settings.effective_db_port(network),
-            );
-
-            if rest_ready && socket_ready && indexer_ready && postgres_ready {
-                return true;
-            }
-
-            sleep(Duration::from_millis(350));
-        }
-
-        false
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -265,6 +222,9 @@ impl Settings {
                                 crate::settings::Settings::load_for_network_sync(selected_network)
                         {
                             loaded.node.network = selected_network;
+                            loaded
+                                .self_hosted
+                                .enforce_mainnet_only_services(selected_network);
                             // Keep app initialization state during live network switches.
                             loaded.initialized = self.settings.initialized;
                             self.settings = loaded;
@@ -529,6 +489,9 @@ impl Settings {
                     if let Some(response) = ui.confirm_medium_apply_cancel(Align::Max) {
                         match response {
                             Confirm::Ack => {
+                                self.settings
+                                    .self_hosted
+                                    .enforce_mainnet_only_services(self.settings.node.network);
 
                                 core.settings = self.settings.clone();
                                 core.settings.store_sync().unwrap();
@@ -578,74 +541,20 @@ impl Settings {
                                     .update_settings(core.settings.self_hosted.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
-                                    .self_hosted_postgres_service()
+                                    .self_hosted_loader_service()
                                     .update_node_settings(core.settings.node.clone());
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
-                                    .self_hosted_postgres_service()
+                                    .self_hosted_loader_service()
                                     .update_settings(core.settings.self_hosted.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_indexer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_indexer_service()
-                                    .update_settings(core.settings.self_hosted.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_explorer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_explorer_service()
-                                    .update_settings(core.settings.self_hosted.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_k_indexer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_k_indexer_service()
-                                    .update_settings(core.settings.self_hosted.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_kasia_indexer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime
-                                    .self_hosted_kasia_indexer_service()
-                                    .update_settings(core.settings.self_hosted.clone());
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime.self_hosted_postgres_service().enable(
-                                    core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.postgres_enabled,
-                                );
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime.self_hosted_indexer_service().enable(
-                                    core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.indexer_enabled,
-                                );
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
                                     .self_hosted_db_service()
                                     .enable(core.settings.self_hosted.enabled);
                                 #[cfg(not(target_arch = "wasm32"))]
                                 self.runtime
-                                    .self_hosted_explorer_service()
+                                    .self_hosted_loader_service()
                                     .enable(core.settings.self_hosted.enabled);
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime.self_hosted_k_indexer_service().enable(
-                                    core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.k_enabled
-                                        && matches!(core.settings.node.network, Network::Mainnet),
-                                );
-                                #[cfg(not(target_arch = "wasm32"))]
-                                self.runtime.self_hosted_kasia_indexer_service().enable(
-                                    core.settings.self_hosted.enabled
-                                        && core.settings.self_hosted.kasia_enabled
-                                        && matches!(core.settings.node.network, Network::Mainnet),
-                                );
 
                                 if restart {
                                     self.runtime.kaspa_service().update_services(&self.settings.node, None);
@@ -833,10 +742,11 @@ impl Settings {
                     .show(ui, |ui| {
                         let mut changed = false;
                         let mut settings = self.settings.self_hosted.clone();
-                        let is_mainnet = matches!(core.settings.node.network, Network::Mainnet);
-                        let is_kasia_network =
-                            matches!(core.settings.node.network, Network::Mainnet);
+                        let network = self.settings.node.network;
+                        let is_mainnet = matches!(network, Network::Mainnet);
+                        let is_kasia_network = matches!(network, Network::Mainnet);
                         let self_hosted_enabled = settings.enabled;
+                        changed |= settings.enforce_mainnet_only_services(network);
 
                         if ui
                             .checkbox(
@@ -899,7 +809,7 @@ impl Settings {
                         ui.separator();
                         ui.add_space(6.);
 
-                        let network = core.settings.node.network;
+                        let network = self.settings.node.network;
                         let service_host = Self::connect_host_for_bind(&settings.api_bind);
                         let mut self_hosted_api =
                             format!("http://{service_host}:{}", settings.effective_api_port(network));
@@ -1084,6 +994,7 @@ impl Settings {
                         }
 
                         if changed {
+                            settings.enforce_mainnet_only_services(self.settings.node.network);
                             settings.db_user = "kaspadb".to_string();
                             settings.db_password = "kaspadb".to_string();
                             // These toggles are intentionally hidden in UI and should stay enabled.
@@ -1112,71 +1023,18 @@ impl Settings {
                                 .self_hosted_db_service()
                                 .update_node_settings(core.settings.node.clone());
                             self.runtime
-                                .self_hosted_explorer_service()
+                                .self_hosted_loader_service()
                                 .update_settings(core.settings.self_hosted.clone());
                             self.runtime
-                                .self_hosted_explorer_service()
-                                .update_node_settings(core.settings.node.clone());
-                            self.runtime
-                                .self_hosted_postgres_service()
-                                .update_settings(core.settings.self_hosted.clone());
-                            self.runtime
-                                .self_hosted_postgres_service()
-                                .update_node_settings(core.settings.node.clone());
-                            self.runtime
-                                .self_hosted_indexer_service()
-                                .update_settings(core.settings.self_hosted.clone());
-                            self.runtime
-                                .self_hosted_indexer_service()
-                                .update_node_settings(core.settings.node.clone());
-                            self.runtime
-                                .self_hosted_k_indexer_service()
-                                .update_settings(core.settings.self_hosted.clone());
-                            self.runtime
-                                .self_hosted_k_indexer_service()
-                                .update_node_settings(core.settings.node.clone());
-                            self.runtime
-                                .self_hosted_kasia_indexer_service()
-                                .update_settings(core.settings.self_hosted.clone());
-                            self.runtime
-                                .self_hosted_kasia_indexer_service()
+                                .self_hosted_loader_service()
                                 .update_node_settings(core.settings.node.clone());
 
-                            if previous_enabled != settings.enabled {
-                                self.runtime.self_hosted_postgres_service().enable(
-                                    settings.enabled && core.settings.self_hosted.postgres_enabled,
-                                );
-                                self.runtime.self_hosted_indexer_service().enable(
-                                    settings.enabled && core.settings.self_hosted.indexer_enabled,
-                                );
-                                self.runtime
-                                    .self_hosted_db_service()
-                                    .enable(settings.enabled);
-                                self.runtime
-                                    .self_hosted_explorer_service()
-                                    .enable(settings.enabled);
-                                self.runtime
-                                    .self_hosted_k_indexer_service()
-                                    .enable(settings.enabled && settings.k_enabled && is_mainnet);
-                                self.runtime
-                                    .self_hosted_kasia_indexer_service()
-                                    .enable(
-                                        settings.enabled
-                                            && settings.kasia_enabled
-                                            && is_kasia_network,
-                                    );
-                            } else {
-                                self.runtime
-                                    .self_hosted_k_indexer_service()
-                                    .enable(settings.enabled && settings.k_enabled && is_mainnet);
-                                self.runtime
-                                    .self_hosted_kasia_indexer_service()
-                                    .enable(
-                                        settings.enabled
-                                            && settings.kasia_enabled
-                                            && is_kasia_network,
-                                    );
-                            }
+                            self.runtime
+                                .self_hosted_db_service()
+                                .enable(settings.enabled);
+                            self.runtime
+                                .self_hosted_loader_service()
+                                .enable(settings.enabled);
 
                             #[cfg(not(target_arch = "wasm32"))]
                             {
@@ -1191,15 +1049,9 @@ impl Settings {
                                         core.settings.explorer.source = ExplorerDataSource::SelfHosted;
                                         self.settings.explorer.source = ExplorerDataSource::SelfHosted;
                                     }
-
-                                    if !Self::wait_for_self_hosted_ready(
-                                        &settings,
-                                        core.settings.node.network,
-                                    ) {
-                                        self.runtime.toast(UserNotification::warning(i18n(
-                                            "Self-hosted services are still starting. Explorer already uses Self-hosted and will recover as services become ready.",
-                                        )));
-                                    }
+                                    self.runtime.toast(UserNotification::info(i18n(
+                                        "Self-hosted services are still starting. Explorer already uses Self-hosted and will recover as services become ready.",
+                                    )));
                                 } else if switched_to_disabled
                                     && matches!(
                                         core.settings.explorer.source,

@@ -902,7 +902,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    println!("cargo:warning=Building Kasia (static)...");
+    eprintln!("Building Kasia (static)...");
     let npm = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
     let node_modules = kasia_root.join("node_modules");
     let npm_cmd = |args: &[&str]| {
@@ -1508,7 +1508,7 @@ fn build_kasia_indexer_if_needed() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    println!("cargo:warning=Building kasia-indexer (release)...");
+    eprintln!("Building kasia-indexer (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let status = child_cargo_command(&cargo, &indexer_root)
         .args(["build", "-p", "indexer", "--release"])
@@ -1918,7 +1918,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    println!("cargo:warning=Building K-indexer components (release)...");
+    eprintln!("Building K-indexer components (release)...");
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let status = child_cargo_command(&cargo, &k_indexer_root)
         .args([

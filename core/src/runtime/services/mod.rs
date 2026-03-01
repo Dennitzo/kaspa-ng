@@ -61,6 +61,11 @@ pub mod self_hosted_kasia_indexer;
 pub use self_hosted_kasia_indexer::SelfHostedKasiaIndexerService;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod self_hosted_loader;
+#[cfg(not(target_arch = "wasm32"))]
+pub use self_hosted_loader::{LoaderStatusSnapshot, SelfHostedLoaderService, SharedLoaderStatus};
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod self_hosted_postgres;
 #[cfg(not(target_arch = "wasm32"))]
 pub use self_hosted_postgres::SelfHostedPostgresService;

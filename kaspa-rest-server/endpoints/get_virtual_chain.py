@@ -64,7 +64,7 @@ class VcBlockModel(BaseModel):
 @sql_db_only
 async def get_virtual_chain_transactions(
     response: Response,
-    blue_score_gte: int = Query(..., ge=0, alias="blueScoreGte", description="Divisible by limit", example=106329050),
+    blue_score_gte: int = Query(..., ge=0, alias="blueScoreGte", description="Divisible by limit", examples=[106329050]),
     limit: int = Query(default=10, enum=[10, 100]),
     resolve_inputs: bool = Query(default=False, alias="resolveInputs"),
     include_coinbase: bool = Query(default=True, alias="includeCoinbase"),

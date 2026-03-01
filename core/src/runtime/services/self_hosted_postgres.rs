@@ -24,11 +24,42 @@ pub struct SelfHostedPostgresService {
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
     last_restart_at: Mutex<Option<Instant>>,
+    startup_restart_guard_until: Mutex<Option<Instant>>,
 }
 
 impl SelfHostedPostgresService {
-    fn desired_enabled_from_settings(settings: &SelfHostedSettings) -> bool {
-        settings.enabled && settings.postgres_enabled
+    const STARTUP_RESTART_GUARD: Duration = Duration::from_secs(18);
+
+    fn arm_startup_restart_guard(&self) {
+        *self.startup_restart_guard_until.lock().unwrap() =
+            Some(Instant::now() + Self::STARTUP_RESTART_GUARD);
+    }
+
+    fn clear_startup_restart_guard(&self) {
+        *self.startup_restart_guard_until.lock().unwrap() = None;
+    }
+
+    fn should_skip_restart_due_to_startup_guard(
+        &self,
+        previous_port: u16,
+        next_port: u16,
+        reason: &str,
+    ) -> bool {
+        let mut guard = self.startup_restart_guard_until.lock().unwrap();
+        if let Some(until) = *guard {
+            if Instant::now() < until {
+                self.logs.push(
+                    "INFO",
+                    &format!(
+                        "ignoring early postgres restart ({reason}, port {} -> {}) during startup stabilisation",
+                        previous_port, next_port
+                    ),
+                );
+                return true;
+            }
+            *guard = None;
+        }
+        false
     }
 
     fn should_skip_restart_due_to_cooldown(
@@ -141,12 +172,11 @@ impl SelfHostedPostgresService {
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
             node_settings: Mutex::new(settings.node.clone()),
-            is_enabled: AtomicBool::new(
-                settings.self_hosted.enabled && settings.self_hosted.postgres_enabled,
-            ),
+            is_enabled: AtomicBool::new(false),
             logs: logs.postgres,
             child: Mutex::new(None),
             last_restart_at: Mutex::new(None),
+            startup_restart_guard_until: Mutex::new(None),
         }
     }
 
@@ -1270,22 +1300,40 @@ impl SelfHostedPostgresService {
             .await
             .is_ok()
         {
-            let can_auth =
+            let mut can_auth =
                 Self::can_connect_with_configured_credentials(&settings, &node_settings).await;
             if !can_auth {
                 self.logs.push(
-                    "ERROR",
-                    "password authentication mismatch detected for local postgres; attempting one-time cluster recovery",
+                    "WARN",
+                    "configured postgres credentials not ready after startup; attempting role/password alignment",
                 );
-                let _ = self.stop_postgres().await;
-                if self.recover_from_auth_mismatch(&settings, &data_dir)? {
+                Self::ensure_role_and_database(&settings, &node_settings, &self.logs).await;
+                for _ in 0..4 {
+                    if Self::can_connect_with_configured_credentials(&settings, &node_settings).await {
+                        can_auth = true;
+                        break;
+                    }
+                    task::sleep(Duration::from_secs(1)).await;
+                }
+
+                if !can_auth {
                     self.logs.push(
-                        "INFO",
-                        "postgres auth recovery finished; service will restart postgres on next tick",
+                        "ERROR",
+                        "password authentication mismatch detected for local postgres; attempting one-time cluster recovery",
                     );
+                    log_warn!(
+                        "self-hosted-postgres: triggering local postgres stop for auth mismatch recovery"
+                    );
+                    let _ = self.stop_postgres().await;
+                    if self.recover_from_auth_mismatch(&settings, &data_dir)? {
+                        self.logs.push(
+                            "INFO",
+                            "postgres auth recovery finished; service will restart postgres on next tick",
+                        );
+                        return Ok(());
+                    }
                     return Ok(());
                 }
-                return Ok(());
             }
 
             let recovery_lock = Self::auth_recovery_lock_path(&data_dir);
@@ -1375,36 +1423,16 @@ impl Service for SelfHostedPostgresService {
                     msg = this.service_events.receiver.recv().fuse() => {
                         match msg {
                             Ok(SelfHostedPostgresEvents::Enable) => {
-                                let desired = {
-                                    let settings = this.settings.lock().unwrap();
-                                    Self::desired_enabled_from_settings(&settings)
-                                };
-                                if !desired {
-                                    this.logs.push(
-                                        "INFO",
-                                        "ignoring stale postgres enable request (settings currently disabled)",
-                                    );
-                                    continue;
-                                }
                                 let was_enabled = this.is_enabled.swap(true, Ordering::SeqCst);
                                 if !was_enabled {
+                                    this.arm_startup_restart_guard();
                                     let _ = this.start_postgres().await;
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::Disable) => {
-                                let desired = {
-                                    let settings = this.settings.lock().unwrap();
-                                    Self::desired_enabled_from_settings(&settings)
-                                };
-                                if desired {
-                                    this.logs.push(
-                                        "INFO",
-                                        "ignoring stale postgres disable request (settings currently enabled; no action needed)",
-                                    );
-                                    continue;
-                                }
                                 let was_enabled = this.is_enabled.swap(false, Ordering::SeqCst);
                                 if was_enabled {
+                                    this.clear_startup_restart_guard();
                                     let _ = this.stop_postgres().await;
                                 }
                             }
@@ -1421,6 +1449,13 @@ impl Service for SelfHostedPostgresService {
                                         let previous_port =
                                             previous_settings.effective_db_port(node_settings.network);
                                         let next_port = settings.effective_db_port(node_settings.network);
+                                        if this.should_skip_restart_due_to_startup_guard(
+                                            previous_port,
+                                            next_port,
+                                            "settings change",
+                                        ) {
+                                            continue;
+                                        }
                                         if this.should_skip_restart_due_to_cooldown(
                                             previous_port,
                                             next_port,
@@ -1456,52 +1491,10 @@ impl Service for SelfHostedPostgresService {
                                 }
                             }
                             Ok(SelfHostedPostgresEvents::UpdateNodeSettings(settings)) => {
-                                let service_settings = this.settings.lock().unwrap().clone();
-                                let previous_node_settings = this.node_settings.lock().unwrap().clone();
                                 *this.node_settings.lock().unwrap() = settings;
-                                if this.is_enabled.load(Ordering::SeqCst) {
-                                    let node_settings = this.node_settings.lock().unwrap().clone();
-                                    let previous_port =
-                                        service_settings.effective_db_port(previous_node_settings.network);
-                                    let next_port =
-                                        service_settings.effective_db_port(node_settings.network);
-
-                                    // Postgres listens on a per-network effective port, so we must
-                                    // restart when network switch changes the effective port.
-                                    if previous_port != next_port {
-                                        if this.should_skip_restart_due_to_cooldown(
-                                            previous_port,
-                                            next_port,
-                                            "network switch",
-                                        ) {
-                                            continue;
-                                        };
-                                        this.logs.push(
-                                            "INFO",
-                                            &format!(
-                                                "network switch requires postgres restart (port {} -> {})",
-                                                previous_port, next_port
-                                            ),
-                                        );
-                                        let _ = this.stop_postgres().await;
-                                        let _ = this.start_postgres().await;
-                                    } else if Self::wait_for_ready(&service_settings, &node_settings, 20)
-                                        .await
-                                        .is_ok()
-                                    {
-                                        Self::ensure_role_and_database(
-                                            &service_settings,
-                                            &node_settings,
-                                            &this.logs,
-                                        )
-                                        .await;
-                                    } else {
-                                        this.logs.push(
-                                            "INFO",
-                                            "postgres is restarting; role/database check deferred",
-                                        );
-                                    }
-                                }
+                                // Keep node context updated, but do not block this event loop here.
+                                // Loader orchestrates restart order on network switches; doing
+                                // wait_for_ready() here can stall Disable/Enable events by ~40s.
                             }
                             Ok(SelfHostedPostgresEvents::ResetDatabases) => {
                                 let settings = this.settings.lock().unwrap().clone();

@@ -286,11 +286,7 @@ impl SelfHostedKasiaIndexerService {
             task_ctl: Channel::oneshot(),
             settings: Mutex::new(settings.self_hosted.clone()),
             node_settings: Mutex::new(settings.node.clone()),
-            is_enabled: AtomicBool::new(
-                settings.self_hosted.enabled
-                    && settings.self_hosted.kasia_enabled
-                    && matches!(settings.node.network, Network::Mainnet),
-            ),
+            is_enabled: AtomicBool::new(false),
             logs: logs.kasia_indexer,
             child: Mutex::new(None),
             last_blocked_reason: Mutex::new(None),
@@ -502,13 +498,15 @@ impl Service for SelfHostedKasiaIndexerService {
                                 let node = this.node_settings.lock().unwrap().clone();
                                 let settings = this.settings.lock().unwrap().clone();
                                 let should_run = Self::should_run(&settings, &node);
-                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                let was_enabled = this.is_enabled.load(Ordering::SeqCst);
+                                if !was_enabled {
+                                    continue;
+                                }
                                 if should_run {
-                                    if was_enabled {
-                                        let _ = this.stop_indexer().await;
-                                    }
+                                    let _ = this.stop_indexer().await;
                                     let _ = this.start_indexer().await;
-                                } else if was_enabled {
+                                } else {
+                                    this.is_enabled.store(false, Ordering::SeqCst);
                                     let _ = this.stop_indexer().await;
                                 }
                             }
@@ -517,13 +515,15 @@ impl Service for SelfHostedKasiaIndexerService {
                                 let node = this.node_settings.lock().unwrap().clone();
                                 let settings = this.settings.lock().unwrap().clone();
                                 let should_run = Self::should_run(&settings, &node);
-                                let was_enabled = this.is_enabled.swap(should_run, Ordering::SeqCst);
+                                let was_enabled = this.is_enabled.load(Ordering::SeqCst);
+                                if !was_enabled {
+                                    continue;
+                                }
                                 if should_run {
-                                    if was_enabled {
-                                        let _ = this.stop_indexer().await;
-                                    }
+                                    let _ = this.stop_indexer().await;
                                     let _ = this.start_indexer().await;
-                                } else if was_enabled {
+                                } else {
+                                    this.is_enabled.store(false, Ordering::SeqCst);
                                     let _ = this.stop_indexer().await;
                                 }
                             }

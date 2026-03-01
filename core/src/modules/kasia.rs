@@ -136,8 +136,6 @@ pub struct Kasia {
     last_probe_ok: Option<bool>,
     #[cfg(not(target_arch = "wasm32"))]
     last_probe_status: Option<String>,
-    #[cfg(not(target_arch = "wasm32"))]
-    last_indexer_restart_attempt: Option<std::time::Instant>,
 }
 
 impl Kasia {
@@ -162,8 +160,6 @@ impl Kasia {
             last_probe_ok: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_probe_status: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            last_indexer_restart_attempt: None,
         }
     }
 
@@ -300,7 +296,6 @@ impl ModuleT for Kasia {
                 self.last_probe_ok = None;
                 self.last_probe_status = None;
                 self.last_probe_at = None;
-                self.last_indexer_restart_attempt = None;
                 ui.label(i18n("Kasia is available only on Mainnet."));
                 return;
             }
@@ -335,7 +330,6 @@ impl ModuleT for Kasia {
                 self.last_probe_ok = None;
                 self.last_probe_status = None;
                 self.last_probe_at = None;
-                self.last_indexer_restart_attempt = None;
             }
 
             let kasia_ui_port = core
@@ -357,14 +351,6 @@ impl ModuleT for Kasia {
                 ui.colored_label(theme_color().warning_color, status);
             }
             if use_self_hosted && !matches!(self.last_probe_ok, Some(true)) {
-                let should_restart_kasia_indexer = self
-                    .last_indexer_restart_attempt
-                    .map(|last| last.elapsed() >= Duration::from_secs(6))
-                    .unwrap_or(true);
-                if should_restart_kasia_indexer {
-                    self.runtime.self_hosted_kasia_indexer_service().enable(true);
-                    self.last_indexer_restart_attempt = Some(std::time::Instant::now());
-                }
 
                 let status = self
                     .last_probe_status

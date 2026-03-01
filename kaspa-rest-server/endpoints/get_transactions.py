@@ -42,7 +42,7 @@ class TxOutput(BaseModel):
     accepting_block_hash: str | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TxInput(BaseModel):
@@ -57,7 +57,7 @@ class TxInput(BaseModel):
     sig_op_count: str | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TxModel(BaseModel):
@@ -76,7 +76,7 @@ class TxModel(BaseModel):
     outputs: List[TxOutput] | None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TxSearchAcceptingBlueScores(BaseModel):
@@ -91,7 +91,7 @@ class TxSearch(BaseModel):
 
 class TxAcceptanceRequest(BaseModel):
     transactionIds: list[str] = Field(
-        example=[
+        examples=[
             "b9382bdee4aa364acf73eda93914eaae61d0e78334d1b8a637ab89ef5e224e41",
             "1e098b3830c994beb28768f7924a38286cec16e85e9757e0dc3574b85f624c34",
             "000ad5138a603aadc25cfcca6b6605d5ff47d8c7be594c9cdd199afa6dc76ac6",
@@ -127,7 +127,7 @@ class AcceptanceMode(str, Enum):
 @sql_db_only
 async def get_transaction(
     response: Response,
-    transactionId: str = Path(regex="[a-f0-9]{64}"),
+    transactionId: str = Path(pattern="[a-f0-9]{64}"),
     blockHash: str = Query(None, description="Specify a containing block (if known) for faster lookup"),
     inputs: bool = True,
     outputs: bool = True,

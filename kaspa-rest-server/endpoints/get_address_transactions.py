@@ -53,7 +53,7 @@ class TransactionForAddressResponse(BaseModel):
 async def get_full_transactions_for_address(
     response: Response,
     kaspa_address: str = Path(
-        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", regex=REGEX_KASPA_ADDRESS
+        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", pattern=REGEX_KASPA_ADDRESS
     ),
     limit: int = Query(description="The number of records to get", ge=1, le=500, default=50),
     offset: int = Query(description="The offset from which to get records", ge=0, default=0),
@@ -122,7 +122,7 @@ async def get_full_transactions_for_address(
 async def get_full_transactions_for_address_page(
     response: Response,
     kaspa_address: str = Path(
-        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", regex=REGEX_KASPA_ADDRESS
+        alias="kaspaAddress", description=f"Kaspa address as string e.g. {ADDRESS_EXAMPLE}", pattern=REGEX_KASPA_ADDRESS
     ),
     limit: int = Query(
         description="The max number of records to get. "

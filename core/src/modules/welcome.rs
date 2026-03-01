@@ -224,19 +224,7 @@ impl Welcome {
                                     .self_hosted_db_service()
                                     .update_node_settings(core.settings.node.clone());
                                 self.runtime
-                                    .self_hosted_explorer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                self.runtime
-                                    .self_hosted_indexer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                self.runtime
-                                    .self_hosted_postgres_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                self.runtime
-                                    .self_hosted_k_indexer_service()
-                                    .update_node_settings(core.settings.node.clone());
-                                self.runtime
-                                    .self_hosted_kasia_indexer_service()
+                                    .self_hosted_loader_service()
                                     .update_node_settings(core.settings.node.clone());
                             }
                             core.complete_startup_network_selection();
@@ -345,19 +333,7 @@ impl Welcome {
                     .self_hosted_db_service()
                     .update_node_settings(core.settings.node.clone());
                 self.runtime
-                    .self_hosted_explorer_service()
-                    .update_node_settings(core.settings.node.clone());
-                self.runtime
-                    .self_hosted_indexer_service()
-                    .update_node_settings(core.settings.node.clone());
-                self.runtime
-                    .self_hosted_postgres_service()
-                    .update_node_settings(core.settings.node.clone());
-                self.runtime
-                    .self_hosted_k_indexer_service()
-                    .update_node_settings(core.settings.node.clone());
-                self.runtime
-                    .self_hosted_kasia_indexer_service()
+                    .self_hosted_loader_service()
                     .update_node_settings(core.settings.node.clone());
             }
             self.runtime.kaspa_service().update_services(&settings.node, None);

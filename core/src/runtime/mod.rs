@@ -44,6 +44,8 @@ pub struct Inner {
     #[cfg(not(target_arch = "wasm32"))]
     self_hosted_db_service: Arc<SelfHostedDbService>,
     #[cfg(not(target_arch = "wasm32"))]
+    self_hosted_loader_service: Arc<SelfHostedLoaderService>,
+    #[cfg(not(target_arch = "wasm32"))]
     self_hosted_indexer_service: Arc<SelfHostedIndexerService>,
     #[cfg(not(target_arch = "wasm32"))]
     self_hosted_postgres_service: Arc<SelfHostedPostgresService>,
@@ -109,6 +111,7 @@ impl Runtime {
             Arc::new(RothschildService::new(application_events.clone(), settings));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_logs = LogStores {
+            loader: Arc::new(LogStore::new(1000)),
             postgres: Arc::new(LogStore::new(1000)),
             indexer: Arc::new(LogStore::new(1000)),
             k_indexer: Arc::new(LogStore::new(1000)),
@@ -117,10 +120,13 @@ impl Runtime {
             socket: Arc::new(LogStore::new(1000)),
         };
         #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_loader_status = SharedLoaderStatus::default();
+        #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_db_service = Arc::new(SelfHostedDbService::new(
             application_events.clone(),
             settings,
             self_hosted_logs.clone(),
+            self_hosted_loader_status.clone(),
         ));
         #[cfg(not(target_arch = "wasm32"))]
         let self_hosted_indexer_service = Arc::new(SelfHostedIndexerService::new(
@@ -151,6 +157,18 @@ impl Runtime {
             application_events.clone(),
             settings,
             self_hosted_logs.clone(),
+        ));
+        #[cfg(not(target_arch = "wasm32"))]
+        let self_hosted_loader_service = Arc::new(SelfHostedLoaderService::new(
+            application_events.clone(),
+            settings,
+            self_hosted_logs.clone(),
+            self_hosted_loader_status.clone(),
+            self_hosted_postgres_service.clone(),
+            self_hosted_indexer_service.clone(),
+            self_hosted_k_indexer_service.clone(),
+            self_hosted_kasia_indexer_service.clone(),
+            self_hosted_explorer_service.clone(),
         ));
 
         let update_monitor_service = Arc::new(UpdateMonitorService::new(
@@ -185,6 +203,8 @@ impl Runtime {
             #[cfg(not(target_arch = "wasm32"))]
             self_hosted_db_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
+            self_hosted_loader_service.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
             self_hosted_indexer_service.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             self_hosted_postgres_service.clone(),
@@ -215,6 +235,8 @@ impl Runtime {
                 rothschild_service,
                 #[cfg(not(target_arch = "wasm32"))]
                 self_hosted_db_service,
+                #[cfg(not(target_arch = "wasm32"))]
+                self_hosted_loader_service,
                 #[cfg(not(target_arch = "wasm32"))]
                 self_hosted_indexer_service,
                 #[cfg(not(target_arch = "wasm32"))]
@@ -280,10 +302,20 @@ impl Runtime {
         let services = self.services();
 
         // Shutdown order matters for self-hosted stack:
-        // stop dependents first, postgres last.
+        // stop loader first (it orchestrates dependents), postgres last.
         services
             .iter()
-            .filter(|service| service.name() != "self-hosted-postgres")
+            .filter(|service| service.name() == "self-hosted-loader")
+            .for_each(|service| service.clone().terminate());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        services
+            .iter()
+            .filter(|service| {
+                service.name() != "self-hosted-postgres" && service.name() != "self-hosted-loader"
+            })
             .for_each(|service| service.clone().terminate());
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -385,6 +417,11 @@ impl Runtime {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn self_hosted_db_service(&self) -> &Arc<SelfHostedDbService> {
         &self.inner.self_hosted_db_service
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn self_hosted_loader_service(&self) -> &Arc<SelfHostedLoaderService> {
+        &self.inner.self_hosted_loader_service
     }
 
     #[cfg(not(target_arch = "wasm32"))]
