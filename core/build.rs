@@ -1087,9 +1087,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         .unwrap_or(false);
 
     if !ok {
-        println!(
-            "cargo:warning=Kasia npm install failed; retrying with --include=optional"
-        );
+        println!("cargo:warning=Kasia npm install failed; retrying with --include=optional");
         ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
             .status()
             .map(|s| s.success())
@@ -1395,7 +1393,8 @@ fn detect_kasia_npm_ci_mismatch(
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let lock_mismatch = stderr.contains("can only install packages when your package.json and package-lock.json")
+    let lock_mismatch = stderr
+        .contains("can only install packages when your package.json and package-lock.json")
         || stderr.contains("are in sync")
         || stderr.contains("Missing:");
     if !lock_mismatch {
@@ -1406,11 +1405,7 @@ fn detect_kasia_npm_ci_mismatch(
     for line in stderr.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("npm error Missing:") {
-            missing_examples.push(
-                trimmed
-                    .trim_start_matches("npm error ")
-                    .to_string(),
-            );
+            missing_examples.push(trimmed.trim_start_matches("npm error ").to_string());
             if missing_examples.len() >= 3 {
                 break;
             }
@@ -1418,12 +1413,12 @@ fn detect_kasia_npm_ci_mismatch(
     }
 
     if missing_examples.is_empty() {
-        Some("package-lock.json is not fully in sync with package.json/optional platform packages".to_string())
+        Some(
+            "package-lock.json is not fully in sync with package.json/optional platform packages"
+                .to_string(),
+        )
     } else {
-        Some(format!(
-            "examples: {}",
-            missing_examples.join(" | ")
-        ))
+        Some(format!("examples: {}", missing_examples.join(" | ")))
     }
 }
 
@@ -1930,15 +1925,14 @@ fn cipher_wasm_package_is_usable(cipher_wasm_dir: &Path, cipher_wasm_package: &P
     let pkg_content = std::fs::read_to_string(cipher_wasm_package).ok();
     let has_cipher_name = pkg_content
         .as_deref()
-        .map(|content| {
-            content.contains("\"name\"") && content.contains("\"cipher\"")
-        })
+        .map(|content| content.contains("\"name\"") && content.contains("\"cipher\""))
         .unwrap_or(false);
     if !has_cipher_name {
         return false;
     }
 
-    let js_exists = cipher_wasm_dir.join("cipher.js").exists() || cipher_wasm_dir.join("index.js").exists();
+    let js_exists =
+        cipher_wasm_dir.join("cipher.js").exists() || cipher_wasm_dir.join("index.js").exists();
     let dts_exists =
         cipher_wasm_dir.join("cipher.d.ts").exists() || cipher_wasm_dir.join("index.d.ts").exists();
 
