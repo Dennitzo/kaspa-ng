@@ -1,6 +1,7 @@
 use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -25,7 +26,7 @@ pub struct SelfHostedKIndexerService {
     logs: Arc<LogStore>,
     processor_child: Mutex<Option<Child>>,
     webserver_child: Mutex<Option<Child>>,
-    last_blocked_reason: Mutex<Option<String>>,
+    blocked_reasons: Mutex<std::collections::HashSet<String>>,
 }
 
 impl SelfHostedKIndexerService {
@@ -115,7 +116,7 @@ impl SelfHostedKIndexerService {
             logs: logs.k_indexer,
             processor_child: Mutex::new(None),
             webserver_child: Mutex::new(None),
-            last_blocked_reason: Mutex::new(None),
+            blocked_reasons: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -182,17 +183,31 @@ impl SelfHostedKIndexerService {
 
     fn log_blocked_once(&self, message: impl Into<String>) {
         let message = message.into();
-        let mut last = self.last_blocked_reason.lock().unwrap();
-        if last.as_ref() == Some(&message) {
+        let mut blocked = self.blocked_reasons.lock().unwrap();
+        if !blocked.insert(message.clone()) {
             return;
         }
-        *last = Some(message.clone());
         self.logs.push("WARN", &message);
         log_warn!("self-hosted-k-indexer: {message}");
     }
 
     fn clear_blocked_reason(&self) {
-        self.last_blocked_reason.lock().unwrap().take();
+        self.blocked_reasons.lock().unwrap().clear();
+    }
+
+    #[cfg(unix)]
+    fn is_executable(path: &PathBuf) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file() && (meta.permissions().mode() & 0o111 != 0))
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(unix))]
+    fn is_executable(path: &PathBuf) -> bool {
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file())
+            .unwrap_or(false)
     }
 
     fn find_binary(bin_name: &str) -> Option<PathBuf> {
@@ -214,53 +229,62 @@ impl SelfHostedKIndexerService {
                 false
             }
         };
-        let rel_candidates = [
-            format!("K-indexer/target/release/{bin}"),
-            format!("target/release/{bin}"),
-        ];
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        let mut seen = std::collections::HashSet::<PathBuf>::new();
+        let mut push_candidate = |path: PathBuf| {
+            if seen.insert(path.clone()) {
+                candidates.push(path);
+            }
+        };
 
         if !is_macos_bundle {
-            for candidate in rel_candidates {
-                let path = PathBuf::from(&candidate);
-                if path.exists() {
-                    return Some(path);
-                }
+            push_candidate(PathBuf::from(format!("K-indexer/target/release/{bin}")));
+            push_candidate(PathBuf::from(format!("target/release/{bin}")));
+            push_candidate(PathBuf::from(&bin));
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            for ancestor in cwd.ancestors().take(8) {
+                push_candidate(ancestor.join(&bin));
+                push_candidate(ancestor.join("target").join("release").join(&bin));
+                push_candidate(
+                    ancestor
+                        .join("K-indexer")
+                        .join("target")
+                        .join("release")
+                        .join(&bin),
+                );
             }
         }
 
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent()
         {
-            let path = dir.join(&bin);
-            if path.exists() {
-                return Some(path);
-            }
-            let path = dir
-                .join("K-indexer")
-                .join("target")
-                .join("release")
-                .join(&bin);
-            if path.exists() {
-                return Some(path);
+            for ancestor in dir.ancestors().take(8) {
+                push_candidate(ancestor.join(&bin));
+                push_candidate(ancestor.join("target").join("release").join(&bin));
+                push_candidate(
+                    ancestor
+                        .join("K-indexer")
+                        .join("target")
+                        .join("release")
+                        .join(&bin),
+                );
             }
             if is_macos_bundle && let Some(contents) = dir.parent() {
                 let resources = contents.join("Resources");
-                let path = resources.join("K-indexer").join(&bin);
-                if path.exists() {
-                    return Some(path);
-                }
-                let path = resources
-                    .join("K-indexer")
-                    .join("target")
-                    .join("release")
-                    .join(&bin);
-                if path.exists() {
-                    return Some(path);
-                }
+                push_candidate(resources.join("K-indexer").join(&bin));
+                push_candidate(
+                    resources
+                        .join("K-indexer")
+                        .join("target")
+                        .join("release")
+                        .join(&bin),
+                );
             }
         }
 
-        None
+        candidates.into_iter().find(Self::is_executable)
     }
 
     async fn start_processor(self: &Arc<Self>) -> Result<()> {
