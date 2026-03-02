@@ -857,7 +857,6 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Building Kasia (static)...");
     let npm = std::env::var("NPM").unwrap_or_else(|_| "npm".to_string());
-    let node_modules = kasia_root.join("node_modules");
     let npm_cmd = |args: &[&str]| {
         let mut cmd = Command::new(&npm);
         cmd.current_dir(&kasia_root)
@@ -869,40 +868,45 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         cmd
     };
 
-    if !node_modules.exists() {
-        let mut ok = if lockfile.exists() {
-            npm_cmd(&["ci", "--no-audit", "--no-fund"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        } else {
-            npm_cmd(&["install", "--no-audit", "--no-fund"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        };
+    let mut ok = if lockfile.exists() {
+        npm_cmd(&["ci", "--no-audit", "--no-fund"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        npm_cmd(&["install", "--no-audit", "--no-fund"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
 
-        if !ok && lockfile.exists() {
-            println!(
-                "cargo:warning=Kasia npm ci failed; retrying with npm install (lockfile fallback)"
-            );
-            ok = npm_cmd(&["install", "--no-audit", "--no-fund"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-        }
+    if !ok {
+        println!("cargo:warning=Kasia npm ci/install failed; retrying with npm install fallback");
+        ok = npm_cmd(&["install", "--no-audit", "--no-fund"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
 
-        if !ok {
-            return Err("Kasia npm install failed".into());
-        }
+    if !ok {
+        println!(
+            "cargo:warning=Kasia npm install fallback failed; retrying with --include=optional"
+        );
+        ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+
+    if !ok {
+        return Err("Kasia npm install failed".into());
     }
 
     if !biometry_vendor_package.exists() {
-        return Err(format!(
-            "Kasia dependency missing: {}. Build does not patch external repos automatically.",
+        println!(
+            "cargo:warning=Kasia optional dependency missing: {} (continuing without hard failure)",
             biometry_vendor_package.display()
-        )
-        .into());
+        );
     }
 
     if !wasm_package_json.exists() {

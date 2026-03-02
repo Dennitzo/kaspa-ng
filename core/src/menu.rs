@@ -502,6 +502,21 @@ impl<'core> Menu<'core> {
                 }
             }
 
+            if matches!(self.core.settings.node.network, Network::Mainnet) {
+                ui.separator();
+                if self
+                    .menu_tab_button(
+                        ui,
+                        i18n("K-Social"),
+                        active == TypeId::of::<modules::KSocial>(),
+                    )
+                    .clicked()
+                {
+                    self.select::<modules::KSocial>();
+                    ui.close_menu();
+                }
+            }
+
             if matches!(self.core.settings.node.network, Network::Mainnet)
                 && self.core.settings.kasvault.enabled
             {
@@ -515,21 +530,6 @@ impl<'core> Menu<'core> {
                     .clicked()
                 {
                     self.select::<modules::Kasvault>();
-                    ui.close_menu();
-                }
-            }
-
-            if matches!(self.core.settings.node.network, Network::Mainnet) {
-                ui.separator();
-                if self
-                    .menu_tab_button(
-                        ui,
-                        i18n("K-Social"),
-                        active == TypeId::of::<modules::KSocial>(),
-                    )
-                    .clicked()
-                {
-                    self.select::<modules::KSocial>();
                     ui.close_menu();
                 }
             }
