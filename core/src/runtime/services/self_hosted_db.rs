@@ -269,17 +269,19 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
                 // instead of failing the whole status endpoint.
                 return Ok(empty_status_payload());
             }
-            return Err(if lower.contains("error connecting to server")
-                || lower.contains("connection refused")
-                || lower.contains("timed out")
-            {
-                Error::Custom(format!(
-                    "database not ready: failed to connect to postgres at {}:{} ({raw})",
-                    db.host, db.port
-                ))
-            } else {
-                Error::Custom(raw)
-            });
+            return Err(
+                if lower.contains("error connecting to server")
+                    || lower.contains("connection refused")
+                    || lower.contains("timed out")
+                {
+                    Error::Custom(format!(
+                        "database not ready: failed to connect to postgres at {}:{} ({raw})",
+                        db.host, db.port
+                    ))
+                } else {
+                    Error::Custom(raw)
+                },
+            );
         }
     };
     spawn(async move {

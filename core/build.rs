@@ -70,7 +70,9 @@ fn ensure_node_and_npm_ready() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "not found".to_string());
     let npm_info = npm_cmd
         .as_deref()
-        .and_then(|cmd| command_output_line(cmd, &["--version"]).map(|version| format!("{cmd}={version}")))
+        .and_then(|cmd| {
+            command_output_line(cmd, &["--version"]).map(|version| format!("{cmd}={version}"))
+        })
         .unwrap_or_else(|| "not found (tried NPM env, PATH and node-adjacent npm)".to_string());
 
     Err(format!(
@@ -211,7 +213,9 @@ fn is_truthy_env(var: &str) -> bool {
 
 fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
     if is_truthy_env("KASPA_NG_SKIP_POSTGRES_RUNTIME_SETUP") {
-        println!("cargo:warning=Skipping postgres runtime staging (KASPA_NG_SKIP_POSTGRES_RUNTIME_SETUP=1)");
+        println!(
+            "cargo:warning=Skipping postgres runtime staging (KASPA_NG_SKIP_POSTGRES_RUNTIME_SETUP=1)"
+        );
         return Ok(());
     }
 
@@ -240,7 +244,10 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
     {
         let script = repo_root.join("scripts").join("stage-postgres-runtime.ps1");
         println!("cargo:rerun-if-changed={}", script.display());
-        println!("cargo:warning=Staging PostgreSQL runtime to {}", out_dir.display());
+        println!(
+            "cargo:warning=Staging PostgreSQL runtime to {}",
+            out_dir.display()
+        );
 
         let out_dir_arg = out_dir.to_string_lossy().to_string();
         let repo_root_arg = repo_root.to_string_lossy().to_string();
@@ -280,7 +287,10 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
     {
         let script = repo_root.join("scripts").join("stage-postgres-runtime.sh");
         println!("cargo:rerun-if-changed={}", script.display());
-        println!("cargo:warning=Staging PostgreSQL runtime to {}", out_dir.display());
+        println!(
+            "cargo:warning=Staging PostgreSQL runtime to {}",
+            out_dir.display()
+        );
 
         let status = Command::new("bash")
             .arg(script)
@@ -2328,9 +2338,7 @@ fn build_k_indexer_if_needed() -> Result<(), Box<dyn Error>> {
     if k_indexer_lock.exists() {
         build_cmd.arg("--locked");
     } else {
-        println!(
-            "cargo:warning=K-indexer Cargo.lock missing; building without --locked"
-        );
+        println!("cargo:warning=K-indexer Cargo.lock missing; building without --locked");
     }
     let status = build_cmd.arg("--release").status()?;
 
