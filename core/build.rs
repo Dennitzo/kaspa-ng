@@ -1070,29 +1070,25 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
         cmd
     };
 
-    let mut ok = if lockfile.exists() {
-        npm_cmd(&["ci", "--no-audit", "--no-fund"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    } else {
-        npm_cmd(&["install", "--no-audit", "--no-fund"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    };
-
-    if !ok {
-        println!("cargo:warning=Kasia npm ci/install failed; retrying with npm install fallback");
-        ok = npm_cmd(&["install", "--no-audit", "--no-fund"])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+    if lockfile.exists()
+        && let Some(details) = detect_kasia_npm_ci_mismatch(&npm_cmd)
+    {
+        println!(
+            "cargo:warning=Kasia npm ci lockfile mismatch detected; proceeding with npm install fallback. {details}"
+        );
     }
+
+    // `npm ci` is strict and fails when lockfiles miss optional platform-specific packages.
+    // On CI (especially macOS arm64), this can break otherwise valid Kasia builds.
+    // Use `npm install` with optional deps for a resilient cross-platform install.
+    let mut ok = npm_cmd(&["install", "--no-audit", "--no-fund"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
 
     if !ok {
         println!(
-            "cargo:warning=Kasia npm install fallback failed; retrying with --include=optional"
+            "cargo:warning=Kasia npm install failed; retrying with --include=optional"
         );
         ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
             .status()
@@ -1388,6 +1384,49 @@ fn ensure_kasia_native_optional_deps(npm_cmd: &dyn Fn(&[&str]) -> std::process::
         .unwrap_or(false)
 }
 
+fn detect_kasia_npm_ci_mismatch(
+    npm_cmd: &dyn Fn(&[&str]) -> std::process::Command,
+) -> Option<String> {
+    let output = npm_cmd(&["ci", "--dry-run", "--no-audit", "--no-fund"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        return None;
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lock_mismatch = stderr.contains("can only install packages when your package.json and package-lock.json")
+        || stderr.contains("are in sync")
+        || stderr.contains("Missing:");
+    if !lock_mismatch {
+        return None;
+    }
+
+    let mut missing_examples = Vec::new();
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("npm error Missing:") {
+            missing_examples.push(
+                trimmed
+                    .trim_start_matches("npm error ")
+                    .to_string(),
+            );
+            if missing_examples.len() >= 3 {
+                break;
+            }
+        }
+    }
+
+    if missing_examples.is_empty() {
+        Some("package-lock.json is not fully in sync with package.json/optional platform packages".to_string())
+    } else {
+        Some(format!(
+            "examples: {}",
+            missing_examples.join(" | ")
+        ))
+    }
+}
+
 fn reset_kasia_native_bindings(
     kasia_root: &Path,
     npm_cmd: &dyn Fn(&[&str]) -> std::process::Command,
@@ -1408,18 +1447,10 @@ fn reset_kasia_native_bindings(
         }
     }
 
-    let lockfile = kasia_root.join("package-lock.json");
-    let reinstall_ok = if lockfile.exists() {
-        npm_cmd(&["ci", "--no-audit", "--no-fund", "--include=optional"])
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    } else {
-        npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false)
-    };
+    let reinstall_ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
 
     reinstall_ok && ensure_kasia_native_optional_deps(npm_cmd)
 }
@@ -1742,7 +1773,7 @@ fn ensure_kasia_fallback_packages(
     biometry_vendor_dir: &Path,
     biometry_vendor_package: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    if !cipher_wasm_package.exists() {
+    if !cipher_wasm_package_is_usable(cipher_wasm_dir, cipher_wasm_package) {
         std::fs::create_dir_all(cipher_wasm_dir)?;
         std::fs::write(
             cipher_wasm_package,
@@ -1889,6 +1920,29 @@ export function checkStatus(): Promise<{ isAvailable: boolean }>;
     }
 
     Ok(())
+}
+
+fn cipher_wasm_package_is_usable(cipher_wasm_dir: &Path, cipher_wasm_package: &Path) -> bool {
+    if !cipher_wasm_package.exists() {
+        return false;
+    }
+
+    let pkg_content = std::fs::read_to_string(cipher_wasm_package).ok();
+    let has_cipher_name = pkg_content
+        .as_deref()
+        .map(|content| {
+            content.contains("\"name\"") && content.contains("\"cipher\"")
+        })
+        .unwrap_or(false);
+    if !has_cipher_name {
+        return false;
+    }
+
+    let js_exists = cipher_wasm_dir.join("cipher.js").exists() || cipher_wasm_dir.join("index.js").exists();
+    let dts_exists =
+        cipher_wasm_dir.join("cipher.d.ts").exists() || cipher_wasm_dir.join("index.d.ts").exists();
+
+    js_exists && dts_exists
 }
 
 fn find_kasia_wasm_source_dir(root: &Path) -> Option<PathBuf> {
