@@ -1122,9 +1122,18 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     let _ = ensure_kasia_native_optional_deps(&npm_cmd);
     let _ = prune_kasia_nested_swc_native_binding(&kasia_root);
 
-    let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
-    if wasm_status.map(|s| !s.success()).unwrap_or(true) {
-        println!("cargo:warning=Kasia wasm:build failed; continuing with production build");
+    let wasm_built = build_kasia_cipher_wasm_no_opt(&kasia_root);
+    if !wasm_built {
+        let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
+        if wasm_status.map(|s| !s.success()).unwrap_or(true) {
+            println!("cargo:warning=Kasia wasm:build failed; restoring fallback cipher package and continuing with production build");
+            ensure_kasia_fallback_packages(
+                &cipher_wasm_dir,
+                &cipher_wasm_package,
+                &biometry_vendor_dir,
+                &biometry_vendor_package,
+            )?;
+        }
     }
 
     let mut status_ok = npm_cmd(&["run", "build:production"])
@@ -1191,6 +1200,34 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
 
     sync_kasia_build(&kasia_root, &repo_root)?;
     Ok(())
+}
+
+fn build_kasia_cipher_wasm_no_opt(kasia_root: &Path) -> bool {
+    let cipher_dir = kasia_root.join("cipher");
+    if !cipher_dir.exists() {
+        return false;
+    }
+
+    let status = Command::new("wasm-pack")
+        .current_dir(&cipher_dir)
+        .args(["build", "--target", "web", "--release", "--no-opt", "-d", "../cipher-wasm"])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => true,
+        Ok(_) => {
+            println!(
+                "cargo:warning=Kasia wasm-pack --no-opt build failed; falling back to npm wasm:build"
+            );
+            false
+        }
+        Err(_) => {
+            println!(
+                "cargo:warning=wasm-pack not found for Kasia wasm build; falling back to npm wasm:build"
+            );
+            false
+        }
+    }
 }
 
 fn kasia_native_optional_packages() -> Vec<&'static str> {

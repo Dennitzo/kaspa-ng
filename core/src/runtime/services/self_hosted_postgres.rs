@@ -133,6 +133,110 @@ impl SelfHostedPostgresService {
             .unwrap_or(false)
     }
 
+    fn data_dir_major_version(data_dir: &Path) -> Option<u32> {
+        let version_file = data_dir.join("PG_VERSION");
+        let raw = std::fs::read_to_string(version_file).ok()?;
+        let value = raw.trim();
+        if value.is_empty() {
+            return None;
+        }
+        value
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
+    }
+
+    fn postgres_binary_major_version() -> Option<u32> {
+        let postgres_bin = Self::postgres_bin_path("postgres").ok()?;
+        let output = std::process::Command::new(postgres_bin)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8(output.stdout).ok()?;
+        let token = text
+            .split_whitespace()
+            .find(|part| part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))?;
+        token
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
+    }
+
+    fn backup_incompatible_data_dir(data_dir: &Path, from_major: u32, to_major: u32) -> Result<()> {
+        let parent = data_dir
+            .parent()
+            .ok_or_else(|| Error::Custom("invalid postgres data dir".to_string()))?;
+        let leaf = data_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("cluster");
+        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        let backup_dir =
+            parent.join(format!("{leaf}.pg{from_major}-to-pg{to_major}.bak-{stamp}"));
+
+        std::fs::rename(data_dir, &backup_dir).map_err(|err| {
+            Error::Custom(format!(
+                "failed to backup incompatible postgres data dir '{}' to '{}': {}",
+                data_dir.display(),
+                backup_dir.display(),
+                err
+            ))
+        })?;
+
+        std::fs::create_dir_all(data_dir).map_err(|err| {
+            Error::Custom(format!(
+                "failed to recreate postgres data dir '{}' after backup: {}",
+                data_dir.display(),
+                err
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    fn reconcile_data_dir_version_if_needed(&self, data_dir: &Path) -> Result<()> {
+        if !data_dir.exists() {
+            return Ok(());
+        }
+
+        let Some(data_major) = Self::data_dir_major_version(data_dir) else {
+            return Ok(());
+        };
+        let Some(bin_major) = Self::postgres_binary_major_version() else {
+            return Ok(());
+        };
+
+        if data_major == bin_major {
+            return Ok(());
+        }
+
+        let msg = format!(
+            "postgres data dir version mismatch detected: data dir={} (PG {}) runtime={} (PG {}); backing up and reinitializing cluster",
+            data_dir.display(),
+            data_major,
+            Self::postgres_bin_path("postgres")
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            bin_major
+        );
+        log_warn!("self-hosted-postgres: {msg}");
+        self.logs.push("WARN", &msg);
+        Self::backup_incompatible_data_dir(data_dir, data_major, bin_major)?;
+        self.logs.push(
+            "WARN",
+            &format!(
+                "incompatible postgres cluster was moved aside; new cluster will be created in '{}'",
+                data_dir.display()
+            ),
+        );
+        Ok(())
+    }
+
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
         // During crash recovery Postgres emits transient connection errors while still booting.
@@ -1214,6 +1318,7 @@ impl SelfHostedPostgresService {
         }
 
         let data_dir = Self::resolve_data_dir(&settings, node_settings.network)?;
+        self.reconcile_data_dir_version_if_needed(&data_dir)?;
         let password_marker = Self::password_marker_path(&data_dir);
         let _ = self
             .align_password_with_running_cluster(&mut settings, &node_settings, &data_dir)
