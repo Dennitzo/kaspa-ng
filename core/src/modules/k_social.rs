@@ -17,7 +17,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 #[cfg(not(target_arch = "wasm32"))]
-use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebViewBuilder};
+use wry::{
+    dpi::LogicalPosition, dpi::LogicalSize, NewWindowResponse, Rect as WryRect, WebView,
+    WebViewBuilder,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 const K_HOST: &str = "127.0.0.1";
@@ -40,6 +43,293 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
       if (key === "x") document.execCommand("cut");
       if (key === "v") document.execCommand("paste");
     } catch (_) {}
+  }, true);
+})();
+"#;
+#[cfg(not(target_arch = "wasm32"))]
+const WEBVIEW_IMAGE_OVERLAY_JS: &str = r#"
+(() => {
+  if (window.__kaspaNgImageOverlay) return;
+  window.__kaspaNgImageOverlay = true;
+
+  const OVERLAY_ID = "__kaspa_ng_k_img_overlay";
+  const IMG_ID = "__kaspa_ng_k_img_overlay_img";
+  const CLOSE_ID = "__kaspa_ng_k_img_overlay_close";
+  const ERROR_ID = "__kaspa_ng_k_img_overlay_error";
+  const LOADER_ID = "__kaspa_ng_k_img_overlay_loader";
+  const ZOOM_ID = "__kaspa_ng_k_img_overlay_zoom";
+  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"];
+
+  const isAllowedProtocol = (value) =>
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:image/") ||
+    value.startsWith("blob:");
+
+  const looksLikeImageHref = (href) => {
+    const lower = href.toLowerCase();
+    if (IMAGE_EXTENSIONS.some((ext) => lower.includes(ext))) return true;
+    return (
+      lower.includes("format=jpg") ||
+      lower.includes("format=jpeg") ||
+      lower.includes("format=png") ||
+      lower.includes("format=webp") ||
+      lower.includes("format=gif") ||
+      lower.includes("image/")
+    );
+  };
+  const looksLikeGif = (href) => {
+    const lower = href.toLowerCase();
+    return lower.includes(".gif") || lower.includes("format=gif") || lower.includes("image/gif");
+  };
+
+  const normalize = (value) => {
+    try {
+      return new URL(value, window.location.href).toString();
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const ensureOverlay = () => {
+    let overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) return overlay;
+
+    const style = document.createElement("style");
+    style.id = "__kaspa_ng_k_img_overlay_style";
+    style.textContent = `
+      #${OVERLAY_ID} {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.88);
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      #${OVERLAY_ID}[data-open="1"] { display: flex; }
+      #${IMG_ID} {
+        max-width: min(96vw, 1800px);
+        max-height: 92vh;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+        background: rgba(10, 10, 10, 0.9);
+        transform-origin: center center;
+        will-change: transform;
+        cursor: zoom-in;
+      }
+      #${CLOSE_ID} {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        border: 0;
+        border-radius: 6px;
+        color: #f5f5f5;
+        background: rgba(20, 20, 20, 0.72);
+        padding: 8px 10px;
+        line-height: 1;
+        font-size: 26px;
+        cursor: pointer;
+      }
+      #${ERROR_ID}, #${LOADER_ID} {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #efefef;
+        background: rgba(20, 20, 20, 0.78);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-family: sans-serif;
+      }
+      #${ERROR_ID} { display: none; color: #ffc9c9; }
+      #${LOADER_ID} { display: none; }
+      #${ZOOM_ID} {
+        position: absolute;
+        top: 14px;
+        left: 16px;
+        color: #f5f5f5;
+        background: rgba(20, 20, 20, 0.72);
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        font-family: sans-serif;
+      }
+      @media (max-width: 640px) {
+        #${OVERLAY_ID} { padding: 10px; }
+      }
+    `;
+    if (document.head) document.head.appendChild(style);
+
+    overlay = document.createElement("div");
+    overlay.id = OVERLAY_ID;
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Image preview");
+
+    const close = document.createElement("button");
+    close.id = CLOSE_ID;
+    close.type = "button";
+    close.setAttribute("aria-label", "Close image preview");
+    close.textContent = "x";
+
+    const img = document.createElement("img");
+    img.id = IMG_ID;
+    img.alt = "Preview";
+
+    const loader = document.createElement("div");
+    loader.id = LOADER_ID;
+    loader.textContent = "Loading image...";
+
+    const zoom = document.createElement("div");
+    zoom.id = ZOOM_ID;
+    zoom.textContent = "100%";
+
+    const error = document.createElement("div");
+    error.id = ERROR_ID;
+    error.textContent = "Image failed to load";
+
+    overlay.appendChild(close);
+    overlay.appendChild(zoom);
+    overlay.appendChild(img);
+    overlay.appendChild(loader);
+    overlay.appendChild(error);
+    (document.body || document.documentElement).appendChild(overlay);
+
+    let minZoomScale = 1;
+    let zoomScale = 1;
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const applyZoom = () => {
+      img.style.transform = `scale(${zoomScale})`;
+      img.style.cursor = zoomScale > 1 ? "zoom-out" : "zoom-in";
+      zoom.textContent = `${Math.round(zoomScale * 100)}%`;
+    };
+    const setZoom = (value) => {
+      zoomScale = clamp(value, minZoomScale, 6);
+      applyZoom();
+    };
+    const resetZoom = () => {
+      zoomScale = minZoomScale;
+      applyZoom();
+    };
+
+    const closeOverlay = () => {
+      overlay.setAttribute("data-open", "0");
+      img.removeAttribute("src");
+      error.style.display = "none";
+      loader.style.display = "none";
+      resetZoom();
+      if (document.body) document.body.style.overflow = "";
+    };
+
+    close.addEventListener("click", closeOverlay);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) closeOverlay();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (overlay.getAttribute("data-open") !== "1") return;
+      const key = (event.key || "").toLowerCase();
+      if (key === "escape") {
+        closeOverlay();
+        return;
+      }
+      if (key === "+" || key === "=") {
+        event.preventDefault();
+        setZoom(zoomScale + 0.2);
+        return;
+      }
+      if (key === "-") {
+        event.preventDefault();
+        setZoom(zoomScale - 0.2);
+        return;
+      }
+      if (key === "0") {
+        event.preventDefault();
+        resetZoom();
+      }
+    });
+
+    img.addEventListener("load", () => {
+      loader.style.display = "none";
+      error.style.display = "none";
+      resetZoom();
+    });
+    img.addEventListener("error", () => {
+      loader.style.display = "none";
+      error.style.display = "block";
+    });
+    img.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      setZoom(zoomScale > 1 ? 1 : 2);
+    });
+    overlay.addEventListener("wheel", (event) => {
+      if (overlay.getAttribute("data-open") !== "1") return;
+      event.preventDefault();
+      const delta = event.deltaY < 0 ? 0.2 : -0.2;
+      setZoom(zoomScale + delta);
+    }, { passive: false });
+
+    overlay.__kaspaNgOpen = (src) => {
+      const normalized = normalize(src);
+      if (!normalized || !isAllowedProtocol(normalized)) return;
+      minZoomScale = looksLikeGif(normalized) ? 1.2 : 1.0;
+      loader.style.display = "block";
+      error.style.display = "none";
+      resetZoom();
+      overlay.setAttribute("data-open", "1");
+      if (document.body) document.body.style.overflow = "hidden";
+      img.src = normalized;
+    };
+
+    return overlay;
+  };
+
+  const openOverlay = (src) => {
+    if (!src) return false;
+    const normalized = normalize(src);
+    if (!normalized || !isAllowedProtocol(normalized)) return false;
+    const looksLikeImage = looksLikeImageHref(normalized);
+    if (!looksLikeImage && !normalized.startsWith("data:image/")) return false;
+    const overlay = ensureOverlay();
+    if (!overlay || !overlay.__kaspaNgOpen) return false;
+    overlay.__kaspaNgOpen(normalized);
+    return true;
+  };
+
+  // K uses window.open(src, "_blank") for image click -> intercept and open in overlay
+  const originalWindowOpen = window.open ? window.open.bind(window) : null;
+  window.open = function(url, target, features) {
+    const value = typeof url === "string" ? url : (url ? String(url) : "");
+    if (openOverlay(value)) return null;
+    if (originalWindowOpen) return originalWindowOpen(url, target, features);
+    return null;
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    const image = target.closest("img");
+    if (image && image.src && openOverlay(image.src)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    const anchor = target.closest("a");
+    if (!anchor) return;
+    const href = (anchor.getAttribute("href") || "").trim();
+    if (!href || href.startsWith("javascript:")) return;
+    if (openOverlay(href)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }, true);
 })();
 "#;
@@ -520,7 +810,12 @@ impl ModuleT for KSocial {
                         .with_clipboard(true)
                         .with_accept_first_mouse(true)
                         .with_focused(true)
+                        .with_new_window_req_handler(|url, _features| {
+                            let _ = open::that(url);
+                            NewWindowResponse::Deny
+                        })
                         .with_initialization_script(WEBVIEW_SHORTCUTS_JS)
+                        .with_initialization_script(WEBVIEW_IMAGE_OVERLAY_JS)
                         .with_initialization_script(config_script.as_str())
                         .build_as_child(frame)
                     {

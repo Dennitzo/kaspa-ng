@@ -134,6 +134,211 @@ const WEBVIEW_SHORTCUTS_JS: &str = r#"
   }, true);
 })();
 "#;
+#[cfg(not(target_arch = "wasm32"))]
+const WEBVIEW_IMAGE_OVERLAY_JS: &str = r#"
+(() => {
+  if (window.__kaspaNgImageOverlay) return;
+  window.__kaspaNgImageOverlay = true;
+
+  const OVERLAY_ID = "__kaspa_ng_img_overlay";
+  const IMG_ID = "__kaspa_ng_img_overlay_img";
+  const CLOSE_ID = "__kaspa_ng_img_overlay_close";
+  const ERROR_ID = "__kaspa_ng_img_overlay_error";
+  const LOADER_ID = "__kaspa_ng_img_overlay_loader";
+
+  const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"];
+
+  const isAllowedProtocol = (value) => (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:image/") ||
+    value.startsWith("blob:")
+  );
+
+  const looksLikeImageHref = (href) => {
+    const lower = href.toLowerCase();
+    if (IMAGE_EXTENSIONS.some((ext) => lower.includes(ext))) return true;
+    return (
+      lower.includes("format=jpg") ||
+      lower.includes("format=jpeg") ||
+      lower.includes("format=png") ||
+      lower.includes("format=webp") ||
+      lower.includes("format=gif") ||
+      lower.includes("image/")
+    );
+  };
+
+  const ensureOverlay = () => {
+    let overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) return overlay;
+
+    const style = document.createElement("style");
+    style.id = "__kaspa_ng_img_overlay_style";
+    style.textContent = `
+      #${OVERLAY_ID} {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.88);
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      #${OVERLAY_ID}[data-open="1"] {
+        display: flex;
+      }
+      #${IMG_ID} {
+        max-width: min(96vw, 1800px);
+        max-height: 92vh;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+        background: rgba(10, 10, 10, 0.9);
+      }
+      #${CLOSE_ID} {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        border: 0;
+        border-radius: 6px;
+        color: #f5f5f5;
+        background: rgba(20, 20, 20, 0.72);
+        padding: 8px 10px;
+        line-height: 1;
+        font-size: 26px;
+        cursor: pointer;
+      }
+      #${ERROR_ID}, #${LOADER_ID} {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #efefef;
+        background: rgba(20, 20, 20, 0.78);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-family: sans-serif;
+      }
+      #${ERROR_ID} { display: none; color: #ffc9c9; }
+      #${LOADER_ID} { display: none; }
+      @media (max-width: 640px) {
+        #${OVERLAY_ID} { padding: 10px; }
+      }
+    `;
+    document.head.appendChild(style);
+
+    overlay = document.createElement("div");
+    overlay.id = OVERLAY_ID;
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Image preview");
+
+    const close = document.createElement("button");
+    close.id = CLOSE_ID;
+    close.type = "button";
+    close.setAttribute("aria-label", "Close image preview");
+    close.textContent = "x";
+
+    const img = document.createElement("img");
+    img.id = IMG_ID;
+    img.alt = "Preview";
+
+    const loader = document.createElement("div");
+    loader.id = LOADER_ID;
+    loader.textContent = "Loading image...";
+
+    const error = document.createElement("div");
+    error.id = ERROR_ID;
+    error.textContent = "Image failed to load";
+
+    overlay.appendChild(close);
+    overlay.appendChild(img);
+    overlay.appendChild(loader);
+    overlay.appendChild(error);
+    document.body.appendChild(overlay);
+
+    const closeOverlay = () => {
+      overlay.setAttribute("data-open", "0");
+      img.removeAttribute("src");
+      error.style.display = "none";
+      loader.style.display = "none";
+      document.body.style.overflow = "";
+    };
+
+    close.addEventListener("click", closeOverlay);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) closeOverlay();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && overlay.getAttribute("data-open") === "1") {
+        closeOverlay();
+      }
+    });
+
+    img.addEventListener("load", () => {
+      loader.style.display = "none";
+      error.style.display = "none";
+    });
+    img.addEventListener("error", () => {
+      loader.style.display = "none";
+      error.style.display = "block";
+    });
+
+    overlay.__kaspaNgOpen = (src) => {
+      loader.style.display = "block";
+      error.style.display = "none";
+      overlay.setAttribute("data-open", "1");
+      document.body.style.overflow = "hidden";
+      img.src = src;
+    };
+
+    return overlay;
+  };
+
+  const normalize = (value) => {
+    try {
+      return new URL(value, window.location.href).toString();
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const findImageSource = (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return "";
+
+    const image = target.closest("img");
+    if (image && image.src) {
+      const src = normalize(image.src);
+      if (src && isAllowedProtocol(src)) return src;
+    }
+
+    const anchor = target.closest("a");
+    if (!anchor) return "";
+    const href = (anchor.getAttribute("href") || "").trim();
+    if (!href || href.startsWith("javascript:")) return "";
+    const url = normalize(href);
+    if (!url || !isAllowedProtocol(url)) return "";
+    if (anchor.querySelector("img")) return url;
+    if (looksLikeImageHref(url)) return url;
+    return "";
+  };
+
+  document.addEventListener("click", (event) => {
+    const source = findImageSource(event);
+    if (!source) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const overlay = ensureOverlay();
+    if (overlay && overlay.__kaspaNgOpen) overlay.__kaspaNgOpen(source);
+  }, true);
+})();
+"#;
 
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
@@ -455,6 +660,7 @@ impl ModuleT for Explorer {
                         .with_accept_first_mouse(true)
                         .with_focused(true)
                         .with_initialization_script(WEBVIEW_SHORTCUTS_JS)
+                        .with_initialization_script(WEBVIEW_IMAGE_OVERLAY_JS)
                         .with_initialization_script(config_script.as_str())
                         .build_as_child(frame)
                     {
