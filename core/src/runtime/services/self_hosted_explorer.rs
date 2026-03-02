@@ -369,35 +369,29 @@ impl SelfHostedExplorerService {
                 let base = PathBuf::from(local_app_data)
                     .join("Programs")
                     .join("Python");
-                candidates.extend(
-                    [
-                        base.join("Python312").join("python.exe"),
-                        base.join("Python311").join("python.exe"),
-                        base.join("Python310").join("python.exe"),
-                    ],
-                );
+                candidates.extend([
+                    base.join("Python312").join("python.exe"),
+                    base.join("Python311").join("python.exe"),
+                    base.join("Python310").join("python.exe"),
+                ]);
             }
 
             if let Some(program_files) = std::env::var_os("ProgramFiles") {
                 let base = PathBuf::from(program_files).join("Python");
-                candidates.extend(
-                    [
-                        base.join("Python312").join("python.exe"),
-                        base.join("Python311").join("python.exe"),
-                        base.join("Python310").join("python.exe"),
-                    ],
-                );
+                candidates.extend([
+                    base.join("Python312").join("python.exe"),
+                    base.join("Python311").join("python.exe"),
+                    base.join("Python310").join("python.exe"),
+                ]);
             }
 
             if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
                 let base = PathBuf::from(program_files_x86).join("Python");
-                candidates.extend(
-                    [
-                        base.join("Python312").join("python.exe"),
-                        base.join("Python311").join("python.exe"),
-                        base.join("Python310").join("python.exe"),
-                    ],
-                );
+                candidates.extend([
+                    base.join("Python312").join("python.exe"),
+                    base.join("Python311").join("python.exe"),
+                    base.join("Python310").join("python.exe"),
+                ]);
             }
 
             candidates.extend(
