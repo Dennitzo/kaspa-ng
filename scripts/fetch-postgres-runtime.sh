@@ -49,6 +49,47 @@ run_with_sudo() {
   return 1
 }
 
+linux_codename() {
+  local codename=""
+  if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+  fi
+  if [ -z "$codename" ] && command -v lsb_release >/dev/null 2>&1; then
+    codename="$(lsb_release -cs 2>/dev/null || true)"
+  fi
+  printf '%s' "$codename"
+}
+
+install_linux_postgres_packages() {
+  run_with_sudo apt-get install -y "postgresql-${EXPECTED_MAJOR}" "postgresql-client-${EXPECTED_MAJOR}"
+}
+
+setup_pgdg_repo() {
+  local codename key_url key_tmp keyring_tmp
+  codename="$(linux_codename)"
+  if [ -z "$codename" ]; then
+    echo "Unable to determine Linux codename for PostgreSQL apt repository setup." >&2
+    return 1
+  fi
+
+  key_url="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+  key_tmp="$(mktemp)"
+  keyring_tmp="${key_tmp}.gpg"
+
+  run_with_sudo apt-get install -y ca-certificates curl gnupg lsb-release
+  curl -fsSL "$key_url" -o "$key_tmp"
+  gpg --dearmor --yes --output "$keyring_tmp" "$key_tmp"
+
+  run_with_sudo install -d -m 0755 /etc/apt/keyrings
+  run_with_sudo install -m 0644 "$keyring_tmp" /etc/apt/keyrings/postgresql.gpg
+  printf 'deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$codename" \
+    | run_with_sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+
+  rm -f "$key_tmp" "$keyring_tmp"
+}
+
 prepare_from_linux() {
   local lib_root="${KASPA_NG_POSTGRES_LINUX_LIB_ROOT:-/usr/lib/postgresql/${EXPECTED_MAJOR}}"
   local share_root="${KASPA_NG_POSTGRES_LINUX_SHARE_ROOT:-/usr/share/postgresql/${EXPECTED_MAJOR}}"
@@ -59,7 +100,12 @@ prepare_from_linux() {
       return 1
     fi
     run_with_sudo apt-get update
-    run_with_sudo apt-get install -y "postgresql-${EXPECTED_MAJOR}" "postgresql-client-${EXPECTED_MAJOR}"
+    if ! install_linux_postgres_packages; then
+      echo "[postgres] install from default apt repositories failed, attempting PGDG repository setup"
+      setup_pgdg_repo
+      run_with_sudo apt-get update
+      install_linux_postgres_packages
+    fi
   fi
 
   [ -x "$lib_root/bin/postgres" ] || {

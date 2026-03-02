@@ -426,3 +426,6 @@ opt-level = 2
 strip = false
 # lto = true
 # strip = true
+
+[patch.crates-io]
+workflow-perf-monitor = { path = "vendor/workflow-perf-monitor" }
