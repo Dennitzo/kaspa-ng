@@ -1,20 +1,23 @@
 # encoding: utf-8
 import asyncio
+import json
 import logging
 from collections import defaultdict
 from enum import Enum
 from typing import List, Optional
 
+from kaspa_script_address import to_address
 from fastapi import Path, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import exists
+from sqlalchemy import exists, text
 from sqlalchemy.future import select
 from starlette.responses import Response
 
-from constants import TX_SEARCH_ID_LIMIT, TX_SEARCH_BS_LIMIT, PREV_OUT_RESOLVED
+from constants import TX_SEARCH_ID_LIMIT, TX_SEARCH_BS_LIMIT, PREV_OUT_RESOLVED, ADDRESS_PREFIX
 from dbsession import async_session, async_session_blocks
 from endpoints import filter_fields, sql_db_only
 from endpoints.get_blocks import get_block_from_kaspad
+from helper.PublicKeyType import get_public_key_type
 from helper.utils import add_cache_control
 from models.Block import Block
 from models.BlockTransaction import BlockTransaction
@@ -24,6 +27,7 @@ from models.TransactionAcceptance import TransactionAcceptance
 from server import app
 
 _logger = logging.getLogger(__name__)
+_legacy_tx_io_tables: bool | None = None
 
 DESC_RESOLVE_PARAM = (
     "Use this parameter if you want to fetch the TransactionInput previous outpoint details."
@@ -429,46 +433,255 @@ async def get_tx_blocks_from_db(fields, transaction_ids):
         return tx_blocks_dict
 
 
+async def _has_legacy_tx_io_tables(session) -> bool:
+    global _legacy_tx_io_tables
+    if _legacy_tx_io_tables is not None:
+        return _legacy_tx_io_tables
+
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'transactions_inputs'
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'transactions_outputs'
+                )
+            """
+        )
+    )
+    _legacy_tx_io_tables = bool(result.scalar())
+    return _legacy_tx_io_tables
+
+
+def _to_tx_id_bytes(transaction_ids) -> list[bytes]:
+    tx_id_bytes: list[bytes] = []
+    seen = set()
+    for tx_id in transaction_ids:
+        if isinstance(tx_id, (bytes, bytearray)):
+            candidate = bytes(tx_id)
+        elif isinstance(tx_id, str):
+            try:
+                candidate = bytes.fromhex(tx_id)
+            except ValueError:
+                continue
+        else:
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        tx_id_bytes.append(candidate)
+    return tx_id_bytes
+
+
+def _normalize_hex(value):
+    if value is None:
+        return None
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).hex()
+    if isinstance(value, str):
+        return value[2:] if value.startswith("\\x") else value
+    return value
+
+
+def _read_value(payload: dict, *keys):
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    return None
+
+
+def _ensure_json_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return []
+    return value if isinstance(value, list) else []
+
+
+def _safe_to_address(script_hex: str | None) -> str | None:
+    if not script_hex:
+        return None
+    try:
+        return to_address(ADDRESS_PREFIX, script_hex)
+    except Exception:
+        return None
+
+
+def _map_output_dict(transaction_id: str, output: dict) -> dict:
+    script_public_key = _normalize_hex(_read_value(output, "script_public_key", "scriptPublicKey"))
+    script_public_key_address = _read_value(output, "script_public_key_address", "scriptPublicKeyAddress")
+    return {
+        "transaction_id": transaction_id,
+        "index": int(_read_value(output, "index") or 0),
+        "amount": int(_read_value(output, "amount") or 0),
+        "script_public_key": script_public_key,
+        "script_public_key_address": script_public_key_address or _safe_to_address(script_public_key),
+        "script_public_key_type": get_public_key_type(script_public_key) if script_public_key else None,
+        "accepting_block_hash": None,
+    }
+
+
+async def _load_outputs_from_transactions_array(session, transaction_ids):
+    tx_outputs_dict = defaultdict(list)
+    tx_id_bytes = _to_tx_id_bytes(transaction_ids)
+    if not tx_id_bytes:
+        return tx_outputs_dict
+
+    rows = await session.execute(
+        text(
+            """
+            SELECT
+                encode(t.transaction_id, 'hex') AS transaction_id,
+                COALESCE(to_jsonb(t.outputs), '[]'::jsonb) AS outputs
+            FROM transactions t
+            WHERE t.transaction_id = ANY(:transaction_ids)
+            """
+        ),
+        {"transaction_ids": tx_id_bytes},
+    )
+
+    for row in rows.mappings():
+        tx_id = row["transaction_id"]
+        outputs = _ensure_json_list(row["outputs"])
+        tx_outputs_dict[tx_id] = [_map_output_dict(tx_id, output) for output in outputs]
+
+    return tx_outputs_dict
+
+
+async def _load_output_index_from_transactions_array(session, transaction_ids):
+    output_map = {}
+    outputs_by_tx = await _load_outputs_from_transactions_array(session, transaction_ids)
+    for tx_id, outputs in outputs_by_tx.items():
+        for output in outputs:
+            output_map[(tx_id, int(output["index"]))] = output
+    return output_map
+
+
 async def get_tx_inputs_from_db(fields, resolve_previous_outpoints, transaction_ids):
     tx_inputs_dict = defaultdict(list)
     if fields and "inputs" not in fields:
         return tx_inputs_dict
 
     async with async_session() as session:
-        if resolve_previous_outpoints == "light" and not PREV_OUT_RESOLVED or resolve_previous_outpoints == "full":
-            tx_inputs = await session.execute(
-                select(TransactionInput, TransactionOutput)
-                .outerjoin(
-                    TransactionOutput,
-                    (TransactionOutput.transaction_id == TransactionInput.previous_outpoint_hash)
-                    & (TransactionOutput.index == TransactionInput.previous_outpoint_index),
+        if await _has_legacy_tx_io_tables(session):
+            if resolve_previous_outpoints == "light" and not PREV_OUT_RESOLVED or resolve_previous_outpoints == "full":
+                tx_inputs = await session.execute(
+                    select(TransactionInput, TransactionOutput)
+                    .outerjoin(
+                        TransactionOutput,
+                        (TransactionOutput.transaction_id == TransactionInput.previous_outpoint_hash)
+                        & (TransactionOutput.index == TransactionInput.previous_outpoint_index),
+                    )
+                    .filter(TransactionInput.transaction_id.in_(transaction_ids))
+                    .order_by(TransactionInput.transaction_id, TransactionInput.index)
                 )
-                .filter(TransactionInput.transaction_id.in_(transaction_ids))
-                .order_by(TransactionInput.transaction_id, TransactionInput.index)
-            )
-            for tx_input, tx_prev_output in tx_inputs.all():
-                if tx_prev_output:
-                    tx_input.previous_outpoint_script = tx_prev_output.script_public_key
-                    tx_input.previous_outpoint_amount = tx_prev_output.amount
-                    if resolve_previous_outpoints == "full":
-                        tx_input.previous_outpoint_resolved = tx_prev_output
-                else:
-                    tx_input.previous_outpoint_script = None
-                    tx_input.previous_outpoint_amount = None
-                    if resolve_previous_outpoints == "full":
-                        tx_input.previous_outpoint_resolved = None
-                tx_inputs_dict[tx_input.transaction_id].append(tx_input)
+                for tx_input, tx_prev_output in tx_inputs.all():
+                    if tx_prev_output:
+                        tx_input.previous_outpoint_script = tx_prev_output.script_public_key
+                        tx_input.previous_outpoint_amount = tx_prev_output.amount
+                        if resolve_previous_outpoints == "full":
+                            tx_input.previous_outpoint_resolved = tx_prev_output
+                    else:
+                        tx_input.previous_outpoint_script = None
+                        tx_input.previous_outpoint_amount = None
+                        if resolve_previous_outpoints == "full":
+                            tx_input.previous_outpoint_resolved = None
+                    tx_inputs_dict[tx_input.transaction_id].append(tx_input)
+            else:
+                tx_inputs = await session.execute(
+                    select(TransactionInput)
+                    .filter(TransactionInput.transaction_id.in_(transaction_ids))
+                    .order_by(TransactionInput.transaction_id, TransactionInput.index)
+                )
+                for tx_input in tx_inputs.scalars().all():
+                    if resolve_previous_outpoints == "no" and PREV_OUT_RESOLVED:
+                        tx_input.previous_outpoint_script = None
+                        tx_input.previous_outpoint_amount = None
+                    tx_inputs_dict[tx_input.transaction_id].append(tx_input)
+            return tx_inputs_dict
+
+        tx_id_bytes = _to_tx_id_bytes(transaction_ids)
+        if not tx_id_bytes:
+            return tx_inputs_dict
+
+        rows = await session.execute(
+            text(
+                """
+                SELECT
+                    encode(t.transaction_id, 'hex') AS transaction_id,
+                    COALESCE(to_jsonb(t.inputs), '[]'::jsonb) AS inputs
+                FROM transactions t
+                WHERE t.transaction_id = ANY(:transaction_ids)
+                """
+            ),
+            {"transaction_ids": tx_id_bytes},
+        )
+
+        input_rows: list[dict] = []
+        for row in rows.mappings():
+            tx_id = row["transaction_id"]
+            inputs = _ensure_json_list(row["inputs"])
+            for tx_input in inputs:
+                previous_outpoint_hash = _normalize_hex(_read_value(tx_input, "previous_outpoint_hash"))
+                previous_outpoint_index = int(_read_value(tx_input, "previous_outpoint_index") or 0)
+                previous_outpoint_script = _normalize_hex(_read_value(tx_input, "previous_outpoint_script"))
+                previous_outpoint_amount = _read_value(tx_input, "previous_outpoint_amount")
+                mapped = {
+                    "transaction_id": tx_id,
+                    "index": int(_read_value(tx_input, "index") or 0),
+                    "previous_outpoint_hash": previous_outpoint_hash,
+                    "previous_outpoint_index": str(previous_outpoint_index),
+                    "previous_outpoint_script": previous_outpoint_script,
+                    "previous_outpoint_amount": int(previous_outpoint_amount) if previous_outpoint_amount is not None else None,
+                    "previous_outpoint_address": _safe_to_address(previous_outpoint_script),
+                    "signature_script": _normalize_hex(_read_value(tx_input, "signature_script")),
+                    "sig_op_count": str(_read_value(tx_input, "sig_op_count") or 0),
+                    "previous_outpoint_resolved": None,
+                }
+                input_rows.append(mapped)
+
+        if resolve_previous_outpoints == "no":
+            if PREV_OUT_RESOLVED:
+                for tx_input in input_rows:
+                    tx_input["previous_outpoint_script"] = None
+                    tx_input["previous_outpoint_amount"] = None
+                    tx_input["previous_outpoint_address"] = None
         else:
-            tx_inputs = await session.execute(
-                select(TransactionInput)
-                .filter(TransactionInput.transaction_id.in_(transaction_ids))
-                .order_by(TransactionInput.transaction_id, TransactionInput.index)
-            )
-            for tx_input in tx_inputs.scalars().all():
-                if resolve_previous_outpoints == "no" and PREV_OUT_RESOLVED:
-                    tx_input.previous_outpoint_script = None
-                    tx_input.previous_outpoint_amount = None
-                tx_inputs_dict[tx_input.transaction_id].append(tx_input)
+            should_resolve = resolve_previous_outpoints == "full" or not PREV_OUT_RESOLVED
+            if should_resolve:
+                previous_outpoint_ids = {
+                    tx_input["previous_outpoint_hash"]
+                    for tx_input in input_rows
+                    if tx_input["previous_outpoint_hash"]
+                }
+                output_map = await _load_output_index_from_transactions_array(session, previous_outpoint_ids)
+                for tx_input in input_rows:
+                    key = (tx_input["previous_outpoint_hash"], int(tx_input["previous_outpoint_index"]))
+                    previous_output = output_map.get(key)
+                    if previous_output:
+                        if tx_input["previous_outpoint_script"] is None:
+                            tx_input["previous_outpoint_script"] = previous_output["script_public_key"]
+                        if tx_input["previous_outpoint_amount"] is None:
+                            tx_input["previous_outpoint_amount"] = previous_output["amount"]
+                        tx_input["previous_outpoint_address"] = _safe_to_address(tx_input["previous_outpoint_script"])
+                        if resolve_previous_outpoints == "full":
+                            tx_input["previous_outpoint_resolved"] = previous_output
+            elif resolve_previous_outpoints == "full":
+                for tx_input in input_rows:
+                    tx_input["previous_outpoint_resolved"] = None
+
+        input_rows.sort(key=lambda x: (x["transaction_id"], x["index"]))
+        for tx_input in input_rows:
+            tx_inputs_dict[tx_input["transaction_id"]].append(tx_input)
         return tx_inputs_dict
 
 
@@ -478,13 +691,17 @@ async def get_tx_outputs_from_db(fields, transaction_ids):
         return tx_outputs_dict
 
     async with async_session() as session:
-        tx_outputs = await session.execute(
-            select(TransactionOutput)
-            .filter(TransactionOutput.transaction_id.in_(transaction_ids))
-            .order_by(TransactionOutput.transaction_id, TransactionOutput.index)
-        )
-        for tx_output in tx_outputs.scalars().all():
-            tx_outputs_dict[tx_output.transaction_id].append(tx_output)
+        if await _has_legacy_tx_io_tables(session):
+            tx_outputs = await session.execute(
+                select(TransactionOutput)
+                .filter(TransactionOutput.transaction_id.in_(transaction_ids))
+                .order_by(TransactionOutput.transaction_id, TransactionOutput.index)
+            )
+            for tx_output in tx_outputs.scalars().all():
+                tx_outputs_dict[tx_output.transaction_id].append(tx_output)
+            return tx_outputs_dict
+
+        tx_outputs_dict = await _load_outputs_from_transactions_array(session, transaction_ids)
         return tx_outputs_dict
 
 

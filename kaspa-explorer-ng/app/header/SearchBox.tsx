@@ -1,9 +1,10 @@
 import Spinner from "../Spinner";
 import Error from "../assets/error.svg";
 import Search from "../assets/search.svg";
+import { NETWORK_ID } from "../api/config";
 import { useBlockById } from "../hooks/useBlockById";
 import { useTransactionById } from "../hooks/useTransactionById";
-import { isValidHashSyntax, isValidKaspaAddressSyntax } from "../utils/kaspa";
+import { isValidHashSyntax, isValidKaspaAddressSyntax, normalizeKaspaAddress } from "../utils/kaspa";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -48,9 +49,10 @@ const SearchBox = (props: Props) => {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     const searchValue = inputFieldRef.current?.value.trim() || "";
     setSearchHashValue("");
+    const normalizedAddress = normalizeKaspaAddress(searchValue, NETWORK_ID);
 
-    if (isValidKaspaAddressSyntax(searchValue)) {
-      navigateAndReset(`/addresses/${searchValue}`);
+    if (isValidKaspaAddressSyntax(searchValue, NETWORK_ID)) {
+      navigateAndReset(`/addresses/${normalizedAddress}`);
     } else if (isValidHashSyntax(searchValue)) {
       setSearchHashValue(searchValue);
     } else {

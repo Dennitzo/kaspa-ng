@@ -18,7 +18,7 @@ import { useAddressUtxos } from "../hooks/useAddressUtxos";
 import { useTransactions } from "../hooks/useTransactions";
 import FooterHelper from "../layout/FooterHelper";
 import { NETWORK_ID } from "../api/config";
-import { isValidKaspaAddressSyntax } from "../utils/kaspa";
+import { isValidKaspaAddressSyntax, normalizeKaspaAddress } from "../utils/kaspa";
 import { savedAddressKeyForNetwork } from "../utils/storage";
 import type { Route } from "./+types/addressdetails";
 import dayjs from "dayjs";
@@ -46,7 +46,8 @@ export function meta({ params }: Route.LoaderArgs) {
 }
 
 export default function Addressdetails({ params }: Route.ComponentProps) {
-  const address = params.address || "";
+  const rawAddress = params.address || "";
+  const address = normalizeKaspaAddress(rawAddress, NETWORK_ID);
   const location = useLocation();
   const { data, isLoading: isLoadingAddressBalance } = useAddressBalance(address);
   const { data: utxoData, isLoading: isLoadingUtxoData } = useAddressUtxos(address);
@@ -104,12 +105,12 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
 
   const transactions = txData?.transactions || [];
 
-  if (!address || !isValidKaspaAddressSyntax(address)) {
+  if (!rawAddress || !isValidKaspaAddressSyntax(rawAddress, NETWORK_ID)) {
     return (
       <IconMessageBox
         icon="error"
         title="Invalid address"
-        description={`Kaspa address ${address} doesn't follow the kaspa address schema.`}
+        description={`Kaspa address ${rawAddress} doesn't follow the kaspa address schema.`}
         goBack
       />
     );
@@ -281,9 +282,9 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                               input.previous_outpoint_address && (
                                 <li>
                                   <KasLink
-                                    link={input.previous_outpoint_address !== address}
+                                    link={normalizeKaspaAddress(input.previous_outpoint_address, NETWORK_ID) !== address}
                                     linkType="address"
-                                    to={input.previous_outpoint_address}
+                                    to={normalizeKaspaAddress(input.previous_outpoint_address, NETWORK_ID)}
                                     shorten
                                     resolveName
                                     mono
@@ -309,8 +310,8 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                         <li>
                           <KasLink
                             linkType="address"
-                            to={output.script_public_key_address}
-                            link={address !== output.script_public_key_address}
+                            to={normalizeKaspaAddress(output.script_public_key_address || "", NETWORK_ID)}
+                            link={address !== normalizeKaspaAddress(output.script_public_key_address || "", NETWORK_ID)}
                             shorten
                             resolveName
                             mono
@@ -323,14 +324,17 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                         ((transaction.inputs || []).reduce(
                           (acc, input) =>
                             acc -
-                            (address === (input.previous_outpoint_address || "")
+                            (address === normalizeKaspaAddress(input.previous_outpoint_address || "", NETWORK_ID)
                               ? input.previous_outpoint_amount || 0
                               : 0),
                           0,
                         ) +
                           (transaction.outputs || []).reduce(
                             (acc, output) =>
-                              acc + (address === output.script_public_key_address ? output.amount : 0),
+                              acc +
+                              (address === normalizeKaspaAddress(output.script_public_key_address || "", NETWORK_ID)
+                                ? output.amount
+                                : 0),
                             0,
                           )) /
                         1_0000_0000;

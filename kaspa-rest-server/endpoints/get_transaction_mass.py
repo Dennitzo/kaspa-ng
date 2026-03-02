@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from endpoints.get_transactions import search_for_transactions, TxSearch
+from endpoints.get_transactions import search_for_transactions, TxSearch, PreviousOutpointLookupMode
 from endpoints.kaspad_requests.submit_transaction_request import SubmitTxModel
 from helper.mass_calculation_compute import calc_compute_mass
 from helper.mass_calculation_storage import calc_storage_mass
@@ -18,8 +18,8 @@ def _get_amount_from_tx_output_index(txs, tx_id, output_index: int):
     for tx in txs:
         if tx["transaction_id"] == tx_id:
             for output in tx["outputs"]:
-                if output.index == output_index:
-                    return output.amount
+                if output["index"] == output_index:
+                    return output["amount"]
 
 
 @app.post(
@@ -42,7 +42,9 @@ async def calculate_transaction_mass(tx: SubmitTxModel):
 
     txs = list(
         await search_for_transactions(
-            TxSearch(transactionIds=list([x.transactionId for x in previous_outpoints])), "", False
+            TxSearch(transactionIds=list([x.transactionId for x in previous_outpoints])),
+            "",
+            PreviousOutpointLookupMode.no,
         )
     )
 
