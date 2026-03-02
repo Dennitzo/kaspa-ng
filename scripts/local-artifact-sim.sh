@@ -653,6 +653,7 @@ package_and_verify() {
 
 echo "==> [0/5] Sync external repositories"
 sync_external_repos 2>&1 | tee "$LOG_DIR/external-repo-sync.log"
+bash "$ROOT_DIR/scripts/patch-rusty-kaspa-workflow-perf-monitor.sh" 2>&1 | tee "$LOG_DIR/rusty-kaspa-deps-patch.log"
 
 echo "==> [1/5] Prepare Kasia wasm package"
 prepare_kasia_wasm 2>&1 | tee "$LOG_DIR/prepare-kasia-wasm.log"

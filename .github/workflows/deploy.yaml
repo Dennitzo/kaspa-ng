@@ -62,6 +62,10 @@ jobs:
           kasvault|https://github.com/coderofstuff/kasvault.git
           EOF
 
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

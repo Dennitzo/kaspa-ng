@@ -111,6 +111,7 @@ sync_external_repos_if_needed() {
 }
 
 sync_external_repos_if_needed
+bash "${ROOT}/scripts/patch-rusty-kaspa-workflow-perf-monitor.sh"
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR"

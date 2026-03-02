@@ -64,6 +64,10 @@ jobs:
           rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           EOF
 
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
+
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -178,6 +182,10 @@ jobs:
           done <<'EOF'
           rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           EOF
+
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
 
       - name: Fix CRLF on Windows
         if: runner.os == 'Windows'
@@ -312,6 +320,10 @@ jobs:
           rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           EOF
 
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
+
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -393,6 +405,10 @@ jobs:
           done <<'EOF'
           rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git
           EOF
+
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
 
       - name: Install llvm
         id: install_llvm
@@ -590,6 +606,10 @@ jobs:
           kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git
           kasvault|https://github.com/coderofstuff/kasvault.git
           EOF
+
+      - name: Patch rusty-kaspa dependency overrides
+        shell: bash
+        run: bash ./scripts/patch-rusty-kaspa-workflow-perf-monitor.sh
 
       - name: Set up Node
         uses: actions/setup-node@v4
