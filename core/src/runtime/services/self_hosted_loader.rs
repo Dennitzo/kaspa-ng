@@ -188,12 +188,66 @@ impl SelfHostedLoaderService {
         dirs
     }
 
+    fn postgres_runtime_lib_dirs_for_binary(binary_path: &Path) -> Vec<PathBuf> {
+        let mut dirs = Vec::<PathBuf>::new();
+        let Some(bin_dir) = binary_path.parent() else {
+            return dirs;
+        };
+
+        let candidates = [
+            bin_dir.join("../lib"),
+            bin_dir.join("../../lib"),
+            bin_dir.join("../lib64"),
+            bin_dir.join("../../lib64"),
+        ];
+
+        for dir in candidates {
+            if let Ok(canonical) = std::fs::canonicalize(&dir)
+                && canonical.is_dir()
+                && !dirs.contains(&canonical)
+            {
+                dirs.push(canonical);
+            }
+        }
+
+        dirs
+    }
+
+    fn merged_library_path(var_name: &str, extra_dirs: &[PathBuf]) -> Option<std::ffi::OsString> {
+        if extra_dirs.is_empty() {
+            return None;
+        }
+        let mut paths: Vec<PathBuf> = extra_dirs.to_vec();
+        if let Some(existing) = std::env::var_os(var_name) {
+            paths.extend(std::env::split_paths(&existing));
+        }
+        std::env::join_paths(paths).ok()
+    }
+
+    fn apply_postgres_runtime_env_for_binary(cmd: &mut std::process::Command, binary_path: &Path) {
+        let extra_dirs = Self::postgres_runtime_lib_dirs_for_binary(binary_path);
+        if extra_dirs.is_empty() {
+            return;
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(value) = Self::merged_library_path("LD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("LD_LIBRARY_PATH", value);
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(value) = Self::merged_library_path("DYLD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("DYLD_LIBRARY_PATH", value);
+        }
+    }
+
     fn postgres_binary_major_version(postgres_path: &Path) -> Option<u32> {
         if !postgres_path.exists() || !postgres_path.is_file() {
             return None;
         }
         let mut cmd = std::process::Command::new(postgres_path);
         Self::apply_no_window_for_std_command(&mut cmd);
+        Self::apply_postgres_runtime_env_for_binary(&mut cmd, postgres_path);
         let output = cmd
             .arg("--version")
             .stdout(std::process::Stdio::piped())
@@ -250,6 +304,7 @@ impl SelfHostedLoaderService {
         }
         let mut cmd = std::process::Command::new(path);
         Self::apply_no_window_for_std_command(&mut cmd);
+        Self::apply_postgres_runtime_env_for_binary(&mut cmd, path);
         cmd.arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());

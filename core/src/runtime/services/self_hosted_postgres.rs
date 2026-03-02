@@ -148,8 +148,84 @@ impl SelfHostedPostgresService {
             .and_then(|major| major.parse::<u32>().ok())
     }
 
+    fn postgres_runtime_lib_dirs_for_binary(binary_path: &Path) -> Vec<PathBuf> {
+        let mut dirs = Vec::<PathBuf>::new();
+        let Some(bin_dir) = binary_path.parent() else {
+            return dirs;
+        };
+
+        let candidates = [
+            bin_dir.join("../lib"),
+            bin_dir.join("../../lib"),
+            bin_dir.join("../lib64"),
+            bin_dir.join("../../lib64"),
+        ];
+
+        for dir in candidates {
+            if let Ok(canonical) = std::fs::canonicalize(&dir)
+                && canonical.is_dir()
+                && !dirs.contains(&canonical)
+            {
+                dirs.push(canonical);
+            }
+        }
+
+        dirs
+    }
+
+    fn merged_library_path(var_name: &str, extra_dirs: &[PathBuf]) -> Option<std::ffi::OsString> {
+        if extra_dirs.is_empty() {
+            return None;
+        }
+        let mut paths: Vec<PathBuf> = extra_dirs.to_vec();
+        if let Some(existing) = std::env::var_os(var_name) {
+            paths.extend(std::env::split_paths(&existing));
+        }
+        std::env::join_paths(paths).ok()
+    }
+
+    fn apply_postgres_runtime_env_for_std_command(
+        cmd: &mut std::process::Command,
+        binary_path: &Path,
+    ) {
+        let extra_dirs = Self::postgres_runtime_lib_dirs_for_binary(binary_path);
+        if extra_dirs.is_empty() {
+            return;
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(value) = Self::merged_library_path("LD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("LD_LIBRARY_PATH", value);
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(value) = Self::merged_library_path("DYLD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("DYLD_LIBRARY_PATH", value);
+        }
+    }
+
+    fn apply_postgres_runtime_env_for_tokio_command(cmd: &mut Command, binary_path: &Path) {
+        let extra_dirs = Self::postgres_runtime_lib_dirs_for_binary(binary_path);
+        if extra_dirs.is_empty() {
+            return;
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(value) = Self::merged_library_path("LD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("LD_LIBRARY_PATH", value);
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(value) = Self::merged_library_path("DYLD_LIBRARY_PATH", &extra_dirs) {
+            cmd.env("DYLD_LIBRARY_PATH", value);
+        }
+    }
+
     fn postgres_binary_major_version_from_bin(postgres_bin: &Path) -> Option<u32> {
-        let output = std::process::Command::new(postgres_bin)
+        let mut cmd = std::process::Command::new(postgres_bin);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        Self::apply_postgres_runtime_env_for_std_command(&mut cmd, postgres_bin);
+        let output = cmd
             .arg("--version")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -406,6 +482,7 @@ impl SelfHostedPostgresService {
 
         let mut cmd = std::process::Command::new(path);
         Self::apply_no_window_for_std_command(&mut cmd);
+        Self::apply_postgres_runtime_env_for_std_command(&mut cmd, path);
         cmd.arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -579,8 +656,9 @@ impl SelfHostedPostgresService {
         std::fs::write(&pwfile, settings.db_password.as_bytes())?;
 
         let status = {
-            let mut cmd = std::process::Command::new(initdb_bin);
+            let mut cmd = std::process::Command::new(&initdb_bin);
             Self::apply_no_window_for_std_command(&mut cmd);
+            Self::apply_postgres_runtime_env_for_std_command(&mut cmd, &initdb_bin);
             cmd.arg("-D")
                 .arg(data_dir)
                 .arg("-U")
@@ -939,6 +1017,7 @@ impl SelfHostedPostgresService {
          -> Result<String> {
             let mut cmd = std::process::Command::new(&psql_bin);
             Self::apply_no_window_for_std_command(&mut cmd);
+            Self::apply_postgres_runtime_env_for_std_command(&mut cmd, &psql_bin);
             cmd.arg("-X")
                 .arg("-v")
                 .arg("ON_ERROR_STOP=1")
@@ -1137,6 +1216,7 @@ impl SelfHostedPostgresService {
             |admin: Option<&str>, host: Option<&str>, use_tcp: bool, sql: &str| -> Result<String> {
                 let mut cmd = std::process::Command::new(&psql_bin);
                 Self::apply_no_window_for_std_command(&mut cmd);
+                Self::apply_postgres_runtime_env_for_std_command(&mut cmd, &psql_bin);
                 cmd.arg("-X")
                     .arg("-v")
                     .arg("ON_ERROR_STOP=1")
@@ -1370,7 +1450,8 @@ impl SelfHostedPostgresService {
         self.initdb_if_needed(&settings, &data_dir)?;
 
         let postgres_bin = Self::postgres_bin_path("postgres")?;
-        let mut cmd = Command::new(postgres_bin);
+        let mut cmd = Command::new(&postgres_bin);
+        Self::apply_postgres_runtime_env_for_tokio_command(&mut cmd, &postgres_bin);
         cmd.arg("-D")
             .arg(&data_dir)
             .arg("-p")
@@ -1609,8 +1690,9 @@ impl SelfHostedPostgresService {
             }
         };
 
-        let mut cmd = std::process::Command::new(pg_ctl_bin);
+        let mut cmd = std::process::Command::new(&pg_ctl_bin);
         Self::apply_no_window_for_std_command(&mut cmd);
+        Self::apply_postgres_runtime_env_for_std_command(&mut cmd, &pg_ctl_bin);
         let status = cmd
             .arg("-D")
             .arg(data_dir)

@@ -22,7 +22,7 @@ use std::time::Duration;
 use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
-use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebViewBuilder};
+use wry::{dpi::PhysicalPosition, dpi::PhysicalSize, Rect as WryRect, WebView, WebViewBuilder};
 
 #[cfg(not(target_arch = "wasm32"))]
 const EXPLORER_HOST: &str = "127.0.0.1";
@@ -359,20 +359,21 @@ fn ensure_gtk_initialized() -> std::result::Result<(), String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn webview_bounds_from_rect(rect: egui::Rect, _pixels_per_point: f32) -> WryRect {
+fn webview_bounds_from_rect(rect: egui::Rect, pixels_per_point: f32) -> WryRect {
+    let scale = f64::from(pixels_per_point.max(1.0));
     #[cfg(target_os = "linux")]
-    let overscan = 2.0 / f64::from(_pixels_per_point.max(1.0));
+    let overscan = 2.0;
     #[cfg(not(target_os = "linux"))]
     let overscan = 0.0;
 
-    let min_x = (f64::from(rect.min.x) - overscan).floor();
-    let min_y = (f64::from(rect.min.y) - overscan).floor();
-    let max_x = (f64::from(rect.max.x) + overscan).ceil();
-    let max_y = (f64::from(rect.max.y) + overscan).ceil();
+    let min_x = (f64::from(rect.min.x) * scale - overscan).floor().max(0.0);
+    let min_y = (f64::from(rect.min.y) * scale - overscan).floor().max(0.0);
+    let max_x = (f64::from(rect.max.x) * scale + overscan).ceil();
+    let max_y = (f64::from(rect.max.y) * scale + overscan).ceil();
 
     WryRect {
-        position: LogicalPosition::new(min_x, min_y).into(),
-        size: LogicalSize::new((max_x - min_x).max(1.0), (max_y - min_y).max(1.0)).into(),
+        position: PhysicalPosition::new(min_x, min_y).into(),
+        size: PhysicalSize::new((max_x - min_x).max(1.0), (max_y - min_y).max(1.0)).into(),
     }
 }
 
