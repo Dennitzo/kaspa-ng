@@ -1,7 +1,5 @@
-use libc::{
-    mach_thread_self, rusage, thread_basic_info, time_value_t, KERN_SUCCESS, RUSAGE_SELF,
-    THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT,
-};
+use libc::{rusage, thread_basic_info, time_value_t, KERN_SUCCESS, RUSAGE_SELF, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT};
+use mach::mach_init::mach_thread_self;
 use std::convert::TryInto;
 use std::mem::MaybeUninit;
 use std::time::Instant;
