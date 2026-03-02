@@ -771,7 +771,7 @@ impl SelfHostedPostgresService {
                 // Normal row starts with image name and includes ",\"<pid>\","
                 return stdout.contains(&format!(",\"{pid}\","));
             }
-            return false;
+            false
         }
 
         #[cfg(unix)]

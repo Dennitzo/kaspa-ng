@@ -368,7 +368,7 @@ fn open_url_with_browser(
             KasvaultBrowser::Safari => &["safari.exe", "safari"],
             KasvaultBrowser::SystemDefault => unreachable!(),
         };
-        return spawn_first_available(candidates, url);
+        spawn_first_available(candidates, url)
     }
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]

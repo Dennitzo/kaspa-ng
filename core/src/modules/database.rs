@@ -134,7 +134,7 @@ impl Database {
     fn loader_log_lines_from_runtime(limit: usize) -> Vec<LogLine> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            return runtime()
+            runtime()
                 .self_hosted_loader_service()
                 .log_snapshot(limit)
                 .into_iter()
@@ -143,7 +143,7 @@ impl Database {
                     level: line.level,
                     message: line.message,
                 })
-                .collect();
+                .collect()
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -340,7 +340,6 @@ impl Database {
                 socket_ready: snapshot.socket_ready,
             });
             guard.loader_last_error = None;
-            return;
         }
 
         #[cfg(target_arch = "wasm32")]

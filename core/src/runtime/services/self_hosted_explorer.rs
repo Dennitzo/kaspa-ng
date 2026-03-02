@@ -374,8 +374,7 @@ impl SelfHostedExplorerService {
                         base.join("Python312").join("python.exe"),
                         base.join("Python311").join("python.exe"),
                         base.join("Python310").join("python.exe"),
-                    ]
-                    .into_iter(),
+                    ],
                 );
             }
 
@@ -386,8 +385,7 @@ impl SelfHostedExplorerService {
                         base.join("Python312").join("python.exe"),
                         base.join("Python311").join("python.exe"),
                         base.join("Python310").join("python.exe"),
-                    ]
-                    .into_iter(),
+                    ],
                 );
             }
 
@@ -398,8 +396,7 @@ impl SelfHostedExplorerService {
                         base.join("Python312").join("python.exe"),
                         base.join("Python311").join("python.exe"),
                         base.join("Python310").join("python.exe"),
-                    ]
-                    .into_iter(),
+                    ],
                 );
             }
 
