@@ -462,9 +462,9 @@ impl SelfHostedPostgresService {
                 Self::postgres_binary_major_version_from_bin(&candidate)
                     .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
                     .unwrap_or(false)
-                || Self::postgres_binary_major_version_from_bin(&postgres_candidate)
-                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
-                    .unwrap_or(false)
+                    || Self::postgres_binary_major_version_from_bin(&postgres_candidate)
+                        .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                        .unwrap_or(false)
             };
             if is_supported_major {
                 return Ok(candidate);
