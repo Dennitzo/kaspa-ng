@@ -27,6 +27,10 @@ use wry::{dpi::LogicalPosition, dpi::LogicalSize, Rect as WryRect, WebView, WebV
 const KASIA_HOST: &str = "127.0.0.1";
 #[cfg(not(target_arch = "wasm32"))]
 const KASIA_PUBLIC_MAINNET_INDEXER_API: &str = "https://indexer.kasia.fyi";
+#[cfg(not(target_arch = "wasm32"))]
+const KASIA_PUBLIC_MAINNET_NODE_WS: &str = "wss://wrpc.kasia.fyi";
+#[cfg(not(target_arch = "wasm32"))]
+const KASIA_PUBLIC_TESTNET_NODE_WS: &str = "wss://dev-wrpc.kasia.fyi";
 
 #[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
@@ -241,8 +245,26 @@ impl Kasia {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn official_node_url(core: &Core) -> String {
+        if matches!(core.settings.node.network, Network::Mainnet) {
+            KASIA_PUBLIC_MAINNET_NODE_WS.to_string()
+        } else {
+            KASIA_PUBLIC_TESTNET_NODE_WS.to_string()
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn effective_node_url(core: &Core) -> String {
+        if core.state().is_connected() && core.state().is_synced() {
+            Self::normalized_node_url_from_runtime(&core.settings.node)
+        } else {
+            Self::official_node_url(core)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn runtime_config(core: &Core, use_self_hosted: bool) -> KasiaRuntimeConfig {
-        let node_url = Self::normalized_node_url_from_runtime(&core.settings.node);
+        let node_url = Self::effective_node_url(core);
 
         if !use_self_hosted {
             return KasiaRuntimeConfig {
@@ -350,8 +372,12 @@ impl ModuleT for Kasia {
                 return;
             }
 
-            let use_self_hosted =
+            let self_hosted_requested =
                 core.settings.self_hosted.enabled && core.settings.self_hosted.kasia_enabled;
+            let loader_snapshot = runtime().self_hosted_loader_service().status_snapshot();
+            let use_self_hosted = self_hosted_requested
+                && loader_snapshot.postgres_ready
+                && loader_snapshot.indexers_ready;
             let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
                 || core.settings.self_hosted.api_bind == "::"
                 || core.settings.self_hosted.api_bind == "[::]"
@@ -387,7 +413,7 @@ impl ModuleT for Kasia {
                 self.last_probe_at = None;
             }
 
-            let node_display = Self::normalized_node_url_from_runtime(&core.settings.node);
+            let node_display = Self::effective_node_url(core);
             let api_display = if use_self_hosted {
                 format!("http://{}:{}", host, api_port)
             } else {

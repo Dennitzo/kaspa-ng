@@ -332,7 +332,14 @@ impl ModuleT for Explorer {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.ensure_server_for_active_network(core);
-            let endpoint = match core.settings.explorer.source {
+            let mut effective_source = core.settings.explorer.source;
+            if matches!(core.settings.explorer.source, ExplorerDataSource::SelfHosted) {
+                let loader = runtime().self_hosted_loader_service().status_snapshot();
+                if !loader.connected {
+                    effective_source = ExplorerDataSource::Official;
+                }
+            }
+            let endpoint = match effective_source {
                 ExplorerDataSource::Official => core
                     .settings
                     .explorer
@@ -388,7 +395,7 @@ impl ModuleT for Explorer {
                 let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
                 let endpoint_signature = Some((
-                    core.settings.explorer.source,
+                    effective_source,
                     core.settings.node.network,
                     endpoint.api_base.clone(),
                     endpoint.socket_url.clone(),
@@ -438,7 +445,7 @@ impl ModuleT for Explorer {
                     let config_script = explorer_runtime_config_script(
                         &endpoint,
                         core.settings.node.network,
-                        core.settings.explorer.source,
+                        effective_source,
                         node_display.as_str(),
                     );
                     match WebViewBuilder::new()

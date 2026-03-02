@@ -188,6 +188,22 @@ const KASIA_TABLES: [KasiaTableEstimate; 17] = [
     },
 ];
 
+fn empty_status_payload() -> StatusPayload {
+    StatusPayload {
+        db_size_bytes: 0,
+        connected_clients: 0,
+        table_count: 0,
+        uptime_seconds: 0,
+        table_stats: Vec::new(),
+        table_totals: TableTotals {
+            live_rows: 0,
+            total_size_bytes: 0,
+        },
+        largest_table: None,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
 async fn fetch_kasia_metrics(url: &str) -> Option<KasiaMetricsSnapshot> {
     let fut = http::get_json::<KasiaMetricsSnapshot>(url);
     match tokio::time::timeout(Duration::from_millis(1200), fut).await {
@@ -243,12 +259,17 @@ fn collect_kasia_partition_sizes(partitions_root: &Path) -> HashMap<String, i64>
 
 async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
     let db = &state.db;
-    let (client, connection) = tokio_postgres::connect(&db.to_conn_string(), NoTls)
-        .await
-        .map_err(|err| {
+    let (client, connection) = match tokio_postgres::connect(&db.to_conn_string(), NoTls).await {
+        Ok(conn) => conn,
+        Err(err) => {
             let raw = err.to_string();
             let lower = raw.to_ascii_lowercase();
-            if lower.contains("error connecting to server")
+            if lower.contains("does not exist") && lower.contains("database") {
+                // Indexer may not have created the target DB yet; expose empty metrics
+                // instead of failing the whole status endpoint.
+                return Ok(empty_status_payload());
+            }
+            return Err(if lower.contains("error connecting to server")
                 || lower.contains("connection refused")
                 || lower.contains("timed out")
             {
@@ -258,8 +279,9 @@ async fn collect_stats(state: &AppState) -> Result<StatusPayload> {
                 ))
             } else {
                 Error::Custom(raw)
-            }
-        })?;
+            });
+        }
+    };
     spawn(async move {
         if let Err(err) = connection.await {
             log_warn!("self-hosted-db: postgres connection error: {err}");

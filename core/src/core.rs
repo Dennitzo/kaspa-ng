@@ -452,7 +452,7 @@ impl eframe::App for Core {
         self.flush_pending_settings_now();
         self.is_shutdown_pending = true;
         crate::runtime::halt();
-        println!("{}", i18n("bye!"));
+        log_info!("{}", i18n("bye!"));
     }
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
@@ -460,7 +460,7 @@ impl eframe::App for Core {
         self.flush_pending_settings_now();
         self.is_shutdown_pending = true;
         crate::runtime::halt();
-        println!("{}", i18n("bye!"));
+        log_info!("{}", i18n("bye!"));
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -932,8 +932,8 @@ impl Core {
                                 .short(),
                             );
                         } else {
-                            // runtime().notify(UserNotification::error(message.as_str()));
-                            println!("{message}");
+                            runtime().notify(UserNotification::error(message.as_str()).short());
+                            log_error!("wallet runtime error: {message}");
                         }
                     }
                     CoreWallet::UtxoProcStart => {

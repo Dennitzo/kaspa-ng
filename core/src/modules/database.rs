@@ -89,6 +89,8 @@ pub struct Database {
 }
 
 impl Database {
+    const API_TIMEOUT: Duration = Duration::from_secs(2);
+
     pub fn new(runtime: Runtime) -> Self {
         Self {
             runtime,
@@ -119,6 +121,7 @@ impl Database {
         )
     }
 
+    #[cfg(target_arch = "wasm32")]
     fn loader_url(settings: &SelfHostedSettings, network: Network) -> String {
         let host = Self::resolve_api_host(&settings.api_bind);
         format!(
@@ -126,6 +129,28 @@ impl Database {
             host,
             settings.effective_api_port(network)
         )
+    }
+
+    fn loader_log_lines_from_runtime(limit: usize) -> Vec<LogLine> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return runtime()
+                .self_hosted_loader_service()
+                .log_snapshot(limit)
+                .into_iter()
+                .map(|line| LogLine {
+                    ts: line.ts,
+                    level: line.level,
+                    message: line.message,
+                })
+                .collect();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = limit;
+            Vec::new()
+        }
     }
 
     fn logs_url(
@@ -177,26 +202,102 @@ impl Database {
         }
 
         let url = Self::api_url(settings, network);
+        let settings_snapshot = settings.clone();
         let state = self.state.clone();
         spawn(async move {
-            let result = http::get_json::<DatabaseStatus>(&url).await;
+            let result: std::result::Result<DatabaseStatus, String> =
+                match tokio::time::timeout(Self::API_TIMEOUT, http::get_json::<DatabaseStatus>(&url)).await {
+                Ok(inner) => inner.map_err(|err| err.to_string()),
+                Err(_) => Err("database status request timed out".to_string()),
+            };
+            let (status_opt, error_opt) = match result {
+                Ok(status) => (Some(status), None),
+                Err(http_err) => match Self::direct_db_status(&settings_snapshot, network).await {
+                    Ok(status) => (Some(status), None),
+                    Err(db_err) => (None, Some(format!("api: {}; direct-db: {}", http_err, db_err))),
+                },
+            };
             {
                 let mut guard = state.lock().unwrap();
                 guard.in_flight = false;
                 guard.last_updated = Some(Instant::now());
-                match result {
-                    Ok(status) => {
-                        guard.status = Some(status);
-                        guard.last_error = None;
-                    }
-                    Err(err) => {
-                        guard.last_error = Some(err.to_string());
+                if let Some(status) = status_opt {
+                    guard.status = Some(status);
+                    guard.last_error = None;
+                } else {
+                    guard.last_error = error_opt;
+                    if guard.status.is_none() {
+                        guard.status = Some(DatabaseStatus::default());
                     }
                 }
             }
             runtime().request_repaint();
             Ok(())
         });
+    }
+
+    async fn direct_db_status(
+        settings: &SelfHostedSettings,
+        network: Network,
+    ) -> std::result::Result<DatabaseStatus, String> {
+        let db_name = crate::settings::self_hosted_db_name_for_network(&settings.db_name, network);
+        let conn = format!(
+            "host={} port={} user={} password={} dbname={} connect_timeout=3",
+            settings.db_host,
+            settings.effective_db_port(network),
+            settings.db_user,
+            settings.db_password,
+            db_name
+        );
+
+        let (client, connection) = match tokio_postgres::connect(&conn, tokio_postgres::NoTls).await
+        {
+            Ok(v) => v,
+            Err(err) => {
+                let raw = err.to_string();
+                let lower = raw.to_ascii_lowercase();
+                if lower.contains("does not exist") && lower.contains("database") {
+                    return Ok(DatabaseStatus {
+                        db_size_bytes: 0,
+                        connected_clients: 0,
+                        table_count: 0,
+                        table_stats: Vec::new(),
+                    });
+                }
+                return Err(raw);
+            }
+        };
+
+        spawn(async move {
+            let _ = connection.await;
+            Ok(())
+        });
+
+        let size_row = client
+            .query_one("SELECT pg_database_size(current_database())::bigint", &[])
+            .await
+            .map_err(|err| err.to_string())?;
+        let conn_row = client
+            .query_one(
+                "SELECT COUNT(*)::int FROM pg_stat_activity WHERE datname = current_database()",
+                &[],
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+        let table_row = client
+            .query_one(
+                "SELECT COUNT(*)::int FROM information_schema.tables WHERE table_schema = 'public'",
+                &[],
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+
+        Ok(DatabaseStatus {
+            db_size_bytes: size_row.get::<_, i64>(0),
+            connected_clients: conn_row.get::<_, i32>(0) as i64,
+            table_count: table_row.get::<_, i32>(0) as i64,
+            table_stats: Vec::new(),
+        })
     }
 
     fn schedule_loader_fetch(&self, settings: &SelfHostedSettings, network: Network) {
@@ -222,28 +323,69 @@ impl Database {
             return;
         }
 
-        let url = Self::loader_url(settings, network);
-        let state = self.state.clone();
-        spawn(async move {
-            let result = http::get_json::<LoaderStatus>(&url).await;
-            let mut guard = state.lock().unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (settings, network);
+            let snapshot = runtime().self_hosted_loader_service().status_snapshot();
+            let mut guard = self.state.lock().unwrap();
             guard.loader_in_flight = false;
             guard.loader_last_updated = Some(Instant::now());
-            match result {
-                Ok(status) => {
-                    guard.loader_status = Some(status);
-                    guard.loader_last_error = None;
+            guard.loader_status = Some(LoaderStatus {
+                phase: snapshot.phase,
+                message: snapshot.message,
+                connected: snapshot.connected,
+                postgres_ready: snapshot.postgres_ready,
+                indexers_ready: snapshot.indexers_ready,
+                rest_ready: snapshot.rest_ready,
+                socket_ready: snapshot.socket_ready,
+            });
+            guard.loader_last_error = None;
+            return;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let url = Self::loader_url(settings, network);
+            let state = self.state.clone();
+            spawn(async move {
+                let result: std::result::Result<LoaderStatus, String> = match tokio::time::timeout(
+                    Self::API_TIMEOUT,
+                    http::get_json::<LoaderStatus>(&url),
+                )
+                .await
+                {
+                    Ok(inner) => inner.map_err(|err| err.to_string()),
+                    Err(_) => Err("loader status request timed out".to_string()),
+                };
+                let mut guard = state.lock().unwrap();
+                guard.loader_in_flight = false;
+                guard.loader_last_updated = Some(Instant::now());
+                match result {
+                    Ok(status) => {
+                        guard.loader_status = Some(status);
+                        guard.loader_last_error = None;
+                    }
+                    Err(err) => {
+                        guard.loader_last_error = Some(err);
+                    }
                 }
-                Err(err) => {
-                    guard.loader_last_error = Some(err.to_string());
-                }
-            }
-            runtime().request_repaint();
-            Ok(())
-        });
+                runtime().request_repaint();
+                Ok(())
+            });
+        }
     }
 
     fn schedule_logs_fetch(&self, settings: &SelfHostedSettings, network: Network, service: LogService) {
+        if matches!(service, LogService::Loader) {
+            let lines = Self::loader_log_lines_from_runtime(self.log_limit);
+            let mut guard = self.state.lock().unwrap();
+            guard.logs_loader = lines;
+            guard.logs_last_error = None;
+            guard.logs_last_updated = Some(Instant::now());
+            guard.logs_in_flight = false;
+            return;
+        }
+
         let should_fetch = {
             let mut state = self.state.lock().unwrap();
             if state.logs_in_flight {
@@ -269,7 +411,11 @@ impl Database {
         let url = Self::logs_url(settings, network, service, self.log_limit);
         let state = self.state.clone();
         spawn(async move {
-            let result = http::get_json::<LogResponse>(&url).await;
+            let result: std::result::Result<LogResponse, String> =
+                match tokio::time::timeout(Self::API_TIMEOUT, http::get_json::<LogResponse>(&url)).await {
+                Ok(inner) => inner.map_err(|err| err.to_string()),
+                Err(_) => Err("logs request timed out".to_string()),
+            };
             let mut guard = state.lock().unwrap();
             guard.logs_in_flight = false;
             guard.logs_last_updated = Some(Instant::now());
@@ -287,7 +433,7 @@ impl Database {
                     guard.logs_last_error = None;
                 }
                 Err(err) => {
-                    guard.logs_last_error = Some(err.to_string());
+                    guard.logs_last_error = Some(err);
                 }
             }
             runtime().request_repaint();
@@ -366,7 +512,7 @@ impl ModuleT for Database {
         self.schedule_loader_fetch(&core.settings.self_hosted, network);
         self.schedule_logs_fetch(&core.settings.self_hosted, network, self.log_service);
 
-        let (status, error, loader_status, loader_error) = {
+        let (status, error, mut loader_status, loader_error) = {
             let state = self.state.lock().unwrap();
             (
                 state.status.clone(),
@@ -375,6 +521,20 @@ impl ModuleT for Database {
                 state.loader_last_error.clone(),
             )
         };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if loader_status.is_none() {
+            let snapshot = runtime().self_hosted_loader_service().status_snapshot();
+            loader_status = Some(LoaderStatus {
+                phase: snapshot.phase,
+                message: snapshot.message,
+                connected: snapshot.connected,
+                postgres_ready: snapshot.postgres_ready,
+                indexers_ready: snapshot.indexers_ready,
+                rest_ready: snapshot.rest_ready,
+                socket_ready: snapshot.socket_ready,
+            });
+        }
 
         ScrollArea::vertical()
             .auto_shrink([false; 2])
@@ -389,17 +549,18 @@ impl ModuleT for Database {
                                 .color(theme_color().warning_color)
                                 .size(12.0),
                         );
-                    } else if let Some(error) = &error
-                        && loader_status
+                    } else if let Some(error) = &error {
+                        let show_error = loader_status
                             .as_ref()
-                            .map(|status| status.connected)
-                            .unwrap_or(false)
-                    {
+                            .map(|status| status.connected || status.postgres_ready)
+                            .unwrap_or(true);
+                        if show_error {
                         ui.label(
                             RichText::new(error)
                                 .color(theme_color().warning_color)
                                 .size(12.0),
                         );
+                        }
                     }
 
                     ui.add_space(8.0);

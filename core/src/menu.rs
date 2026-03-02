@@ -563,7 +563,9 @@ impl<'core> Menu<'core> {
                     ui.close_menu();
                 }
 
-                if matches!(self.core.settings.node.network, Network::Mainnet) {
+                if matches!(self.core.settings.node.network, Network::Mainnet)
+                    && self.core.settings.node.stratum_bridge_enabled
+                {
                     ui.separator();
                     if self
                         .menu_tab_button(

@@ -84,7 +84,7 @@ pub struct KSocial {
     #[cfg(not(target_arch = "wasm32"))]
     last_zoom: Option<f64>,
     #[cfg(not(target_arch = "wasm32"))]
-    last_signature: Option<(Network, String, u16)>,
+    last_signature: Option<(Network, String, u16, String)>,
     #[cfg(not(target_arch = "wasm32"))]
     status: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -96,6 +96,36 @@ pub struct KSocial {
     #[cfg(not(target_arch = "wasm32"))]
     waiting_since: Option<Instant>,
     logs: VecDeque<String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn official_node_url(core: &Core) -> String {
+    let url = core
+        .settings
+        .explorer
+        .official
+        .for_network(core.settings.node.network)
+        .socket_url
+        .trim()
+        .to_string();
+    if url.is_empty() {
+        "wss://api.kaspa.org".to_string()
+    } else {
+        url
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn effective_k_social_node_url(core: &Core) -> String {
+    if core.state().is_connected() && core.state().is_synced() {
+        runtime()
+            .kaspa_service()
+            .rpc_url()
+            .map(normalize_k_node_url)
+            .unwrap_or_else(|| official_node_url(core))
+    } else {
+        official_node_url(core)
+    }
 }
 
 impl KSocial {
@@ -183,8 +213,12 @@ impl ModuleT for KSocial {
                 return;
             }
 
-            let use_self_hosted =
+            let self_hosted_requested =
                 core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled;
+            let loader_snapshot = runtime().self_hosted_loader_service().status_snapshot();
+            let use_self_hosted = self_hosted_requested
+                && loader_snapshot.postgres_ready
+                && loader_snapshot.indexers_ready;
             let (api_host, api_port) = if use_self_hosted {
                 let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
                     || core.settings.self_hosted.api_bind == "::"
@@ -259,8 +293,12 @@ impl ModuleT for KSocial {
                 ui.colored_label(theme_color().error_color, status);
             }
 
-            let use_self_hosted =
+            let self_hosted_requested =
                 core.settings.self_hosted.enabled && core.settings.self_hosted.k_enabled;
+            let loader_snapshot = runtime().self_hosted_loader_service().status_snapshot();
+            let use_self_hosted = self_hosted_requested
+                && loader_snapshot.postgres_ready
+                && loader_snapshot.indexers_ready;
             let (api_host, api_port) = if use_self_hosted {
                 let host = if core.settings.self_hosted.api_bind == "0.0.0.0"
                     || core.settings.self_hosted.api_bind == "::"
@@ -349,33 +387,7 @@ impl ModuleT for KSocial {
                 }
             }
 
-            let default_node = runtime()
-                .kaspa_service()
-                .rpc_url()
-                .map(normalize_k_node_url)
-                .unwrap_or_else(|| {
-                    match core.settings.node.connection_config_kind {
-                        crate::settings::NodeConnectionConfigKind::PublicServerRandom
-                        | crate::settings::NodeConnectionConfigKind::PublicServerCustom => {
-                            "public (resolving...)".to_string()
-                        }
-                        crate::settings::NodeConnectionConfigKind::Custom => {
-                            let configured = core.settings.node.wrpc_url.trim();
-                            if configured.is_empty() {
-                                format!(
-                                    "ws://127.0.0.1:{}",
-                                    crate::settings::node_wrpc_borsh_port_for_network(
-                                        core.settings.node.network,
-                                    )
-                                )
-                            } else if configured.contains("://") {
-                                configured.to_string()
-                            } else {
-                                format!("ws://{configured}")
-                            }
-                        }
-                    }
-                });
+            let default_node = effective_k_social_node_url(core);
             let default_api = if use_self_hosted {
                 format!("http://{}:{}", api_host, api_port)
             } else {
@@ -413,7 +425,7 @@ impl ModuleT for KSocial {
                 })
                 .unwrap_or((
                     default_node.clone(),
-                    if core.state().is_connected() {
+                    if core.state().is_connected() && core.state().is_synced() {
                         FooterConnectionHealth::Connected
                     } else {
                         FooterConnectionHealth::Reachable
@@ -457,7 +469,12 @@ impl ModuleT for KSocial {
                 let bounds = webview_bounds_from_rect(available_rect, _ctx.pixels_per_point());
                 let target_zoom = f64::from(_ctx.zoom_factor().max(0.5));
 
-                let signature = Some((core.settings.node.network, api_host.clone(), api_port));
+                let signature = Some((
+                    core.settings.node.network,
+                    api_host.clone(),
+                    api_port,
+                    default_node.clone(),
+                ));
                 if self.webview.is_some() && self.last_signature != signature {
                     self.webview.take();
                     self.last_bounds = None;
@@ -1330,7 +1347,7 @@ function __kaspaNgReadSettings() {
     } else if (nodeType === "resolver") {
       node = "resolver";
     } else {
-      node = customNode;
+      node = source === "public" ? "wss://node.k-social.network" : customNode;
     }
     return { source, api, node };
   } catch (_) {
@@ -1473,13 +1490,13 @@ setTimeout(() => {
     parsed.indexerType = "public";
     parsed.apiBaseUrl = "{K_OFFICIAL_MAINNET_API}";
     parsed.customIndexerUrl = "{local_proxy_api_url}";
-    parsed.kaspaConnectionType = "custom-node";
+    parsed.kaspaConnectionType = "public-node";
     parsed.customKaspaNodeUrl = "{kaspa_node_url}";
     parsed.selectedNetwork = "{network}";
     localStorage.setItem(key, JSON.stringify(parsed));
     window.__KASPA_NG_K_CONFIG = {{
       apiBaseUrl: "{K_OFFICIAL_MAINNET_API}",
-      kaspaNodeUrl: "{kaspa_node_url}",
+      kaspaNodeUrl: "wss://node.k-social.network",
       network: "{network}"
     }};
     {telemetry_script}

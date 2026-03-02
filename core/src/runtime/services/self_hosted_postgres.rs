@@ -29,6 +29,8 @@ pub struct SelfHostedPostgresService {
 
 impl SelfHostedPostgresService {
     const STARTUP_RESTART_GUARD: Duration = Duration::from_secs(18);
+    const STOP_GRACEFUL_WAIT: Duration = Duration::from_secs(8);
+    const STOP_RETRY_WAIT: Duration = Duration::from_secs(5);
 
     fn arm_startup_restart_guard(&self) {
         *self.startup_restart_guard_until.lock().unwrap() =
@@ -743,6 +745,46 @@ impl SelfHostedPostgresService {
         }
     }
 
+    fn read_postmaster_pid(postmaster_pid: &Path) -> Option<u32> {
+        std::fs::read_to_string(postmaster_pid)
+            .ok()
+            .and_then(|content| content.lines().next().map(str::trim).map(str::to_string))
+            .and_then(|line| line.parse::<u32>().ok())
+    }
+
+    fn is_process_running(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("tasklist");
+            Self::apply_no_window_for_std_command(&mut cmd);
+            let output = cmd
+                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+                .output();
+            if let Ok(output) = output
+                && output.status.success()
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+                // "INFO: No tasks are running..."
+                if stdout.contains("no tasks are running") {
+                    return false;
+                }
+                // Normal row starts with image name and includes ",\"<pid>\","
+                return stdout.contains(&format!(",\"{pid}\","));
+            }
+            return false;
+        }
+
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::kill;
+            use nix::unistd::Pid;
+            if let Ok(pid_i32) = i32::try_from(pid) {
+                return kill(Pid::from_raw(pid_i32), None).is_ok();
+            }
+            false
+        }
+    }
+
     async fn ensure_role_and_database(
         settings: &SelfHostedSettings,
         node: &NodeSettings,
@@ -1178,6 +1220,20 @@ impl SelfHostedPostgresService {
             .await;
         let postmaster_pid = data_dir.join("postmaster.pid");
         if postmaster_pid.exists() {
+            if let Some(pid) = Self::read_postmaster_pid(&postmaster_pid)
+                && !Self::is_process_running(pid)
+            {
+                let msg = format!(
+                    "postmaster.pid points to non-running process (pid {}); removing stale pid",
+                    pid
+                );
+                log_info!("self-hosted-postgres: {msg}");
+                self.logs.push("INFO", &msg);
+                let _ = std::fs::remove_file(&postmaster_pid);
+            }
+        }
+
+        if postmaster_pid.exists() {
             if Self::wait_for_ready(&settings, &node_settings, 5)
                 .await
                 .is_ok()
@@ -1376,7 +1432,7 @@ impl SelfHostedPostgresService {
                 }
             }
 
-            if tokio::time::timeout(Duration::from_secs(25), child.wait())
+            if tokio::time::timeout(Self::STOP_GRACEFUL_WAIT, child.wait())
                 .await
                 .is_ok()
             {
@@ -1399,7 +1455,7 @@ impl SelfHostedPostgresService {
                     }
                 }
 
-                if tokio::time::timeout(Duration::from_secs(10), child.wait())
+                if tokio::time::timeout(Self::STOP_RETRY_WAIT, child.wait())
                     .await
                     .is_err()
                 {
@@ -1410,7 +1466,130 @@ impl SelfHostedPostgresService {
                 }
             }
         }
+
+        // If this service did not spawn the process (e.g. app restart), we can still
+        // have a leftover cluster in our managed data dir. Stop it explicitly so the
+        // next launch does not keep treating it as an external process.
+        self.stop_managed_cluster_best_effort()?;
+
         Ok(())
+    }
+
+    fn stop_managed_cluster_best_effort(&self) -> Result<()> {
+        let settings = self.settings.lock().unwrap().clone();
+        let node_settings = self.node_settings.lock().unwrap().clone();
+        let data_dir = Self::resolve_data_dir(&settings, node_settings.network)?;
+        let postmaster_pid = data_dir.join("postmaster.pid");
+        if postmaster_pid.exists() {
+            match Self::stop_cluster_by_data_dir(&data_dir, &self.logs) {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.logs.push(
+                        "WARN",
+                        &format!(
+                            "postgres cluster still running in '{}'; unable to stop cleanly",
+                            data_dir.display()
+                        ),
+                    );
+                }
+                Err(err) => {
+                    self.logs.push(
+                        "WARN",
+                        &format!(
+                            "failed to stop postgres cluster in '{}': {}",
+                            data_dir.display(),
+                            err
+                        ),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn stop_cluster_by_data_dir(data_dir: &Path, logs: &LogStore) -> Result<bool> {
+        let pg_ctl_bin = match Self::postgres_bin_path("pg_ctl") {
+            Ok(path) => path,
+            Err(err) => {
+                logs.push("WARN", &format!("{err}"));
+                return Ok(false);
+            }
+        };
+
+        let mut cmd = std::process::Command::new(pg_ctl_bin);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        let status = cmd
+            .arg("-D")
+            .arg(data_dir)
+            .arg("-m")
+            .arg("fast")
+            .arg("-w")
+            .arg("-t")
+            .arg("12")
+            .arg("stop")
+            .status();
+        if matches!(status, Ok(s) if s.success()) {
+            logs.push(
+                "INFO",
+                &format!(
+                    "stopped postgres cluster via pg_ctl for data dir '{}'",
+                    data_dir.display()
+                ),
+            );
+            return Ok(true);
+        }
+
+        let postmaster_pid = data_dir.join("postmaster.pid");
+        let pid = std::fs::read_to_string(&postmaster_pid)
+            .ok()
+            .and_then(|content| content.lines().next().map(str::trim).map(str::to_string))
+            .and_then(|line| line.parse::<u32>().ok());
+
+        if let Some(pid) = pid {
+            #[cfg(windows)]
+            {
+                let mut taskkill = std::process::Command::new("taskkill");
+                Self::apply_no_window_for_std_command(&mut taskkill);
+                let killed = taskkill
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if killed {
+                    logs.push(
+                        "WARN",
+                        &format!(
+                            "forced postgres stop via taskkill for pid {} (data dir '{}')",
+                            pid,
+                            data_dir.display()
+                        ),
+                    );
+                    return Ok(true);
+                }
+            }
+
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{Signal, kill};
+                use nix::unistd::Pid;
+                if let Ok(pid_i32) = i32::try_from(pid) {
+                    let _ = kill(Pid::from_raw(pid_i32), Signal::SIGTERM);
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    let _ = kill(Pid::from_raw(pid_i32), Signal::SIGKILL);
+                    logs.push(
+                        "WARN",
+                        &format!(
+                            "forced postgres stop via signal for pid {} (data dir '{}')",
+                            pid,
+                            data_dir.display()
+                        ),
+                    );
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 }
 
@@ -1541,6 +1720,7 @@ impl Service for SelfHostedPostgresService {
     }
 
     fn terminate(self: Arc<Self>) {
+        let _ = self.stop_managed_cluster_best_effort();
         let _ = self
             .service_events
             .sender

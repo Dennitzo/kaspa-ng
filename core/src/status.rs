@@ -370,7 +370,13 @@ impl<'core> Status<'core> {
                         //         .color(Color32::LIGHT_RED),
                         // );
                         ui.separator();
-                        ui.label(i18n("Starting..."));
+                        if self.state().is_synced() {
+                            ui.label(i18n("Node synced, reconnecting wallet..."));
+                        } else if let Some(rpc_url) = runtime().kaspa_service().rpc_url() {
+                            ui.label(format!("{} {} ...", i18n("Connecting to"), rpc_url));
+                        } else {
+                            ui.label(i18n("Starting..."));
+                        }
                     }
                 }
 

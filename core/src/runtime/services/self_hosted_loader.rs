@@ -94,6 +94,7 @@ pub struct SelfHostedLoaderService {
     last_postgres_restart: Mutex<Option<Instant>>,
     last_indexer_restart: Mutex<Option<Instant>>,
     last_explorer_restart: Mutex<Option<Instant>>,
+    postgres_boot_started_at: Mutex<Option<Instant>>,
     indexer_boot_started_at: Mutex<Option<Instant>>,
     explorer_boot_started_at: Mutex<Option<Instant>>,
     postgres_failures: Mutex<u32>,
@@ -111,6 +112,7 @@ impl SelfHostedLoaderService {
     const INDEXER_RESTART_FAILURE_THRESHOLD: u32 = 3;
     const EXPLORER_RESTART_FAILURE_THRESHOLD: u32 = 3;
     const DEPENDENTS_STOP_GRACE: Duration = Duration::from_millis(1500);
+    const POSTGRES_BOOT_GRACE: Duration = Duration::from_secs(45);
     const INDEXER_BOOT_GRACE: Duration = Duration::from_secs(45);
     const EXPLORER_BOOT_GRACE: Duration = Duration::from_secs(25);
     const POSTGRES_DEBUG_LOG_INTERVAL: Duration = Duration::from_secs(12);
@@ -244,10 +246,20 @@ impl SelfHostedLoaderService {
             return false;
         }
         let mut cmd = std::process::Command::new(path);
+        Self::apply_no_window_for_std_command(&mut cmd);
         cmd.arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn apply_no_window_for_std_command(_cmd: &mut std::process::Command) {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            _cmd.creation_flags(CREATE_NO_WINDOW);
+        }
     }
 
     fn postgres_data_dir(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<PathBuf> {
@@ -485,6 +497,7 @@ impl SelfHostedLoaderService {
         *self.last_postgres_restart.lock().unwrap() = None;
         *self.last_indexer_restart.lock().unwrap() = None;
         *self.last_explorer_restart.lock().unwrap() = None;
+        *self.postgres_boot_started_at.lock().unwrap() = None;
         *self.indexer_boot_started_at.lock().unwrap() = None;
         *self.explorer_boot_started_at.lock().unwrap() = None;
         self.reset_health_failures();
@@ -626,12 +639,25 @@ impl SelfHostedLoaderService {
         let probe_host = Self::resolve_probe_host(&settings.api_bind);
 
         self.postgres_service.enable(true);
+        let postgres_boot_started_at = {
+            let mut guard = self.postgres_boot_started_at.lock().unwrap();
+            if guard.is_none() {
+                *guard = Some(Instant::now());
+            }
+            *guard
+        };
         let postgres_ready = Self::check_postgres(&settings, &node).await;
-        let postgres_failures = if postgres_ready || switching_network {
+        let postgres_in_grace = postgres_boot_started_at
+            .map(|started| started.elapsed() < Self::POSTGRES_BOOT_GRACE)
+            .unwrap_or(false);
+        let postgres_failures = if postgres_ready || postgres_in_grace || switching_network {
             Self::health_failures(&self.postgres_failures, true)
         } else {
             Self::health_failures(&self.postgres_failures, false)
         };
+        if postgres_ready {
+            *self.postgres_boot_started_at.lock().unwrap() = None;
+        }
 
         if !postgres_ready {
             self.maybe_log_postgres_install_debug(&settings, &node, "waiting for postgres");
@@ -639,6 +665,7 @@ impl SelfHostedLoaderService {
             *self.indexer_boot_started_at.lock().unwrap() = None;
             *self.explorer_boot_started_at.lock().unwrap() = None;
             if !switching_network
+                && !postgres_in_grace
                 && postgres_failures >= Self::POSTGRES_RESTART_FAILURE_THRESHOLD
                 && Self::should_restart(&self.last_postgres_restart)
             {
@@ -870,6 +897,7 @@ impl SelfHostedLoaderService {
             last_postgres_restart: Mutex::new(None),
             last_indexer_restart: Mutex::new(None),
             last_explorer_restart: Mutex::new(None),
+            postgres_boot_started_at: Mutex::new(None),
             indexer_boot_started_at: Mutex::new(None),
             explorer_boot_started_at: Mutex::new(None),
             postgres_failures: Mutex::new(0),
@@ -902,6 +930,14 @@ impl SelfHostedLoaderService {
         self.service_events
             .try_send(SelfHostedLoaderEvents::UpdateNodeSettings(settings))
             .unwrap();
+    }
+
+    pub fn status_snapshot(&self) -> LoaderStatusSnapshot {
+        self.status.snapshot()
+    }
+
+    pub fn log_snapshot(&self, limit: usize) -> Vec<crate::runtime::services::log_store::LogLine> {
+        self.logs.snapshot(limit)
     }
 }
 
