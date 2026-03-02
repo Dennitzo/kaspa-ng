@@ -111,6 +111,19 @@ fn sanitize_linux_snap_environment() {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn configure_linux_webkit_runtime() {
+    // Workaround for known WebKitGTK instability on Linux/NVIDIA with DMABuf renderer.
+    // Can be overridden by explicitly setting WEBKIT_DISABLE_DMABUF_RENDERER.
+    let is_nvidia = std::path::Path::new("/proc/driver/nvidia/version").exists();
+    if is_nvidia && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        log_warn!("Enabled WEBKIT_DISABLE_DMABUF_RENDERER=1 (Linux/NVIDIA WebKitGTK stability workaround)");
+    }
+}
+
 cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
 
@@ -127,6 +140,9 @@ cfg_if! {
 
             #[cfg(target_os = "linux")]
             sanitize_linux_ld_library_path();
+
+            #[cfg(target_os = "linux")]
+            configure_linux_webkit_runtime();
 
             kaspa_alloc::init_allocator_with_default_settings();
 

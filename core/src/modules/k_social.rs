@@ -398,6 +398,8 @@ pub struct KSocial {
     last_probe_status: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     waiting_since: Option<Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_webview_attempt: Option<Instant>,
     logs: VecDeque<String>,
 }
 
@@ -455,6 +457,8 @@ impl KSocial {
             last_probe_status: None,
             #[cfg(not(target_arch = "wasm32"))]
             waiting_since: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_webview_attempt: None,
             logs: VecDeque::new(),
         }
     }
@@ -512,6 +516,7 @@ impl ModuleT for KSocial {
                 self.status = Some(i18n("K-Social is available only on Mainnet.").to_string());
                 self.last_probe_status = None;
                 self.waiting_since = None;
+                self.last_webview_attempt = None;
                 self.push_log("K-Social: blocked (Mainnet only)");
                 return;
             }
@@ -798,6 +803,13 @@ impl ModuleT for KSocial {
                 }
 
                 if self.webview.is_none() {
+                    if let Some(last_attempt) = self.last_webview_attempt
+                        && last_attempt.elapsed() < Duration::from_secs(2)
+                    {
+                        return;
+                    }
+                    self.last_webview_attempt = Some(Instant::now());
+
                     let start_url = format!("http://{}:{}/", server_host, server_port);
                     let kaspa_node_url = default_node.clone();
                     let config_script = k_runtime_config_script(
@@ -855,6 +867,7 @@ impl ModuleT for KSocial {
                             self.last_signature = signature;
                             self.status = None;
                             self.waiting_since = None;
+                            self.last_webview_attempt = None;
                             self.push_log("K-Social: WebView attached");
                         }
                         Err(err) => {

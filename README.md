@@ -69,6 +69,22 @@ kaspa-rest-server/.venv/bin/python -m ensurepip --upgrade
 kaspa-socket-server/.venv/bin/python -m ensurepip --upgrade
 ```
 
+#### Linux WebView Troubleshooting (Kasia / K):
+
+On Ubuntu 24.04 with NVIDIA drivers, `WebKitWebProcess` can crash (`SIGTRAP`) in WebKitGTK.
+
+Try running with:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ./target/release/kaspa-ng
+```
+
+If you still hit rendering instability, test with software GL:
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 ./target/release/kaspa-ng
+```
+
 #### Fedora:
 ```bash
 sudo dnf install glib2-devel atk-devel gtk3-devel webkit2gtk4.0-devel pkgconf-pkg-config

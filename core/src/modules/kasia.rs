@@ -180,6 +180,8 @@ pub struct Kasia {
     last_probe_ok: Option<bool>,
     #[cfg(not(target_arch = "wasm32"))]
     last_probe_status: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_webview_attempt: Option<std::time::Instant>,
 }
 
 impl Kasia {
@@ -204,6 +206,8 @@ impl Kasia {
             last_probe_ok: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_probe_status: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_webview_attempt: None,
         }
     }
 
@@ -393,6 +397,7 @@ impl ModuleT for Kasia {
                 self.last_probe_ok = None;
                 self.last_probe_status = None;
                 self.last_probe_at = None;
+                self.last_webview_attempt = None;
                 ui.label(i18n("Kasia is available only on Mainnet."));
                 return;
             }
@@ -514,6 +519,13 @@ impl ModuleT for Kasia {
             }
 
             if self.webview.is_none() {
+                if let Some(last_attempt) = self.last_webview_attempt
+                    && last_attempt.elapsed() < Duration::from_secs(2)
+                {
+                    return;
+                }
+                self.last_webview_attempt = Some(std::time::Instant::now());
+
                 let server_url = self
                     .server
                     .as_ref()
@@ -544,6 +556,7 @@ impl ModuleT for Kasia {
                         self.last_zoom = Some(target_zoom);
                         self.last_signature = signature;
                         self.status = None;
+                        self.last_webview_attempt = None;
                     }
                     Err(err) => {
                         #[cfg(target_os = "linux")]
