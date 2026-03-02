@@ -11,6 +11,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
 #[cfg(not(target_arch = "wasm32"))]
@@ -363,6 +365,16 @@ fn webview_bounds_from_rect(rect: egui::Rect, pixels_per_point: f32) -> WryRect 
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn ensure_gtk_initialized() -> std::result::Result<(), String> {
+    static INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+    let result = INIT.get_or_init(|| gtk::init().map_err(|err| format!("{err}")));
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => Err(err.clone()),
+    }
+}
+
 pub struct KSocial {
     #[allow(dead_code)]
     runtime: Runtime,
@@ -574,6 +586,19 @@ impl ModuleT for KSocial {
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         {
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(err) = ensure_gtk_initialized() {
+                    self.status = Some(format!("GTK init failed: {err}"));
+                    self.push_log(format!("K-Social: GTK init failed ({err})"));
+                    ui.colored_label(theme_color().error_color, i18n("K-Social is unavailable."));
+                    return;
+                }
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+            }
+
             if !matches!(core.settings.node.network, Network::Mainnet) {
                 clear_footer_connection_status();
                 ui.label(i18n("K-Social is available only on Mainnet."));
@@ -833,7 +858,16 @@ impl ModuleT for KSocial {
                             self.push_log("K-Social: WebView attached");
                         }
                         Err(err) => {
-                            self.status = Some(format!("K-Social WebView error: {err}"));
+                            #[cfg(target_os = "linux")]
+                            {
+                                self.status = Some(format!(
+                                    "K-Social WebView error: {err}. Ensure webkit2gtk is installed (e.g. libwebkit2gtk-4.1-dev or webkit2gtk4.0-devel).",
+                                ));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                self.status = Some(format!("K-Social WebView error: {err}"));
+                            }
                             self.push_log(format!("K-Social: WebView error ({err})"));
                         }
                     }

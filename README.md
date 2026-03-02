@@ -36,15 +36,37 @@ In addition, on linux, you need to install the following dependencies:
 
 #### Ubuntu/Debian/Mint:
 ```bash
+# Base dependencies
 sudo apt-get update
 sudo apt-get install \
+  build-essential pkg-config curl ca-certificates git \
   libglib2.0-dev libatk1.0-dev libgtk-3-dev pkg-config \
-  # Ubuntu 24.04 / Mint 22 (noble/zena):
-  libwebkit2gtk-4.1-dev \
-  # Older Ubuntu/Mint:
-  # libwebkit2gtk-4.0-dev \
+  python3 python3-venv python3-pip \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
   libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
+
+# Ubuntu 24.04 / Mint 22 (noble/zena)
+sudo apt-get install libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+
+# Older Ubuntu/Mint
+# sudo apt-get install libwebkit2gtk-4.0-dev libjavascriptcoregtk-4.0-dev libsoup2.4-dev
+
+# Node.js 22 + npm (build script requires node >= 22)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install nodejs
+
+# Verify
+node --version
+npm --version
+python3 --version
+python3 -m pip --version
+
+# If existing venvs were created without pip, recreate/repair them
+rm -rf kaspa-rest-server/.venv kaspa-socket-server/.venv
+python3 -m venv kaspa-rest-server/.venv
+python3 -m venv kaspa-socket-server/.venv
+kaspa-rest-server/.venv/bin/python -m ensurepip --upgrade
+kaspa-socket-server/.venv/bin/python -m ensurepip --upgrade
 ```
 
 #### Fedora:

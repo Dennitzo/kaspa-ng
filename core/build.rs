@@ -1610,20 +1610,58 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
     let npm = resolve_npm_command()
         .ok_or("npm command not found (checked NPM env, PATH and common node-adjacent paths)")?;
     let node_modules = kasvault_root.join("node_modules");
+    let npm_cmd = |args: &[&str]| {
+        let mut cmd = Command::new(&npm);
+        cmd.current_dir(&kasvault_root)
+            .env("HUSKY", "0")
+            .env("CI", "true")
+            .env("npm_config_audit", "false")
+            .env("npm_config_fund", "false")
+            .env("npm_config_fetch_retries", "5")
+            .env("npm_config_fetch_retry_factor", "2")
+            .env("npm_config_fetch_retry_mintimeout", "10000")
+            .env("npm_config_fetch_retry_maxtimeout", "120000")
+            .args(args);
+        cmd
+    };
 
     if !node_modules.exists() {
-        let status = if lockfile.exists() {
-            Command::new(&npm)
-                .current_dir(&kasvault_root)
-                .args(["ci", "--no-audit", "--no-fund"])
+        let mut ok = if lockfile.exists() {
+            npm_cmd(&["ci", "--no-audit", "--no-fund", "--prefer-offline"])
                 .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
         } else {
-            Command::new(&npm)
-                .current_dir(&kasvault_root)
-                .args(["install", "--no-audit", "--no-fund"])
+            npm_cmd(&["install", "--no-audit", "--no-fund", "--prefer-offline"])
                 .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
         };
-        if status.map(|s| !s.success()).unwrap_or(true) {
+
+        if !ok {
+            println!("cargo:warning=KasVault npm install failed; retrying with --include=optional");
+            ok = npm_cmd(&[
+                "install",
+                "--no-audit",
+                "--no-fund",
+                "--prefer-offline",
+                "--include=optional",
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        }
+
+        if !ok {
+            println!("cargo:warning=KasVault npm install failed; retrying with clean npm cache");
+            let _ = npm_cmd(&["cache", "verify"]).status();
+            ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        }
+
+        if !ok {
             return Err("KasVault npm install failed".into());
         }
     }

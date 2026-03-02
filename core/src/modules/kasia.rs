@@ -15,6 +15,8 @@ use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
 #[cfg(not(target_arch = "wasm32"))]
@@ -135,6 +137,16 @@ fn webview_bounds_from_rect(rect: egui::Rect, pixels_per_point: f32) -> WryRect 
     WryRect {
         position: PhysicalPosition::new(min_x, min_y).into(),
         size: PhysicalSize::new((max_x - min_x).max(1.0), (max_y - min_y).max(1.0)).into(),
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn ensure_gtk_initialized() -> std::result::Result<(), String> {
+    static INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+    let result = INIT.get_or_init(|| gtk::init().map_err(|err| format!("{err}")));
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => Err(err.clone()),
     }
 }
 
@@ -356,6 +368,18 @@ impl ModuleT for Kasia {
     ) {
         #[cfg(not(target_arch = "wasm32"))]
         {
+            #[cfg(target_os = "linux")]
+            {
+                if let Err(err) = ensure_gtk_initialized() {
+                    self.status = Some(format!("GTK init failed: {err}"));
+                    ui.colored_label(theme_color().error_color, i18n("Kasia is unavailable."));
+                    return;
+                }
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+            }
+
             if !matches!(core.settings.node.network, Network::Mainnet) {
                 clear_footer_connection_status();
                 if let Some(webview) = &self.webview {
@@ -522,7 +546,17 @@ impl ModuleT for Kasia {
                         self.status = None;
                     }
                     Err(err) => {
-                        self.status = Some(format!("Kasia WebView error: {err}"));
+                        #[cfg(target_os = "linux")]
+                        {
+                            self.status = Some(format!(
+                                "Kasia WebView error: {err}. Ensure webkit2gtk is installed (e.g. libwebkit2gtk-4.1-dev or webkit2gtk4.0-devel).",
+                            ));
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            self.status = Some(format!("Kasia WebView error: {err}"));
+                        }
+                        log_warn!("Kasia WebView error: {err}");
                     }
                 }
             } else if let Some(webview) = &self.webview {

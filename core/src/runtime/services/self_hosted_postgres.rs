@@ -1456,6 +1456,11 @@ impl SelfHostedPostgresService {
         }
         self.initdb_if_needed(&settings, &data_dir)?;
 
+        #[cfg(unix)]
+        let socket_dir = data_dir.join("socket");
+        #[cfg(unix)]
+        std::fs::create_dir_all(&socket_dir)?;
+
         let postgres_bin = Self::postgres_bin_path("postgres")?;
         let mut cmd = Command::new(&postgres_bin);
         Self::apply_postgres_runtime_env_for_tokio_command(&mut cmd, &postgres_bin);
@@ -1478,6 +1483,10 @@ impl SelfHostedPostgresService {
             .env("LC_MESSAGES", "C")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        #[cfg(unix)]
+        cmd.arg("-c")
+            .arg(format!("unix_socket_directories={}", socket_dir.display()));
 
         #[cfg(windows)]
         {
