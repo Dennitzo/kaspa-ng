@@ -279,7 +279,7 @@ impl SelfHostedLoaderService {
 
         for dir in Self::postgres_candidate_bin_dirs() {
             let candidate = dir.join(&binary_name);
-            if !Self::runnable_binary(&candidate) {
+            if !candidate.exists() || !candidate.is_file() {
                 continue;
             }
             let postgres_candidate = dir.join(if cfg!(windows) {
@@ -290,7 +290,7 @@ impl SelfHostedLoaderService {
             let major_ok = Self::postgres_binary_major_version(&postgres_candidate)
                 .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
                 .unwrap_or(false);
-            if major_ok {
+            if major_ok && (binary != "postgres" || Self::runnable_binary(&candidate)) {
                 return Some(candidate);
             }
         }

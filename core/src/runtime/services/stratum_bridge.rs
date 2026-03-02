@@ -4,8 +4,9 @@ use crate::runtime::Service;
 cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
         use crate::runtime::services::kaspa::logs::Log;
+        use std::collections::HashMap;
         use std::process::Stdio;
-        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
         use tokio::net::TcpStream;
         use tokio::process::{Child, Command};
 
@@ -14,6 +15,18 @@ cfg_if! {
         const BLOCK_BUFFER_LINES: usize = 256;
         const BLOCK_BUFFER_MARGIN: usize = 32;
         const RESTART_DELAY: Duration = Duration::from_secs(3);
+        const BRIDGE_PROM_PORT: u16 = 2114;
+        const STATS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+        const STATS_WORKER_WIDTH: usize = 16;
+        const STATS_WALLET_WIDTH: usize = 18;
+        const STATS_INST_WIDTH: usize = 5;
+        const STATS_HASH_WIDTH: usize = 11;
+        const STATS_DIFF_WIDTH: usize = 6;
+        const STATS_SPM_WIDTH: usize = 11;
+        const STATS_TRND_WIDTH: usize = 4;
+        const STATS_ACC_WIDTH: usize = 12;
+        const STATS_BLK_WIDTH: usize = 6;
+        const STATS_TIME_WIDTH: usize = 11;
 
         fn default_grpc_port_for_network(network: Network) -> u16 {
             crate::settings::node_grpc_port_for_network(network)
@@ -37,6 +50,17 @@ cfg_if! {
         fn is_bridge_table_line(line: &str) -> bool {
             let trimmed = line.trim_start();
             trimmed.starts_with('+') || trimmed.starts_with('|')
+        }
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct BridgeStatsWorker {
+            worker: String,
+            wallet: String,
+        }
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct BridgeStatsResponse {
+            workers: Vec<BridgeStatsWorker>,
         }
 
         pub fn update_logs_flag() -> &'static Arc<AtomicBool> {
@@ -77,6 +101,7 @@ cfg_if! {
             restart_pending: AtomicBool,
             logs: Mutex<Vec<Log>>,
             blocks: Mutex<Vec<BridgeBlock>>,
+            worker_wallets: Mutex<HashMap<String, String>>,
             last_block_hash: Mutex<Option<String>>,
             node_settings: Mutex<NodeSettings>,
             child: Mutex<Option<Child>>,
@@ -94,6 +119,7 @@ cfg_if! {
                     restart_pending: AtomicBool::new(false),
                     logs: Mutex::new(Vec::new()),
                     blocks: Mutex::new(Vec::new()),
+                    worker_wallets: Mutex::new(HashMap::new()),
                     last_block_hash: Mutex::new(None),
                     node_settings: Mutex::new(settings.node.clone()),
                     child: Mutex::new(None),
@@ -124,15 +150,16 @@ cfg_if! {
             }
 
             async fn update_logs(&self, line: String) {
+                let display_line = self.rewrite_stats_table_line(&line);
                 {
                     let mut logs = self.logs.lock().unwrap();
                     if logs.len() > LOG_BUFFER_LINES {
                         logs.drain(0..LOG_BUFFER_MARGIN);
                     }
-                    if is_bridge_table_line(&line) {
-                        logs.push(Log::Processed(line.clone()));
+                    if is_bridge_table_line(&display_line) {
+                        logs.push(Log::Processed(display_line.clone()));
                     } else {
-                        logs.push(line.as_str().into());
+                        logs.push(display_line.as_str().into());
                     }
                 }
 
@@ -321,6 +348,183 @@ cfg_if! {
                 }
             }
 
+            fn truncate_cell(value: &str, width: usize) -> String {
+                let value = value.trim();
+                let chars = value.chars().count();
+                if chars <= width {
+                    return value.to_string();
+                }
+                if width <= 3 {
+                    return value.chars().take(width).collect();
+                }
+                let head: String = value.chars().take(width - 3).collect();
+                format!("{head}...")
+            }
+
+            fn short_wallet_label(value: &str) -> String {
+                let wallet = value.trim();
+                if wallet.is_empty() {
+                    return String::new();
+                }
+
+                let (prefix, payload) = if let Some((prefix, payload)) = wallet.split_once(':') {
+                    (prefix, payload)
+                } else {
+                    ("wallet", wallet)
+                };
+                let normalized_prefix = prefix.trim().to_ascii_lowercase();
+                let compact = payload.trim();
+                let first: String = compact.chars().take(4).collect();
+                let last: String = compact
+                    .chars()
+                    .rev()
+                    .take(4)
+                    .collect::<Vec<char>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                if first.is_empty() || last.is_empty() {
+                    format!("{normalized_prefix}:{compact}")
+                } else {
+                    format!("{normalized_prefix}:{first}...{last}")
+                }
+            }
+
+            fn stats_border_line() -> String {
+                format!(
+                    "+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+-{}-+",
+                    "-".repeat(STATS_WORKER_WIDTH),
+                    "-".repeat(STATS_WALLET_WIDTH),
+                    "-".repeat(STATS_INST_WIDTH),
+                    "-".repeat(STATS_HASH_WIDTH),
+                    "-".repeat(STATS_DIFF_WIDTH),
+                    "-".repeat(STATS_SPM_WIDTH),
+                    "-".repeat(STATS_TRND_WIDTH),
+                    "-".repeat(STATS_ACC_WIDTH),
+                    "-".repeat(STATS_BLK_WIDTH),
+                    "-".repeat(STATS_TIME_WIDTH)
+                )
+            }
+
+            fn stats_header_line() -> String {
+                format!(
+                    "| {:<STATS_WORKER_WIDTH$} | {:<STATS_WALLET_WIDTH$} | {:<STATS_INST_WIDTH$} | {:>STATS_HASH_WIDTH$} | {:>STATS_DIFF_WIDTH$} | {:>STATS_SPM_WIDTH$} | {:<STATS_TRND_WIDTH$} | {:>STATS_ACC_WIDTH$} | {:>STATS_BLK_WIDTH$} | {:>STATS_TIME_WIDTH$} |",
+                    "Worker", "Wallet", "Inst", "Hash", "Diff", "SPM|TGT", "Trnd", "Acc|Stl|Inv", "Blocks", "D|HR|M|S",
+                )
+            }
+
+            fn resolve_wallet_for_worker(&self, worker: &str) -> Option<String> {
+                let worker = worker.trim();
+                if worker.is_empty() {
+                    return None;
+                }
+                let map = self.worker_wallets.lock().unwrap();
+                if let Some(wallet) = map.get(worker) {
+                    return Some(wallet.clone());
+                }
+                map.iter().find_map(|(known_worker, wallet)| {
+                    if known_worker.starts_with(worker) || worker.starts_with(known_worker) {
+                        Some(wallet.clone())
+                    } else {
+                        None
+                    }
+                })
+            }
+
+            fn rewrite_stats_table_line(&self, line: &str) -> String {
+                let trimmed = line.trim_start();
+                if !(trimmed.starts_with('|') || trimmed.starts_with('+')) {
+                    return line.to_string();
+                }
+
+                if trimmed.starts_with('+') && trimmed.contains("-+-") {
+                    return Self::stats_border_line();
+                }
+
+                if trimmed.contains("| Worker") && trimmed.contains("| Inst") {
+                    return Self::stats_header_line();
+                }
+
+                if !trimmed.starts_with('|') {
+                    return line.to_string();
+                }
+
+                let columns: Vec<String> = trimmed
+                    .trim_matches('|')
+                    .split('|')
+                    .map(|part| part.trim().to_string())
+                    .collect();
+                if columns.len() != 9 {
+                    return line.to_string();
+                }
+
+                let worker = columns[0].clone();
+                let inst = columns[1].clone();
+                let wallet_short = self
+                    .resolve_wallet_for_worker(worker.as_str())
+                    .map(|wallet| Self::short_wallet_label(wallet.as_str()))
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "-".to_string());
+
+                format!(
+                    "| {:<STATS_WORKER_WIDTH$} | {:<STATS_WALLET_WIDTH$} | {:<STATS_INST_WIDTH$} | {:>STATS_HASH_WIDTH$} | {:>STATS_DIFF_WIDTH$} | {:>STATS_SPM_WIDTH$} | {:<STATS_TRND_WIDTH$} | {:>STATS_ACC_WIDTH$} | {:>STATS_BLK_WIDTH$} | {:>STATS_TIME_WIDTH$} |",
+                    Self::truncate_cell(worker.as_str(), STATS_WORKER_WIDTH),
+                    Self::truncate_cell(wallet_short.as_str(), STATS_WALLET_WIDTH),
+                    Self::truncate_cell(inst.as_str(), STATS_INST_WIDTH),
+                    Self::truncate_cell(columns[2].as_str(), STATS_HASH_WIDTH),
+                    Self::truncate_cell(columns[3].as_str(), STATS_DIFF_WIDTH),
+                    Self::truncate_cell(columns[4].as_str(), STATS_SPM_WIDTH),
+                    Self::truncate_cell(columns[5].as_str(), STATS_TRND_WIDTH),
+                    Self::truncate_cell(columns[6].as_str(), STATS_ACC_WIDTH),
+                    Self::truncate_cell(columns[7].as_str(), STATS_BLK_WIDTH),
+                    Self::truncate_cell(columns[8].as_str(), STATS_TIME_WIDTH),
+                )
+            }
+
+            fn stats_http_addr() -> String {
+                format!("127.0.0.1:{BRIDGE_PROM_PORT}")
+            }
+
+            async fn refresh_worker_wallets(&self) {
+                let mut stream = match TcpStream::connect(Self::stats_http_addr()).await {
+                    Ok(stream) => stream,
+                    Err(_) => return,
+                };
+
+                let request = b"GET /api/stats HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+                if stream.write_all(request).await.is_err() {
+                    return;
+                }
+
+                let mut bytes = Vec::new();
+                if stream.read_to_end(&mut bytes).await.is_err() {
+                    return;
+                }
+
+                let response = String::from_utf8_lossy(&bytes);
+                let Some((_, body)) = response.split_once("\r\n\r\n") else {
+                    return;
+                };
+
+                let Ok(stats) = serde_json::from_str::<BridgeStatsResponse>(body) else {
+                    return;
+                };
+
+                let mut next = HashMap::<String, String>::new();
+                for worker in stats.workers {
+                    let worker_name = worker.worker.trim();
+                    let wallet = worker.wallet.trim();
+                    if worker_name.is_empty() || wallet.is_empty() {
+                        continue;
+                    }
+                    next.insert(worker_name.to_string(), wallet.to_string());
+                }
+
+                if !next.is_empty() {
+                    *self.worker_wallets.lock().unwrap() = next;
+                }
+            }
+
             fn grpc_address_from_settings(settings: &NodeSettings) -> Option<String> {
                 if !settings.enable_grpc {
                     return None;
@@ -453,6 +657,7 @@ coinbase_tag_suffix: "{coinbase_tag_suffix}"
 
 instances:
   - stratum_port: "{stratum_port}"
+    prom_port: ":{prom_port}"
     min_share_diff: {min_share_diff}
 "#
                     ,
@@ -466,6 +671,7 @@ instances:
                     pow2_clamp = bridge.pow2_clamp,
                     extranonce_size = extranonce_size,
                     coinbase_tag_suffix = coinbase_tag_suffix,
+                    prom_port = BRIDGE_PROM_PORT,
                     stratum_port = stratum_port,
                     min_share_diff = min_share_diff,
                 );
@@ -629,6 +835,18 @@ instances:
 
                 *self.child.lock().unwrap() = Some(child);
                 self.update_logs(i18n("RK Bridge: started in external mode").to_string()).await;
+
+                let stats_sync = Arc::clone(self);
+                tokio::spawn(async move {
+                    let mut tick = tokio::time::interval(STATS_REFRESH_INTERVAL);
+                    loop {
+                        tick.tick().await;
+                        if !stats_sync.is_enabled.load(Ordering::SeqCst) || !stats_sync.is_running() {
+                            return;
+                        }
+                        stats_sync.refresh_worker_wallets().await;
+                    }
+                });
 
                 // Monitor child exit and clear handle
                 let monitor = Arc::clone(self);

@@ -442,20 +442,27 @@ impl SelfHostedPostgresService {
         for bin_dir in Self::candidate_bin_dirs() {
             let candidate = bin_dir.join(&bin_name);
             searched.push(candidate.display().to_string());
-            if !Self::is_runnable_binary(&candidate) {
+            if !candidate.exists() || !candidate.is_file() {
                 continue;
             }
             let is_supported_major = if binary == "postgres" {
-                Self::postgres_binary_major_version_from_bin(&candidate)
-                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
-                    .unwrap_or(false)
+                if !Self::is_runnable_binary(&candidate) {
+                    false
+                } else {
+                    Self::postgres_binary_major_version_from_bin(&candidate)
+                        .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                        .unwrap_or(false)
+                }
             } else {
                 let postgres_candidate = bin_dir.join(if cfg!(windows) {
                     "postgres.exe"
                 } else {
                     "postgres"
                 });
-                Self::postgres_binary_major_version_from_bin(&postgres_candidate)
+                Self::postgres_binary_major_version_from_bin(&candidate)
+                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                    .unwrap_or(false)
+                || Self::postgres_binary_major_version_from_bin(&postgres_candidate)
                     .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
                     .unwrap_or(false)
             };
