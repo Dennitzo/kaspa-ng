@@ -39,11 +39,11 @@ is_expected_runtime_root() {
 run_with_sudo() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
-    return 0
+    return $?
   fi
   if command -v sudo >/dev/null 2>&1; then
     sudo "$@"
-    return 0
+    return $?
   fi
   echo "Command requires root privileges and sudo is not available: $*" >&2
   return 1
