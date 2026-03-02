@@ -1126,7 +1126,9 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     if !wasm_built {
         let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
         if wasm_status.map(|s| !s.success()).unwrap_or(true) {
-            println!("cargo:warning=Kasia wasm:build failed; restoring fallback cipher package and continuing with production build");
+            println!(
+                "cargo:warning=Kasia wasm:build failed; restoring fallback cipher package and continuing with production build"
+            );
             ensure_kasia_fallback_packages(
                 &cipher_wasm_dir,
                 &cipher_wasm_package,
@@ -1210,7 +1212,15 @@ fn build_kasia_cipher_wasm_no_opt(kasia_root: &Path) -> bool {
 
     let status = Command::new("wasm-pack")
         .current_dir(&cipher_dir)
-        .args(["build", "--target", "web", "--release", "--no-opt", "-d", "../cipher-wasm"])
+        .args([
+            "build",
+            "--target",
+            "web",
+            "--release",
+            "--no-opt",
+            "-d",
+            "../cipher-wasm",
+        ])
         .status();
 
     match status {

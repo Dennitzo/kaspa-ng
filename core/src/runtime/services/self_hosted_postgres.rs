@@ -158,9 +158,12 @@ impl SelfHostedPostgresService {
             return None;
         }
         let text = String::from_utf8(output.stdout).ok()?;
-        let token = text
-            .split_whitespace()
-            .find(|part| part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))?;
+        let token = text.split_whitespace().find(|part| {
+            part.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        })?;
         token
             .split('.')
             .next()
@@ -176,8 +179,7 @@ impl SelfHostedPostgresService {
             .and_then(|value| value.to_str())
             .unwrap_or("cluster");
         let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-        let backup_dir =
-            parent.join(format!("{leaf}.pg{from_major}-to-pg{to_major}.bak-{stamp}"));
+        let backup_dir = parent.join(format!("{leaf}.pg{from_major}-to-pg{to_major}.bak-{stamp}"));
 
         std::fs::rename(data_dir, &backup_dir).map_err(|err| {
             Error::Custom(format!(
