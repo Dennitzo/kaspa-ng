@@ -32,7 +32,7 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
-    const REQUIRED_PY_MODULES: [&'static str; 8] = [
+    const REQUIRED_PY_MODULES: [&'static str; 10] = [
         "uvicorn",
         "fastapi_utils",
         "typing_inspect",
@@ -41,8 +41,10 @@ impl SelfHostedExplorerService {
         "asyncpg",
         "grpc",
         "requests",
+        "kaspa_script_address",
+        "kaspa",
     ];
-    const REQUIRED_PIP_PACKAGES: [&'static str; 14] = [
+    const REQUIRED_PIP_PACKAGES: [&'static str; 16] = [
         "uvicorn",
         "fastapi",
         "fastapi-utils",
@@ -57,6 +59,8 @@ impl SelfHostedExplorerService {
         "cachetools",
         "psycopg2-binary",
         "waitress",
+        "kaspa-script-address",
+        "kaspa",
     ];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)

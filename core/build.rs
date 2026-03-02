@@ -390,6 +390,8 @@ fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
             "gunicorn",
             "asyncpg",
             "grpc",
+            "kaspa_script_address",
+            "kaspa",
         ],
         &[
             "gunicorn",
