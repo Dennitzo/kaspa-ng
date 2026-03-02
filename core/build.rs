@@ -499,9 +499,29 @@ fn venv_python_is_too_new_for_runtime_deps(venv_python: &Path) -> bool {
 }
 
 fn external_builds_enabled() -> bool {
+    let target = std::env::var("TARGET").unwrap_or_default();
+    let forced = std::env::var("KASPA_NG_FORCE_EXTERNAL_BUILDS")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if target.contains("wasm32") && !forced {
+        return false;
+    }
+
     !std::env::var("KASPA_NG_SKIP_EXTERNAL_BUILDS")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+fn is_clippy_build() -> bool {
+    for key in ["RUSTC_WORKSPACE_WRAPPER", "RUSTC_WRAPPER"] {
+        if let Ok(value) = std::env::var(key) {
+            let lower = value.to_ascii_lowercase();
+            if lower.contains("clippy-driver") || lower.contains("clippy") {
+                return true;
+            }
+        }
+    }
+    std::env::var("CLIPPY_ARGS").is_ok() || std::env::var("CARGO_CFG_CLIPPY").is_ok()
 }
 
 fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Error>> {
@@ -850,12 +870,29 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     };
 
     if !node_modules.exists() {
-        let status = if lockfile.exists() {
-            npm_cmd(&["ci", "--no-audit", "--no-fund"]).status()
+        let mut ok = if lockfile.exists() {
+            npm_cmd(&["ci", "--no-audit", "--no-fund"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
         } else {
-            npm_cmd(&["install", "--no-audit", "--no-fund"]).status()
+            npm_cmd(&["install", "--no-audit", "--no-fund"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
         };
-        if status.map(|s| !s.success()).unwrap_or(true) {
+
+        if !ok && lockfile.exists() {
+            println!(
+                "cargo:warning=Kasia npm ci failed; retrying with npm install (lockfile fallback)"
+            );
+            ok = npm_cmd(&["install", "--no-audit", "--no-fund"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        }
+
+        if !ok {
             return Err("Kasia npm install failed".into());
         }
     }
@@ -1719,6 +1756,11 @@ fn build_stratum_bridge_if_needed() -> Result<(), Box<dyn Error>> {
 }
 
 fn build_simply_kaspa_indexer_if_needed() -> Result<(), Box<dyn Error>> {
+    if is_clippy_build() {
+        println!("cargo:warning=Skipping simply-kaspa-indexer build during clippy");
+        return Ok(());
+    }
+
     let host = std::env::var("HOST").unwrap_or_default();
     let target = std::env::var("TARGET").unwrap_or_default();
     if !host.is_empty() && !target.is_empty() && host != target {

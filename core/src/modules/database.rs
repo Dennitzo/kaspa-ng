@@ -33,7 +33,6 @@ struct LoaderStatus {
     indexers_ready: bool,
     rest_ready: bool,
     socket_ready: bool,
-    last_ping_at: String,
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -481,9 +480,6 @@ impl ModuleT for Database {
                                 );
                                 ui.end_row();
 
-                                ui.label(i18n("Last Ping"));
-                                ui.colored_label(value_color, loader.last_ping_at.as_str());
-                                ui.end_row();
                             }
                         });
                 });
