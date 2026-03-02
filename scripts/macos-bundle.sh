@@ -218,16 +218,15 @@ copy_file_if_exists \
   "${MACOS_DIR}/kasia-indexer" || true
 
 # Bundle internal PostgreSQL runtime used by self-hosted services.
-if [ ! -x "${ROOT}/target/${PROFILE}/postgres/bin/postgres" ] && [ -f "$POSTGRES_STAGE_SCRIPT" ]; then
-  bash "$POSTGRES_STAGE_SCRIPT" "${ROOT}/target/${PROFILE}/postgres" || true
+if [ -f "$POSTGRES_STAGE_SCRIPT" ]; then
+  bash "$POSTGRES_STAGE_SCRIPT" "${ROOT}/target/${PROFILE}/postgres"
 fi
-if [ -d "${ROOT}/target/${PROFILE}/postgres" ]; then
-  mkdir -p "${RES_DIR}/postgres"
-  cp -R "${ROOT}/target/${PROFILE}/postgres"/. "${RES_DIR}/postgres/"
-elif [ -d "${ROOT}/postgres" ]; then
-  mkdir -p "${RES_DIR}/postgres"
-  cp -R "${ROOT}/postgres"/. "${RES_DIR}/postgres/"
+if [ ! -d "${ROOT}/target/${PROFILE}/postgres" ]; then
+  echo "Missing staged PostgreSQL runtime: ${ROOT}/target/${PROFILE}/postgres" >&2
+  exit 1
 fi
+mkdir -p "${RES_DIR}/postgres"
+cp -R "${ROOT}/target/${PROFILE}/postgres"/. "${RES_DIR}/postgres/"
 
 ICON_SRC="${ROOT}/core/resources/icons/icon-1024.png"
 ICONSET="${RES_DIR}/${APP_NAME}.iconset"

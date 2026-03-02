@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 use vergen::EmitBuilder;
 
@@ -203,6 +203,26 @@ fn command_path_succeeds(program: &Path, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+fn postgres_major_version(program: &Path) -> Option<u32> {
+    let output = Command::new(program)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let token = text.split_whitespace().find(|part| {
+        part.chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+    })?;
+    token.split('.').next()?.parse::<u32>().ok()
+}
+
 fn is_truthy_env(var: &str) -> bool {
     std::env::var(var)
         .map(|value| {
@@ -212,6 +232,8 @@ fn is_truthy_env(var: &str) -> bool {
 }
 
 fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
+    const EXPECTED_POSTGRES_MAJOR: u32 = 15;
+
     if is_truthy_env("KASPA_NG_SKIP_POSTGRES_RUNTIME_SETUP") {
         println!(
             "cargo:warning=Skipping postgres runtime staging (KASPA_NG_SKIP_POSTGRES_RUNTIME_SETUP=1)"
@@ -236,14 +258,18 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
         "postgres"
     });
 
-    if command_path_succeeds(&staged_postgres, &["--version"]) {
+    if command_path_succeeds(&staged_postgres, &["--version"])
+        && postgres_major_version(&staged_postgres) == Some(EXPECTED_POSTGRES_MAJOR)
+    {
         return Ok(());
     }
 
     #[cfg(windows)]
     {
         let script = repo_root.join("scripts").join("stage-postgres-runtime.ps1");
+        let fetch_script = repo_root.join("scripts").join("fetch-postgres-runtime.ps1");
         println!("cargo:rerun-if-changed={}", script.display());
+        println!("cargo:rerun-if-changed={}", fetch_script.display());
         println!(
             "cargo:warning=Staging PostgreSQL runtime to {}",
             out_dir.display()
@@ -286,7 +312,9 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
     #[cfg(not(windows))]
     {
         let script = repo_root.join("scripts").join("stage-postgres-runtime.sh");
+        let fetch_script = repo_root.join("scripts").join("fetch-postgres-runtime.sh");
         println!("cargo:rerun-if-changed={}", script.display());
+        println!("cargo:rerun-if-changed={}", fetch_script.display());
         println!(
             "cargo:warning=Staging PostgreSQL runtime to {}",
             out_dir.display()
@@ -309,6 +337,15 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
         return Err(format!(
             "staged PostgreSQL runtime is not usable at {}",
             staged_postgres.display()
+        )
+        .into());
+    }
+
+    if postgres_major_version(&staged_postgres) != Some(EXPECTED_POSTGRES_MAJOR) {
+        return Err(format!(
+            "staged PostgreSQL runtime has unsupported major version at {} (expected PostgreSQL {})",
+            staged_postgres.display(),
+            EXPECTED_POSTGRES_MAJOR
         )
         .into());
     }

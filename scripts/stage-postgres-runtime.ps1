@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ExpectedMajor = 15
 
 if (-not $RepoRoot) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -11,6 +12,8 @@ if (-not $RepoRoot) {
 if (-not $OutDir) {
     $OutDir = Join-Path $RepoRoot "target\release\postgres"
 }
+
+$SourceRoot = Join-Path $RepoRoot "postgres"
 
 function Copy-Tree {
     param([string]$Src, [string]$Dst)
@@ -20,145 +23,80 @@ function Copy-Tree {
     return $true
 }
 
-function Resolve-PostgresRootFromExe {
-    param([string]$ExePath)
-    if (-not $ExePath) { return $null }
-    $binDir = Split-Path -Parent $ExePath
-    if (-not $binDir) { return $null }
-    $root = Split-Path -Parent $binDir
-    if (-not $root) { return $null }
-    if (Test-Path -LiteralPath (Join-Path $root "bin\postgres.exe")) {
-        return $root
+function Get-PostgresMajorVersion {
+    param([string]$Root)
+    $exe = Join-Path $Root "bin\postgres.exe"
+    if (-not (Test-Path -LiteralPath $exe)) { return $null }
+    try {
+        $output = & $exe --version 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $output) { return $null }
+        $text = [string]::Join(" ", $output)
+        $match = [regex]::Match($text, "\d+")
+        if ($match.Success) {
+            return [int]$match.Value
+        }
+    } catch {
+        return $null
     }
     return $null
 }
 
-function Get-InstalledPostgresRoots {
-    $roots = New-Object System.Collections.Generic.List[string]
-    $bases = @(
-        "C:\Program Files\PostgreSQL",
-        "C:\Program Files (x86)\PostgreSQL"
-    )
-
-    foreach ($base in $bases) {
-        if (-not (Test-Path -LiteralPath $base)) { continue }
-        foreach ($child in (Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)) {
-            $exe = Join-Path $child.FullName "bin\postgres.exe"
-            if (Test-Path -LiteralPath $exe) {
-                $roots.Add($child.FullName) | Out-Null
-            }
-        }
-    }
-
-    $postgresCmd = Get-Command postgres -ErrorAction SilentlyContinue
-    if ($postgresCmd -and $postgresCmd.Path) {
-        $pathRoot = Resolve-PostgresRootFromExe -ExePath $postgresCmd.Path
-        if ($pathRoot) {
-            $roots.Add($pathRoot) | Out-Null
-        }
-    }
-
-    $unique = $roots | Sort-Object -Unique
-    $scored = foreach ($root in $unique) {
-        $leaf = Split-Path -Leaf $root
-        $major = 0
-        if ($leaf -match '^\d+$') {
-            $major = [int]$leaf
-        }
-        [PSCustomObject]@{
-            Root = $root
-            Major = $major
-        }
-    }
-
-    return $scored `
-        | Sort-Object -Property @{Expression = "Major"; Descending = $true}, @{Expression = "Root"; Descending = $false} `
-        | Select-Object -ExpandProperty Root
-}
-
-function Test-UsablePostgresRoot {
+function Test-ExpectedRuntimeRoot {
     param([string]$Root)
     if (-not $Root) { return $false }
-    $exe = Join-Path $Root "bin\postgres.exe"
-    if (-not (Test-Path -LiteralPath $exe)) { return $false }
+
+    $postgres = Join-Path $Root "bin\postgres.exe"
+    $initdb = Join-Path $Root "bin\initdb.exe"
+    $pgCtl = Join-Path $Root "bin\pg_ctl.exe"
+
+    if (-not (Test-Path -LiteralPath $postgres)) { return $false }
+    if (-not (Test-Path -LiteralPath $initdb)) { return $false }
+    if (-not (Test-Path -LiteralPath $pgCtl)) { return $false }
+
+    $major = Get-PostgresMajorVersion -Root $Root
+    if ($major -ne $ExpectedMajor) { return $false }
+
     try {
-        & $exe --version *> $null
-        return ($LASTEXITCODE -eq 0)
+        & $initdb --version *> $null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & $pgCtl --version *> $null
+        if ($LASTEXITCODE -ne 0) { return $false }
     } catch {
         return $false
     }
-}
 
-function Try-StagePostgresRuntime {
-    param(
-        [string]$SourceRoot,
-        [string]$TargetOutDir
-    )
-
-    if (Test-Path -LiteralPath $TargetOutDir) {
-        Remove-Item -LiteralPath $TargetOutDir -Recurse -Force
-    }
-    New-Item -ItemType Directory -Force -Path $TargetOutDir | Out-Null
-
-    $ok = $true
-    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "bin") -Dst (Join-Path $TargetOutDir "bin")) -and $ok
-    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "lib") -Dst (Join-Path $TargetOutDir "lib")) -and $ok
-    $ok = (Copy-Tree -Src (Join-Path $SourceRoot "share") -Dst (Join-Path $TargetOutDir "share")) -and $ok
-
-    if (-not $ok) { return $false }
-    if (-not (Test-Path -LiteralPath (Join-Path $TargetOutDir "bin\postgres.exe"))) { return $false }
     return $true
 }
 
-$candidateSet = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
-$orderedCandidates = New-Object System.Collections.Generic.List[string]
-
-foreach ($candidate in (Get-InstalledPostgresRoots)) {
-    if ($candidateSet.Add($candidate)) {
-        $orderedCandidates.Add($candidate) | Out-Null
+if (-not (Test-ExpectedRuntimeRoot -Root $SourceRoot)) {
+    $fetchScript = Join-Path $RepoRoot "scripts\fetch-postgres-runtime.ps1"
+    if (Test-Path -LiteralPath $fetchScript) {
+        Write-Host "[postgres] bundled runtime missing or unsupported at '$SourceRoot'; attempting automatic fetch"
+        & $fetchScript -RepoRoot $RepoRoot -ExpectedMajor $ExpectedMajor
     }
 }
 
-if ($orderedCandidates.Count -eq 0 -and (Get-Command winget -ErrorAction SilentlyContinue)) {
-    $wingetIds = @(
-        "PostgreSQL.PostgreSQL.15",
-        "PostgreSQL.PostgreSQL.16",
-        "PostgreSQL.PostgreSQL.17",
-        "PostgreSQL.PostgreSQL.14"
-    )
-
-    foreach ($id in $wingetIds) {
-        & winget install -e --id $id --accept-package-agreements --accept-source-agreements --silent | Out-Null
-        foreach ($candidate in (Get-InstalledPostgresRoots)) {
-            if ($candidateSet.Add($candidate)) {
-                $orderedCandidates.Add($candidate) | Out-Null
-            }
-        }
-        if ($orderedCandidates.Count -gt 0) {
-            break
-        }
-    }
+if (-not (Test-ExpectedRuntimeRoot -Root $SourceRoot)) {
+    throw "Bundled PostgreSQL runtime missing or unsupported at '$SourceRoot' (expected major $ExpectedMajor with bin\postgres.exe, bin\initdb.exe, bin\pg_ctl.exe)."
 }
 
-if ($orderedCandidates.Count -eq 0) {
-    throw "Unable to find a PostgreSQL installation to stage runtime (checked Program Files, PATH, and winget installs)."
+if ([System.StringComparer]::OrdinalIgnoreCase.Equals($SourceRoot, $OutDir)) {
+    Write-Host "[postgres] runtime already staged at '$OutDir' (major $ExpectedMajor)"
+    exit 0
 }
 
-$sourceRoot = $null
-foreach ($candidate in $orderedCandidates) {
-    if (-not (Test-UsablePostgresRoot -Root $candidate)) {
-        Write-Host "[postgres] skipping unusable installation '$candidate'"
-        continue
-    }
-    if (Try-StagePostgresRuntime -SourceRoot $candidate -TargetOutDir $OutDir) {
-        $sourceRoot = $candidate
-        break
-    }
-    Write-Host "[postgres] failed to stage runtime from '$candidate', trying next candidate"
+if (Test-Path -LiteralPath $OutDir) {
+    Remove-Item -LiteralPath $OutDir -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+$ok = $true
+$ok = (Copy-Tree -Src (Join-Path $SourceRoot "bin") -Dst (Join-Path $OutDir "bin")) -and $ok
+$ok = (Copy-Tree -Src (Join-Path $SourceRoot "lib") -Dst (Join-Path $OutDir "lib")) -and $ok
+$ok = (Copy-Tree -Src (Join-Path $SourceRoot "share") -Dst (Join-Path $OutDir "share")) -and $ok
+
+if (-not $ok -or -not (Test-ExpectedRuntimeRoot -Root $OutDir)) {
+    throw "Unable to stage bundled PostgreSQL runtime from '$SourceRoot' to '$OutDir'."
 }
 
-if (-not $sourceRoot) {
-    throw "Staged postgres runtime is invalid (bin\\postgres.exe missing). No usable installation candidates succeeded."
-}
-
-Write-Host "[postgres] staged runtime from '$sourceRoot' to '$OutDir'"
+Write-Host "[postgres] staged runtime from '$SourceRoot' to '$OutDir' (major $ExpectedMajor)"

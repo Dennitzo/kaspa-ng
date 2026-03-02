@@ -27,6 +27,21 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v3
 
+      - name: Cache bundled PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: postgres
+          key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+
+      - name: Setup bundled PostgreSQL runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-postgres-runtime.sh
+
+      - name: Setup bundled PostgreSQL runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+
       - name: Sync external repositories
         shell: bash
         run: |
@@ -232,11 +247,11 @@ jobs:
           if [ -d Loader ]; then
             cp -r Loader kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
           fi
-          if [ -d target/release/postgres ]; then
-            cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
-          elif [ -d postgres ]; then
-            cp -r postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          if [ ! -d target/release/postgres ]; then
+            echo "Missing staged PostgreSQL runtime: target/release/postgres"
+            exit 1
           fi
+          cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
           for f in kaspa-ng.exe stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
             [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
@@ -308,11 +323,11 @@ jobs:
           if [ -d Loader ]; then
             cp -r Loader "$ROOT/"
           fi
-          if [ -d target/release/postgres ]; then
-            cp -r target/release/postgres "$ROOT/"
-          elif [ -d postgres ]; then
-            cp -r postgres "$ROOT/"
+          if [ ! -d target/release/postgres ]; then
+            echo "Missing staged PostgreSQL runtime: target/release/postgres"
+            exit 1
           fi
+          cp -r target/release/postgres "$ROOT/"
           for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
@@ -386,11 +401,11 @@ jobs:
           if [ -d Loader ]; then
             cp -r Loader "$ROOT/"
           fi
-          if [ -d target/release/postgres ]; then
-            cp -r target/release/postgres "$ROOT/"
-          elif [ -d postgres ]; then
-            cp -r postgres "$ROOT/"
+          if [ ! -d target/release/postgres ]; then
+            echo "Missing staged PostgreSQL runtime: target/release/postgres"
+            exit 1
           fi
+          cp -r target/release/postgres "$ROOT/"
           for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
             [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
           done
@@ -478,13 +493,12 @@ jobs:
           if [ -d Loader ]; then
             cp -r Loader kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
           fi
-          if [ -d target/release/postgres ]; then
-            cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-            cp -r target/release/postgres .debpkg/usr/bin/
-          elif [ -d postgres ]; then
-            cp -r postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-            cp -r postgres .debpkg/usr/bin/
+          if [ ! -d target/release/postgres ]; then
+            echo "Missing staged PostgreSQL runtime: target/release/postgres"
+            exit 1
           fi
+          cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          cp -r target/release/postgres .debpkg/usr/bin/
           cp core/resources/icons/icon-256.png kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
           for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do

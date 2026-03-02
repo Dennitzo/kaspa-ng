@@ -603,13 +603,10 @@ function Package-AndVerify {
     }
 
     $postgresRelease = Join-Path $RootDir "target\release\postgres"
-    $postgresLocal = Join-Path $RootDir "postgres"
-    if (Test-Path -LiteralPath $postgresRelease) {
-        Copy-Item -LiteralPath $postgresRelease -Destination (Join-Path $rootPath "postgres") -Recurse -Force
+    if (-not (Test-Path -LiteralPath $postgresRelease)) {
+        throw "Missing staged PostgreSQL runtime: target\release\postgres"
     }
-    elseif (Test-Path -LiteralPath $postgresLocal) {
-        Copy-Item -LiteralPath $postgresLocal -Destination (Join-Path $rootPath "postgres") -Recurse -Force
-    }
+    Copy-Item -LiteralPath $postgresRelease -Destination (Join-Path $rootPath "postgres") -Recurse -Force
 
     $kRelease = Join-Path $RootDir "target\release\K\dist"
     $kLocal = Join-Path $RootDir "K\dist"

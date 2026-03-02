@@ -24,6 +24,21 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
+      - name: Cache bundled PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: postgres
+          key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+
+      - name: Setup bundled PostgreSQL runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-postgres-runtime.sh
+
+      - name: Setup bundled PostgreSQL runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+
       - name: Sync external repositories
         shell: bash
         run: |
@@ -307,11 +322,11 @@ jobs:
           if [ -d Loader ]; then
             cp -r Loader dist/
           fi
-          if [ -d target/release/postgres ]; then
-            cp -r target/release/postgres dist/postgres
-          elif [ -d postgres ]; then
-            cp -r postgres dist/postgres
+          if [ ! -d target/release/postgres ]; then
+            echo "Missing staged PostgreSQL runtime: target/release/postgres"
+            exit 1
           fi
+          cp -r target/release/postgres dist/postgres
           required_files=(kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
           for f in "${required_files[@]}"; do
             if [ ! -f "dist/${f}" ]; then
@@ -429,11 +444,10 @@ jobs:
           if (Test-Path Loader) {
             Copy-Item -Recurse -Force Loader dist\
           }
-          if (Test-Path target\release\postgres) {
-            Copy-Item -Recurse -Force target\release\postgres dist\postgres
-          } elseif (Test-Path postgres) {
-            Copy-Item -Recurse -Force postgres dist\postgres
+          if (-not (Test-Path target\release\postgres)) {
+            throw "Missing staged PostgreSQL runtime: target\\release\\postgres"
           }
+          Copy-Item -Recurse -Force target\release\postgres dist\postgres
           $requiredFiles = @(
             "kaspa-ng.exe",
             "stratum-bridge.exe",

@@ -594,11 +594,11 @@ package_and_verify() {
   copy_dir_filtered "kaspa-socket-server" "$root/kaspa-socket-server"
   copy_dir_filtered "Loader" "$root/Loader"
 
-  if [[ -d target/release/postgres ]]; then
-    cp -r target/release/postgres "$root/postgres"
-  elif [[ -d postgres ]]; then
-    cp -r postgres "$root/postgres"
+  if [[ ! -d target/release/postgres ]]; then
+    echo "Missing staged PostgreSQL runtime: target/release/postgres" >&2
+    exit 1
   fi
+  cp -r target/release/postgres "$root/postgres"
 
   if [[ -d target/release/K/dist ]]; then
     mkdir -p "$root/K"

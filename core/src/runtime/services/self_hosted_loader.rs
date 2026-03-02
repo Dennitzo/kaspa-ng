@@ -105,6 +105,7 @@ pub struct SelfHostedLoaderService {
 }
 
 impl SelfHostedLoaderService {
+    const EXPECTED_POSTGRES_MAJOR: u32 = 15;
     const TICK_INTERVAL: Duration = Duration::from_secs(2);
     const RESTART_COOLDOWN: Duration = Duration::from_secs(20);
     const PING_LOG_INTERVAL: Duration = Duration::from_secs(6);
@@ -184,40 +185,35 @@ impl SelfHostedLoaderService {
             dirs.push(cwd.join("postgres").join("bin"));
         }
 
-        if let Some(home) = workflow_core::dirs::home_dir() {
-            dirs.push(home.join(".kaspa/self-hosted/postgres-runtime/bin"));
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            dirs.extend([
-                PathBuf::from("/opt/homebrew/opt/postgresql@15/bin"),
-                PathBuf::from("/usr/local/opt/postgresql@15/bin"),
-                PathBuf::from("/opt/homebrew/opt/postgresql/bin"),
-                PathBuf::from("/usr/local/opt/postgresql/bin"),
-            ]);
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            dirs.extend([
-                PathBuf::from("/usr/lib/postgresql/15/bin"),
-                PathBuf::from("/usr/pgsql-15/bin"),
-                PathBuf::from("/usr/local/pgsql/bin"),
-                PathBuf::from("/usr/local/bin"),
-                PathBuf::from("/usr/bin"),
-            ]);
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            dirs.extend([
-                PathBuf::from("C:\\Program Files\\PostgreSQL\\15\\bin"),
-                PathBuf::from("C:\\Program Files (x86)\\PostgreSQL\\15\\bin"),
-            ]);
-        }
-
         dirs
+    }
+
+    fn postgres_binary_major_version(postgres_path: &Path) -> Option<u32> {
+        if !postgres_path.exists() || !postgres_path.is_file() {
+            return None;
+        }
+        let mut cmd = std::process::Command::new(postgres_path);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        let output = cmd
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8(output.stdout).ok()?;
+        let token = text.split_whitespace().find(|part| {
+            part.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        })?;
+        token
+            .split('.')
+            .next()
+            .and_then(|major| major.parse::<u32>().ok())
     }
 
     fn find_postgres_binary(binary: &str) -> Option<PathBuf> {
@@ -229,16 +225,23 @@ impl SelfHostedLoaderService {
 
         for dir in Self::postgres_candidate_bin_dirs() {
             let candidate = dir.join(&binary_name);
-            if Self::runnable_binary(&candidate) {
+            if !Self::runnable_binary(&candidate) {
+                continue;
+            }
+            let postgres_candidate = dir.join(if cfg!(windows) {
+                "postgres.exe"
+            } else {
+                "postgres"
+            });
+            let major_ok = Self::postgres_binary_major_version(&postgres_candidate)
+                .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                .unwrap_or(false);
+            if major_ok {
                 return Some(candidate);
             }
         }
 
-        std::env::var_os("PATH").and_then(|path_var| {
-            std::env::split_paths(&path_var)
-                .map(|dir| dir.join(&binary_name))
-                .find(|candidate| Self::runnable_binary(candidate))
-        })
+        None
     }
 
     fn runnable_binary(path: &Path) -> bool {
@@ -336,7 +339,7 @@ impl SelfHostedLoaderService {
         self.logs.push(
             "INFO",
             &format!(
-                "postgres debug ({context}): binaries postgres={} initdb={} pg_ctl={}",
+                "postgres debug ({context}): binaries postgres={} initdb={} pg_ctl={} expected_major={}",
                 postgres_bin
                     .as_ref()
                     .map(|p| p.display().to_string())
@@ -348,7 +351,8 @@ impl SelfHostedLoaderService {
                 pg_ctl_bin
                     .as_ref()
                     .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "not found".to_string())
+                    .unwrap_or_else(|| "not found".to_string()),
+                Self::EXPECTED_POSTGRES_MAJOR
             ),
         );
 
@@ -373,10 +377,13 @@ impl SelfHostedLoaderService {
             self.logs.push(
                 "INFO",
                 &format!(
-                    "postgres debug ({context}): probe dir={} postgres(exists={},file={}) initdb(exists={},file={}) pg_ctl(exists={},file={})",
+                    "postgres debug ({context}): probe dir={} postgres(exists={},file={},major={}) initdb(exists={},file={}) pg_ctl(exists={},file={})",
                     dir.display(),
                     postgres_path.exists(),
                     postgres_path.is_file(),
+                    Self::postgres_binary_major_version(&postgres_path)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
                     initdb_path.exists(),
                     initdb_path.is_file(),
                     pg_ctl_path.exists(),

@@ -28,6 +28,7 @@ pub struct SelfHostedPostgresService {
 }
 
 impl SelfHostedPostgresService {
+    const EXPECTED_POSTGRES_MAJOR: u32 = 15;
     const STARTUP_RESTART_GUARD: Duration = Duration::from_secs(18);
     const STOP_GRACEFUL_WAIT: Duration = Duration::from_secs(8);
     const STOP_RETRY_WAIT: Duration = Duration::from_secs(5);
@@ -98,6 +99,7 @@ impl SelfHostedPostgresService {
             || Self::normalized_db_base_name(previous) != Self::normalized_db_base_name(next)
     }
 
+    #[allow(dead_code)]
     fn postgres_auto_install_attempted() -> &'static OnceLock<()> {
         static ONCE: OnceLock<()> = OnceLock::new();
         &ONCE
@@ -146,8 +148,7 @@ impl SelfHostedPostgresService {
             .and_then(|major| major.parse::<u32>().ok())
     }
 
-    fn postgres_binary_major_version() -> Option<u32> {
-        let postgres_bin = Self::postgres_bin_path("postgres").ok()?;
+    fn postgres_binary_major_version_from_bin(postgres_bin: &Path) -> Option<u32> {
         let output = std::process::Command::new(postgres_bin)
             .arg("--version")
             .stdout(Stdio::piped())
@@ -168,6 +169,11 @@ impl SelfHostedPostgresService {
             .split('.')
             .next()
             .and_then(|major| major.parse::<u32>().ok())
+    }
+
+    fn postgres_binary_major_version() -> Option<u32> {
+        let postgres_bin = Self::postgres_bin_path("postgres").ok()?;
+        Self::postgres_binary_major_version_from_bin(&postgres_bin)
     }
 
     fn backup_incompatible_data_dir(data_dir: &Path, from_major: u32, to_major: u32) -> Result<()> {
@@ -356,29 +362,40 @@ impl SelfHostedPostgresService {
             binary.to_string()
         };
 
+        let mut searched = Vec::<String>::new();
         for bin_dir in Self::candidate_bin_dirs() {
             let candidate = bin_dir.join(&bin_name);
-            if Self::is_runnable_binary(&candidate) {
+            searched.push(candidate.display().to_string());
+            if !Self::is_runnable_binary(&candidate) {
+                continue;
+            }
+            let is_supported_major = if binary == "postgres" {
+                Self::postgres_binary_major_version_from_bin(&candidate)
+                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                    .unwrap_or(false)
+            } else {
+                let postgres_candidate = bin_dir.join(if cfg!(windows) {
+                    "postgres.exe"
+                } else {
+                    "postgres"
+                });
+                Self::postgres_binary_major_version_from_bin(&postgres_candidate)
+                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                    .unwrap_or(false)
+            };
+            if is_supported_major {
                 return Ok(candidate);
             }
         }
 
-        if Self::postgres_auto_install_attempted().set(()).is_ok() {
-            let _ = Self::attempt_auto_install_postgres();
-            for bin_dir in Self::candidate_bin_dirs() {
-                let candidate = bin_dir.join(&bin_name);
-                if Self::is_runnable_binary(&candidate) {
-                    return Ok(candidate);
-                }
-            }
-        }
-
-        if let Some(path) = Self::find_in_path(&bin_name) {
-            return Ok(path);
-        }
-
         Err(Error::Custom(format!(
-            "postgres binary not found: {bin_name} (searched common install paths and PATH)"
+            "postgres binary not found or unsupported version: {bin_name} (expected PostgreSQL {} from bundled runtime; searched: {})",
+            Self::EXPECTED_POSTGRES_MAJOR,
+            if searched.is_empty() {
+                "<none>".to_string()
+            } else {
+                searched.join(", ")
+            }
         )))
     }
 
@@ -427,39 +444,6 @@ impl SelfHostedPostgresService {
             dirs.push(cwd.join("postgres").join("bin"));
         }
 
-        if let Some(home) = workflow_core::dirs::home_dir() {
-            dirs.push(home.join(".kaspa/self-hosted/postgres-runtime/bin"));
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            dirs.extend([
-                PathBuf::from("/opt/homebrew/opt/postgresql@15/bin"),
-                PathBuf::from("/usr/local/opt/postgresql@15/bin"),
-                PathBuf::from("/opt/homebrew/opt/postgresql/bin"),
-                PathBuf::from("/usr/local/opt/postgresql/bin"),
-            ]);
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            dirs.extend([
-                PathBuf::from("/usr/lib/postgresql/15/bin"),
-                PathBuf::from("/usr/pgsql-15/bin"),
-                PathBuf::from("/usr/local/pgsql/bin"),
-                PathBuf::from("/usr/local/bin"),
-                PathBuf::from("/usr/bin"),
-            ]);
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            dirs.extend([
-                PathBuf::from("C:\\Program Files\\PostgreSQL\\15\\bin"),
-                PathBuf::from("C:\\Program Files (x86)\\PostgreSQL\\15\\bin"),
-            ]);
-        }
-
         dirs
     }
 
@@ -477,6 +461,7 @@ impl SelfHostedPostgresService {
         }
     }
 
+    #[allow(dead_code)]
     fn attempt_auto_install_postgres() -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -565,6 +550,7 @@ impl SelfHostedPostgresService {
         false
     }
 
+    #[allow(dead_code)]
     fn find_in_path(bin_name: &str) -> Option<PathBuf> {
         let path_var = std::env::var_os("PATH")?;
         std::env::split_paths(&path_var)
