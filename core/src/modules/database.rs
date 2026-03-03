@@ -1,6 +1,4 @@
-use std::borrow::Cow;
 use crate::imports::*;
-use egui::load::Bytes;
 use kaspa_metrics_core::data::as_data_size;
 
 #[derive(Clone, Default, Deserialize)]
@@ -535,26 +533,6 @@ impl ModuleT for Database {
                 rest_ready: snapshot.rest_ready,
                 socket_ready: snapshot.socket_ready,
             });
-        }
-
-        let screen_rect = ui.ctx().screen_rect();
-        let logo_size = vec2(648., 994.) * 0.25;
-        let left = screen_rect.width() - logo_size.x - 8.;
-        let top = core.device().top_offset() + 32.0;
-        let logo_rect = Rect::from_min_size(Pos2::new(left, top), logo_size);
-
-        if screen_rect.width() > 768.0 && !core.device().single_pane() {
-            Image::new(ImageSource::Bytes {
-                uri: Cow::Borrowed("bytes://logo.svg"),
-                bytes: Bytes::Static(crate::app::KASPA_NG_LOGO_SVG),
-            })
-            .maintain_aspect_ratio(true)
-            .max_size(logo_size)
-            .fit_to_exact_size(logo_size)
-            .shrink_to_fit()
-            .texture_options(TextureOptions::LINEAR)
-            .tint(Color32::from_f32(0.8))
-            .paint_at(ui, logo_rect);
         }
 
         ScrollArea::vertical()
