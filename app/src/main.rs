@@ -182,10 +182,8 @@ fn configure_linux_webkit_runtime(rendering: &RenderingSettings) {
                 "Enabled LIBGL_ALWAYS_SOFTWARE=1 (no hardware rendering device detected, fallback active)"
             );
         }
-    } else if rendering.hardware_acceleration {
-        if hardware_available {
-            log_warn!("Hardware rendering is enabled and a GPU device is available");
-        }
+    } else if rendering.hardware_acceleration && hardware_available {
+        log_warn!("Hardware rendering is enabled and a GPU device is available");
     }
 }
 
