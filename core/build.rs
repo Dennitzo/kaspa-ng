@@ -24,19 +24,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if external_enabled {
-        sync_external_repo_if_needed("K", "https://github.com/thesheepcat/K.git")?;
-        sync_external_repo_if_needed("K-indexer", "https://github.com/thesheepcat/K-indexer.git")?;
-        sync_external_repo_if_needed("Kasia", "https://github.com/K-Kluster/Kasia.git")?;
-        sync_external_repo_if_needed("kasvault", "https://github.com/coderofstuff/kasvault.git")?;
+        sync_optional_external_repo("K", "https://github.com/thesheepcat/K.git");
+        sync_optional_external_repo("K-indexer", "https://github.com/thesheepcat/K-indexer.git");
+        sync_optional_external_repo("Kasia", "https://github.com/K-Kluster/Kasia.git");
+        sync_optional_external_repo("kasvault", "https://github.com/coderofstuff/kasvault.git");
     }
-    sync_external_repo_if_needed(
+    sync_optional_external_repo(
         "simply-kaspa-indexer",
         "https://github.com/supertypo/simply-kaspa-indexer.git",
-    )?;
-    sync_external_repo_if_needed(
+    );
+    sync_optional_external_repo(
         "kasia-indexer",
         "https://github.com/K-Kluster/kasia-indexer.git",
-    )?;
+    );
     if external_enabled {
         build_explorer_if_needed()?;
         build_k_social_if_needed()?;
@@ -853,6 +853,14 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
     }
 
     Ok(())
+}
+
+fn sync_optional_external_repo(name: &str, url: &str) {
+    if let Err(err) = sync_external_repo_if_needed(name, url) {
+        println!(
+            "cargo:warning=Failed to sync optional external repo {name}: {err}; continuing build"
+        );
+    }
 }
 
 fn ensure_external_repo_not_tracked(repo_root: &Path, name: &str) {
