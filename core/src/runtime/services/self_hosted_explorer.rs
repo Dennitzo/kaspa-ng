@@ -332,43 +332,96 @@ impl SelfHostedExplorerService {
         Self::find_executable("pipenv", &extra_dirs)
     }
 
-    fn find_python() -> Option<PathBuf> {
+    fn discover_python_binaries_in_path() -> Vec<PathBuf> {
+        #[cfg(windows)]
+        {
+            return Vec::new();
+        }
+
+        #[cfg(not(windows))]
+        {
+            let mut candidates = Vec::new();
+            let Some(path_var) = std::env::var_os("PATH") else {
+                return candidates;
+            };
+
+            for dir in std::env::split_paths(&path_var) {
+                let Ok(entries) = std::fs::read_dir(dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                        continue;
+                    };
+
+                    let is_python3 = name
+                        .strip_prefix("python3")
+                        .map(|suffix| suffix.is_empty() || suffix.starts_with('.'))
+                        .unwrap_or(false);
+                    if is_python3 || name == "python" {
+                        candidates.push(path);
+                    }
+                }
+            }
+
+            candidates
+        }
+    }
+
+    fn python_version_for_executable(executable: &Path) -> Option<(u32, u32)> {
+        let mut cmd = std::process::Command::new(executable);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        let output = cmd
+            .arg("-c")
+            .arg("import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let mut parts = version.split('.');
+        let major = parts.next().and_then(|p| p.parse::<u32>().ok())?;
+        let minor = parts.next().and_then(|p| p.parse::<u32>().ok())?;
+        Some((major, minor))
+    }
+
+    fn ranked_python_candidates(min_minor: u32) -> Vec<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
 
         #[cfg(target_os = "macos")]
         {
             candidates.extend(
                 [
-                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
-                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
-                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
-                    "/usr/local/opt/python@3.12/bin/python3.12",
-                    "/usr/local/opt/python@3.11/bin/python3.11",
-                    "/usr/local/opt/python@3.10/bin/python3.10",
+                    "/opt/homebrew/bin/python3",
+                    "/usr/local/bin/python3",
                     "/opt/homebrew/opt/python/bin/python3",
                     "/usr/local/opt/python/bin/python3",
                 ]
                 .into_iter()
                 .map(PathBuf::from),
             );
+
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                candidates.push(home.join(".local/bin/python3"));
+            }
         }
 
         #[cfg(target_os = "linux")]
         {
             candidates.extend(
-                [
-                    "/usr/bin/python3.12",
-                    "/usr/bin/python3.11",
-                    "/usr/bin/python3.10",
-                    "/usr/local/bin/python3.12",
-                    "/usr/local/bin/python3.11",
-                    "/usr/local/bin/python3.10",
-                    "/usr/bin/python3",
-                    "/usr/local/bin/python3",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
+                ["/usr/local/bin/python3", "/usr/bin/python3"]
+                    .into_iter()
+                    .map(PathBuf::from),
             );
+
+            if let Some(home) = workflow_core::dirs::home_dir() {
+                candidates.push(home.join(".local/bin/python3"));
+            }
         }
 
         #[cfg(target_os = "windows")]
@@ -378,6 +431,8 @@ impl SelfHostedExplorerService {
                     .join("Programs")
                     .join("Python");
                 candidates.extend([
+                    base.join("Python314").join("python.exe"),
+                    base.join("Python313").join("python.exe"),
                     base.join("Python312").join("python.exe"),
                     base.join("Python311").join("python.exe"),
                     base.join("Python310").join("python.exe"),
@@ -387,6 +442,8 @@ impl SelfHostedExplorerService {
             if let Some(program_files) = std::env::var_os("ProgramFiles") {
                 let base = PathBuf::from(program_files).join("Python");
                 candidates.extend([
+                    base.join("Python314").join("python.exe"),
+                    base.join("Python313").join("python.exe"),
                     base.join("Python312").join("python.exe"),
                     base.join("Python311").join("python.exe"),
                     base.join("Python310").join("python.exe"),
@@ -396,6 +453,8 @@ impl SelfHostedExplorerService {
             if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
                 let base = PathBuf::from(program_files_x86).join("Python");
                 candidates.extend([
+                    base.join("Python314").join("python.exe"),
+                    base.join("Python313").join("python.exe"),
                     base.join("Python312").join("python.exe"),
                     base.join("Python311").join("python.exe"),
                     base.join("Python310").join("python.exe"),
@@ -404,6 +463,8 @@ impl SelfHostedExplorerService {
 
             candidates.extend(
                 [
+                    "C:\\Python314\\python.exe",
+                    "C:\\Python313\\python.exe",
                     "C:\\Python312\\python.exe",
                     "C:\\Python311\\python.exe",
                     "C:\\Python310\\python.exe",
@@ -414,124 +475,59 @@ impl SelfHostedExplorerService {
             );
         }
 
-        for candidate in candidates {
-            if candidate.exists() {
-                return Some(candidate);
+        if let Some(path_python3) = Self::find_in_path("python3") {
+            candidates.push(path_python3);
+        }
+        if let Some(path_python) = Self::find_in_path("python") {
+            candidates.push(path_python);
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some(path_py) = Self::find_in_path("py") {
+                candidates.push(path_py);
             }
         }
 
-        Self::find_in_path("python3").or_else(|| Self::find_in_path("python"))
+        candidates.extend(Self::discover_python_binaries_in_path());
+
+        let mut ranked: Vec<(u32, u32, PathBuf)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for candidate in candidates {
+            if !candidate.exists() {
+                continue;
+            }
+
+            let dedup_key = candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+            if !seen.insert(dedup_key) {
+                continue;
+            }
+
+            let Some((major, minor)) = Self::python_version_for_executable(&candidate) else {
+                continue;
+            };
+
+            if major != 3 || minor < min_minor {
+                continue;
+            }
+
+            ranked.push((major, minor, candidate));
+        }
+
+        ranked.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        ranked.into_iter().map(|(_, _, path)| path).collect()
+    }
+
+    fn find_python() -> Option<PathBuf> {
+        Self::ranked_python_candidates(0).into_iter().next()
     }
 
     fn find_pipenv_python() -> Option<PathBuf> {
-        let mut candidates: Vec<PathBuf> = Vec::new();
-
-        #[cfg(target_os = "macos")]
-        {
-            candidates.extend(
-                [
-                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
-                    "/usr/local/opt/python@3.10/bin/python3.10",
-                    "/opt/homebrew/bin/python3.10",
-                    "/usr/local/bin/python3.10",
-                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
-                    "/usr/local/opt/python@3.11/bin/python3.11",
-                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
-                    "/usr/local/opt/python@3.12/bin/python3.12",
-                    "/opt/homebrew/opt/python/bin/python3",
-                    "/usr/local/opt/python/bin/python3",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            candidates.extend(
-                [
-                    "/usr/bin/python3.10",
-                    "/usr/local/bin/python3.10",
-                    "/usr/bin/python3.11",
-                    "/usr/local/bin/python3.11",
-                    "/usr/bin/python3.12",
-                    "/usr/local/bin/python3.12",
-                    "/usr/bin/python3",
-                    "/usr/local/bin/python3",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            candidates.extend(
-                [
-                    "C:\\Python310\\python.exe",
-                    "C:\\Python311\\python.exe",
-                    "C:\\Python312\\python.exe",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        for candidate in candidates {
-            if candidate.exists() {
-                return Some(candidate);
-            }
-        }
-
-        Self::find_in_path("python3.10")
-            .or_else(|| Self::find_in_path("python3"))
-            .or_else(|| Self::find_in_path("python"))
+        Self::ranked_python_candidates(10).into_iter().next()
     }
 
     fn find_poetry_compatible_python() -> Option<PathBuf> {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        #[cfg(target_os = "windows")]
-        let candidates: Vec<PathBuf> = Vec::new();
-
-        #[cfg(target_os = "macos")]
-        {
-            candidates.extend(
-                [
-                    "/opt/homebrew/opt/python@3.12/bin/python3.12",
-                    "/opt/homebrew/opt/python@3.11/bin/python3.11",
-                    "/opt/homebrew/opt/python@3.10/bin/python3.10",
-                    "/usr/local/opt/python@3.12/bin/python3.12",
-                    "/usr/local/opt/python@3.11/bin/python3.11",
-                    "/usr/local/opt/python@3.10/bin/python3.10",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            candidates.extend(
-                [
-                    "/usr/bin/python3.12",
-                    "/usr/bin/python3.11",
-                    "/usr/bin/python3.10",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        for candidate in candidates {
-            if candidate.exists() {
-                return Some(candidate);
-            }
-        }
-
-        Self::find_in_path("python3.12")
-            .or_else(|| Self::find_in_path("python3.11"))
-            .or_else(|| Self::find_in_path("python3.10"))
+        Self::ranked_python_candidates(10).into_iter().next()
     }
 
     fn find_venv_python(root: &Path) -> Option<PathBuf> {
@@ -577,31 +573,65 @@ impl SelfHostedExplorerService {
         None
     }
 
-    fn ensure_local_venv_python(root: &Path) -> Option<PathBuf> {
-        let bootstrap_python = Self::find_python()?;
-        let venv_dir = root.join(".venv");
-        let mut create_cmd = std::process::Command::new(&bootstrap_python);
-        Self::apply_no_window_for_std_command(&mut create_cmd);
-        let _ = create_cmd
-            .current_dir(root)
-            .arg("-m")
-            .arg("venv")
-            .arg(&venv_dir)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-
-        let venv_python = Self::find_venv_python(root)?;
-        Self::ensure_python_modules_for_python(
-            &venv_python,
-            &Self::REQUIRED_PY_MODULES,
-            &Self::REQUIRED_PIP_PACKAGES,
-        );
-        if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES) {
-            Some(venv_python)
-        } else {
-            None
+    fn create_local_venv(root: &Path, bootstrap_python: &Path, venv_dir: &Path) -> bool {
+        let mut cmd = std::process::Command::new(bootstrap_python);
+        Self::apply_no_window_for_std_command(&mut cmd);
+        cmd.current_dir(root).arg("-m").arg("venv").arg("--clear");
+        #[cfg(not(windows))]
+        {
+            // Prefer copied interpreters to avoid hard links to build-host python paths.
+            cmd.arg("--copies");
         }
+        cmd.arg(venv_dir).stdout(Stdio::null()).stderr(Stdio::null());
+        if matches!(cmd.status(), Ok(status) if status.success()) {
+            return true;
+        }
+
+        #[cfg(not(windows))]
+        {
+            let mut fallback = std::process::Command::new(bootstrap_python);
+            Self::apply_no_window_for_std_command(&mut fallback);
+            fallback
+                .current_dir(root)
+                .arg("-m")
+                .arg("venv")
+                .arg("--clear")
+                .arg(venv_dir)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            if matches!(fallback.status(), Ok(status) if status.success()) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn ensure_local_venv_python(root: &Path) -> Option<PathBuf> {
+        let venv_dir = root.join(".venv");
+        let candidates = Self::ranked_python_candidates(10);
+
+        for bootstrap_python in candidates {
+            if !Self::create_local_venv(root, &bootstrap_python, &venv_dir) {
+                continue;
+            }
+
+            let Some(venv_python) = Self::find_venv_python(root) else {
+                continue;
+            };
+
+            Self::ensure_python_modules_for_python(
+                &venv_python,
+                &Self::REQUIRED_PY_MODULES,
+                &Self::REQUIRED_PIP_PACKAGES,
+            );
+            if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES)
+            {
+                return Some(venv_python);
+            }
+        }
+
+        None
     }
 
     fn find_server_root(name: &str) -> Option<PathBuf> {
@@ -815,18 +845,24 @@ impl SelfHostedExplorerService {
                     }
                     let _ = cmd.status();
                 }
-
-                let mut cmd = Command::new(pipenv);
-                cmd.arg("run")
-                    .arg("python")
-                    .arg("-m")
-                    .arg("uvicorn")
-                    .arg("main:app")
-                    .arg("--host")
-                    .arg(bind)
-                    .arg("--port")
-                    .arg(port.to_string());
-                return Some(cmd);
+                if Self::python_modules_available(
+                    root,
+                    &pipenv,
+                    &["run", "python"],
+                    &Self::REQUIRED_PY_MODULES,
+                ) {
+                    let mut cmd = Command::new(pipenv);
+                    cmd.arg("run")
+                        .arg("python")
+                        .arg("-m")
+                        .arg("uvicorn")
+                        .arg("main:app")
+                        .arg("--host")
+                        .arg(bind)
+                        .arg("--port")
+                        .arg(port.to_string());
+                    return Some(cmd);
+                }
             }
         }
 
@@ -961,6 +997,32 @@ impl SelfHostedExplorerService {
         }
     }
 
+    fn python_runtime_install_hint() -> Option<&'static str> {
+        #[cfg(target_os = "linux")]
+        {
+            return Some(
+                "install Python 3 with venv/pip (Debian/Ubuntu: sudo apt install python3 python3-venv python3-pip)",
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            return Some("install Python 3 (for example: brew install python)");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            return Some("install Python 3.10+ (for example: winget install Python.Python.3.11)");
+        }
+        #[allow(unreachable_code)]
+        None
+    }
+
+    fn python_runtime_missing_message(server_kind: &str) -> String {
+        match Self::python_runtime_install_hint() {
+            Some(hint) => format!("python runtime not found; {server_kind} server not started ({hint})"),
+            None => format!("python runtime not found; {server_kind} server not started"),
+        }
+    }
+
     fn port_is_available(bind: &str, port: u16) -> bool {
         let addr = format!("{bind}:{port}");
         TcpListener::bind(addr).is_ok()
@@ -1021,11 +1083,9 @@ impl SelfHostedExplorerService {
         let mut cmd = match Self::build_command(&root, &settings.api_bind, rest_port) {
             Some(cmd) => cmd,
             None => {
-                log_warn!(
-                    "self-hosted-explorer: python runtime not found; REST server not started"
-                );
-                self.rest_logs
-                    .push("ERROR", "python runtime not found; REST server not started");
+                let msg = Self::python_runtime_missing_message("REST");
+                log_warn!("self-hosted-explorer: {msg}");
+                self.rest_logs.push("ERROR", &msg);
                 return Ok(());
             }
         };
@@ -1162,13 +1222,9 @@ impl SelfHostedExplorerService {
         let mut cmd = match Self::build_command(&root, &settings.api_bind, socket_port) {
             Some(cmd) => cmd,
             None => {
-                log_warn!(
-                    "self-hosted-explorer: python runtime not found; socket server not started"
-                );
-                self.socket_logs.push(
-                    "ERROR",
-                    "python runtime not found; socket server not started",
-                );
+                let msg = Self::python_runtime_missing_message("Socket");
+                log_warn!("self-hosted-explorer: {msg}");
+                self.socket_logs.push("ERROR", &msg);
                 return Ok(());
             }
         };

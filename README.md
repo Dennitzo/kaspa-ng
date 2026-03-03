@@ -26,6 +26,7 @@ You can find more information about this project at [https://aspectron.org/en/pr
 ## Releases
 
 - You can obtain the latest binary redistributables from the [Releases](https://github.com/aspectron/kaspa-ng/releases) page.
+- Linux binaries require a local Python runtime for self-hosted explorer services (`python3`, `python3-venv`, `python3-pip` on Debian/Ubuntu).
 - You can access the official Web App online at [https://kaspa-ng.org](https://kaspa-ng.org).
 
 ## Building

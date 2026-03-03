@@ -453,26 +453,85 @@ fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn find_python_launcher() -> Option<String> {
+fn discover_python3_minor_launchers() -> Vec<String> {
     #[cfg(windows)]
-    let candidates = [
-        "py -3.12",
-        "py -3.11",
-        "py -3.10",
-        "py -3",
-        "python3.12",
-        "python3.11",
-        "python",
-        "python3",
-    ];
+    {
+        return Vec::new();
+    }
+
     #[cfg(not(windows))]
-    let candidates = [
-        "python3.12",
-        "python3.11",
-        "python3.10",
-        "python3",
-        "python",
-    ];
+    {
+        let mut discovered: Vec<(u32, String)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let Some(path_var) = std::env::var_os("PATH") else {
+            return Vec::new();
+        };
+
+        for dir in std::env::split_paths(&path_var) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                let Some(suffix) = name.strip_prefix("python3.") else {
+                    continue;
+                };
+                let Ok(minor) = suffix.parse::<u32>() else {
+                    continue;
+                };
+                if seen.insert(name.to_string()) {
+                    discovered.push((minor, name.to_string()));
+                }
+            }
+        }
+
+        discovered.sort_by(|a, b| b.0.cmp(&a.0));
+        discovered.into_iter().map(|(_, cmd)| cmd).collect()
+    }
+}
+
+fn find_python_launcher() -> Option<String> {
+    let mut candidates: Vec<String> = Vec::new();
+
+    if let Ok(python_env) = std::env::var("PYTHON") {
+        let trimmed = python_env.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        candidates.extend(
+            [
+                "py -3",
+                "python",
+                "python3",
+                "py -3.14",
+                "py -3.13",
+                "py -3.12",
+                "py -3.11",
+                "py -3.10",
+                "python3.14",
+                "python3.13",
+                "python3.12",
+                "python3.11",
+                "python3.10",
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        candidates.push("python3".to_string());
+        candidates.push("python".to_string());
+        candidates.extend(discover_python3_minor_launchers());
+    }
 
     for candidate in candidates {
         let mut parts = candidate.split_whitespace();
@@ -494,7 +553,7 @@ fn find_python_launcher() -> Option<String> {
             .map(|status| status.success())
             .unwrap_or(false);
         if ok {
-            return Some(candidate.to_string());
+            return Some(candidate);
         }
     }
 
@@ -555,13 +614,12 @@ fn prepare_python_server_env(
             for arg in &launcher_args {
                 cmd.arg(arg);
             }
-            let status = cmd
-                .arg("-m")
-                .arg("venv")
-                .arg("--clear")
-                .arg(&venv_dir)
-                .current_dir(root)
-                .status()?;
+            cmd.arg("-m").arg("venv").arg("--clear");
+            if cfg!(not(windows)) && attempt == 1 {
+                // Prefer copied interpreter binaries to reduce host-path coupling.
+                cmd.arg("--copies");
+            }
+            let status = cmd.arg(&venv_dir).current_dir(root).status()?;
             if status.success() {
                 created = true;
                 break;

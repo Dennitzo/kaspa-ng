@@ -1408,7 +1408,7 @@ jobs:
           maintainer: ASPECTRON
           version: "refs/tags/v0.0.1" # refs/tags/v*.*.*
           arch: 'amd64'
-          depends: 'libglib2.0-0, libatk1.0-0, libgtk-4-1, libwebkit2gtk-4.1-0, libjavascriptcoregtk-4.1-0, libsoup-3.0-0'
+          depends: 'libglib2.0-0, libatk1.0-0, libgtk-4-1, libwebkit2gtk-4.1-0, libjavascriptcoregtk-4.1-0, libsoup-3.0-0, python3, python3-venv, python3-pip'
           desc: 'Kaspa NG desktop p2p node and wallet'
       - name: Install and Test Debian Package
         if: runner.os == 'Linux'
@@ -1418,7 +1418,10 @@ jobs:
             libgtk-4-1 \
             libwebkit2gtk-4.1-0 \
             libjavascriptcoregtk-4.1-0 \
-            libsoup-3.0-0
+            libsoup-3.0-0 \
+            python3 \
+            python3-venv \
+            python3-pip
           sudo dpkg -i "${{ steps.package_debian.outputs.file_name }}"
           kaspa-ng --version || echo "Failed to execute kaspa-ng --version"
           echo "Package test completed" >> "${{ env.CI_LOG_DIR }}/debian-test.log"
