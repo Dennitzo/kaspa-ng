@@ -163,8 +163,14 @@ prepare_from_macos() {
 
   local formula="postgresql@${EXPECTED_MAJOR}"
   if ! brew list --versions "$formula" >/dev/null 2>&1; then
-    brew update
-    brew install "$formula"
+    # Avoid making builds depend on Homebrew tap updates (can intermittently fail).
+    if ! HOMEBREW_NO_AUTO_UPDATE=1 brew install "$formula"; then
+      echo "[postgres] brew install ${formula} failed without auto-update; trying one explicit brew update fallback"
+      if ! brew update; then
+        echo "[postgres] warning: brew update failed; retrying install with existing metadata"
+      fi
+      HOMEBREW_NO_AUTO_UPDATE=1 brew install "$formula"
+    fi
   fi
 
   local prefix="${KASPA_NG_POSTGRES_MACOS_PREFIX:-$(brew --prefix "$formula")}"
