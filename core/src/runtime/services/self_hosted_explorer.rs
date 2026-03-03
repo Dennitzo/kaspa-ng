@@ -37,14 +37,12 @@ impl SelfHostedExplorerService {
         "fastapi_utils",
         "typing_inspect",
         "sqlalchemy",
-        "gunicorn",
         "asyncpg",
         "grpc",
         "kaspa_script_address",
         "kaspa",
     ];
     const REST_REQUIRED_PIP_PACKAGES: &'static [&'static str] = &[
-        "gunicorn",
         "uvicorn",
         "fastapi",
         "fastapi-utils",
@@ -70,13 +68,11 @@ impl SelfHostedExplorerService {
         "fastapi_utils",
         "typing_inspect",
         "sqlalchemy",
-        "gunicorn",
         "socketio",
         "asyncpg",
         "grpc",
     ];
     const SOCKET_REQUIRED_PIP_PACKAGES: &'static [&'static str] = &[
-        "gunicorn",
         "uvicorn",
         "fastapi",
         "fastapi-utils",

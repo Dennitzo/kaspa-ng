@@ -101,11 +101,16 @@ function Test-ServerVenvModules {
 import importlib.util
 import sys
 missing = [m for m in sys.argv[1:] if importlib.util.find_spec(m) is None]
+if missing:
+    print(", ".join(missing))
 raise SystemExit(0 if not missing else 1)
 '@
 
-    & $venvPython -c $probeScript @Modules *> $null
+    $missingModules = & $venvPython -c $probeScript @Modules 2>$null
     if ($LASTEXITCODE -ne 0) {
+        if ($missingModules) {
+            throw "[python-runtime] $ServerName: packaged venv is missing required modules: $missingModules"
+        }
         throw "[python-runtime] $ServerName: packaged venv is missing required modules"
     }
 }
@@ -152,11 +157,11 @@ if ($LASTEXITCODE -ne 0) {
 Test-ServerVenvModules `
     -ServerName "kaspa-rest-server" `
     -ServerRoot $restRoot `
-    -Modules @("fastapi", "uvicorn", "pydantic", "pydantic_settings", "asyncpg", "psycopg2")
+    -Modules @("fastapi", "uvicorn", "fastapi_utils", "typing_inspect", "pydantic", "starlette", "grpc", "asyncpg", "psycopg2")
 
 Test-ServerVenvModules `
     -ServerName "kaspa-socket-server" `
     -ServerRoot $socketRoot `
-    -Modules @("fastapi", "uvicorn", "pydantic", "pydantic_settings", "socketio", "engineio")
+    -Modules @("fastapi", "uvicorn", "fastapi_utils", "typing_inspect", "pydantic", "starlette", "grpc", "socketio", "engineio")
 
 Write-Host "Self-hosted Python runtime verification passed: $root (python: $pythonExe)"

@@ -73,6 +73,7 @@ check_server_venv_modules() {
   shift 2
   local venv_python=""
   local candidate
+  local missing_modules=""
 
   for candidate in \
     "$server_root/.venv/bin/python3" \
@@ -89,16 +90,22 @@ check_server_venv_modules() {
     return 0
   fi
 
-  if ! "$venv_python" - "$@" <<'PY' >/dev/null 2>&1
+  missing_modules="$("$venv_python" - "$@" <<'PY'
 import importlib.util
 import sys
 missing = [m for m in sys.argv[1:] if importlib.util.find_spec(m) is None]
+if missing:
+    print(", ".join(missing))
 raise SystemExit(0 if not missing else 1)
 PY
-  then
-    echo "[python-runtime] ${server_name}: packaged venv is missing required modules" >&2
+  )" || {
+    if [[ -n "$missing_modules" ]]; then
+      echo "[python-runtime] ${server_name}: packaged venv is missing required modules: $missing_modules" >&2
+    else
+      echo "[python-runtime] ${server_name}: packaged venv is missing required modules" >&2
+    fi
     exit 1
-  fi
+  }
 }
 
 REST_ROOT="$ROOT/kaspa-rest-server"
@@ -144,8 +151,11 @@ check_server_venv_modules \
   "$REST_ROOT" \
   fastapi \
   uvicorn \
+  fastapi_utils \
+  typing_inspect \
   pydantic \
-  pydantic_settings \
+  starlette \
+  grpc \
   asyncpg \
   psycopg2
 
@@ -154,8 +164,11 @@ check_server_venv_modules \
   "$SOCKET_ROOT" \
   fastapi \
   uvicorn \
+  fastapi_utils \
+  typing_inspect \
   pydantic \
-  pydantic_settings \
+  starlette \
+  grpc \
   socketio \
   engineio
 
