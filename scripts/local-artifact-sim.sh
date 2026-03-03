@@ -631,6 +631,7 @@ package_and_verify() {
   for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader K Kasia KasVault postgres; do
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
+  bash "$ROOT_DIR/scripts/verify-self-hosted-python-runtime.sh" "$root"
   if [[ ! -x "$root/postgres/bin/postgres" && ! -x "$root/postgres/bin/postgres.exe" ]]; then
     echo "Missing PostgreSQL runtime binary in packaged layout (postgres)" >&2
     exit 1

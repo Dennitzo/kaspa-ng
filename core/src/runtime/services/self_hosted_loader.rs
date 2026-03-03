@@ -98,6 +98,7 @@ pub struct SelfHostedLoaderService {
     indexer_boot_started_at: Mutex<Option<Instant>>,
     explorer_boot_started_at: Mutex<Option<Instant>>,
     postgres_failures: Mutex<u32>,
+    node_sync_failures: Mutex<u32>,
     indexer_failures: Mutex<u32>,
     explorer_failures: Mutex<u32>,
     last_ping_log_at: Mutex<Option<Instant>>,
@@ -110,6 +111,7 @@ impl SelfHostedLoaderService {
     const RESTART_COOLDOWN: Duration = Duration::from_secs(20);
     const PING_LOG_INTERVAL: Duration = Duration::from_secs(6);
     const POSTGRES_RESTART_FAILURE_THRESHOLD: u32 = 4;
+    const NODE_SYNC_FAILURE_THRESHOLD: u32 = 4;
     const INDEXER_RESTART_FAILURE_THRESHOLD: u32 = 3;
     const EXPLORER_RESTART_FAILURE_THRESHOLD: u32 = 3;
     const DEPENDENTS_STOP_GRACE: Duration = Duration::from_millis(1500);
@@ -606,6 +608,7 @@ impl SelfHostedLoaderService {
 
     fn reset_health_failures(&self) {
         *self.postgres_failures.lock().unwrap() = 0;
+        *self.node_sync_failures.lock().unwrap() = 0;
         *self.indexer_failures.lock().unwrap() = 0;
         *self.explorer_failures.lock().unwrap() = 0;
     }
@@ -806,7 +809,18 @@ impl SelfHostedLoaderService {
         }
 
         let node_synced = Self::check_node_synced(&node).await;
-        if !node_synced {
+        let was_connected = self.status.snapshot().connected;
+        let node_sync_failures = if node_synced || switching_network {
+            Self::health_failures(&self.node_sync_failures, true)
+        } else {
+            Self::health_failures(&self.node_sync_failures, false)
+        };
+        let tolerate_node_sync_glitch = was_connected
+            && !node_synced
+            && !switching_network
+            && node_sync_failures < Self::NODE_SYNC_FAILURE_THRESHOLD;
+
+        if !node_synced && !tolerate_node_sync_glitch {
             self.stop_dependents().await;
             *self.indexer_boot_started_at.lock().unwrap() = None;
             *self.explorer_boot_started_at.lock().unwrap() = None;
@@ -828,6 +842,13 @@ impl SelfHostedLoaderService {
                     .to_string(),
             );
             return;
+        }
+        if tolerate_node_sync_glitch {
+            self.maybe_log_ping(format!(
+                "ping: postgres=ok node=sync-miss({}/{}) keeping indexers/rest/socket running",
+                node_sync_failures,
+                Self::NODE_SYNC_FAILURE_THRESHOLD
+            ));
         }
 
         self.indexer_service.enable(settings.indexer_enabled);
@@ -1018,6 +1039,7 @@ impl SelfHostedLoaderService {
             indexer_boot_started_at: Mutex::new(None),
             explorer_boot_started_at: Mutex::new(None),
             postgres_failures: Mutex::new(0),
+            node_sync_failures: Mutex::new(0),
             indexer_failures: Mutex::new(0),
             explorer_failures: Mutex::new(0),
             last_ping_log_at: Mutex::new(None),

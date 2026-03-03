@@ -631,6 +631,11 @@ jobs:
           npm install -g npm@latest || true
           npm -v
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Setup Environment
         shell: bash
         run: echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
@@ -915,6 +920,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/verify-self-hosted-python-runtime.ps1 -ArtifactRoot "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64"
           [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
           [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/postgres/bin/postgres.exe" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres.exe"; exit 1; }
           for d in K Kasia KasVault; do
@@ -1039,6 +1045,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
+          bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
           [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
           [ -x "$ROOT/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
           for d in K Kasia KasVault; do
@@ -1181,6 +1188,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
+          bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
           [ -d "$ROOT/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
           [ -x "$ROOT/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
           for d in K Kasia KasVault; do

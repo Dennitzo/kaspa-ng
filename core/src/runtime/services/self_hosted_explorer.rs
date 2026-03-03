@@ -32,21 +32,51 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
-    const REQUIRED_PY_MODULES: [&'static str; 12] = [
+    const REST_REQUIRED_PY_MODULES: &'static [&'static str] = &[
         "uvicorn",
         "fastapi_utils",
         "typing_inspect",
         "sqlalchemy",
-        "socketio",
+        "gunicorn",
         "asyncpg",
-        "aiohttp",
-        "aiocache",
         "grpc",
-        "requests",
         "kaspa_script_address",
         "kaspa",
     ];
-    const REQUIRED_PIP_PACKAGES: [&'static str; 18] = [
+    const REST_REQUIRED_PIP_PACKAGES: &'static [&'static str] = &[
+        "gunicorn",
+        "uvicorn",
+        "fastapi",
+        "fastapi-utils",
+        "typing-inspect",
+        "sqlalchemy",
+        "grpcio",
+        "grpcio-tools",
+        "requests",
+        "websockets",
+        "asyncpg",
+        "cachetools",
+        "aiohttp",
+        "aiocache",
+        "psycopg2-binary",
+        "waitress",
+        "starlette",
+        "greenlet",
+        "kaspa-script-address",
+        "kaspa",
+    ];
+    const SOCKET_REQUIRED_PY_MODULES: &'static [&'static str] = &[
+        "uvicorn",
+        "fastapi_utils",
+        "typing_inspect",
+        "sqlalchemy",
+        "gunicorn",
+        "socketio",
+        "asyncpg",
+        "grpc",
+    ];
+    const SOCKET_REQUIRED_PIP_PACKAGES: &'static [&'static str] = &[
+        "gunicorn",
         "uvicorn",
         "fastapi",
         "fastapi-utils",
@@ -58,13 +88,8 @@ impl SelfHostedExplorerService {
         "requests",
         "websockets",
         "asyncpg",
-        "aiohttp",
-        "aiocache",
         "cachetools",
         "psycopg2-binary",
-        "waitress",
-        "kaspa-script-address",
-        "kaspa",
     ];
     fn default_grpc_port_for_network(network: Network) -> u16 {
         crate::settings::node_grpc_port_for_network(network)
@@ -498,7 +523,9 @@ impl SelfHostedExplorerService {
                 continue;
             }
 
-            let dedup_key = candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+            let dedup_key = candidate
+                .canonicalize()
+                .unwrap_or_else(|_| candidate.clone());
             if !seen.insert(dedup_key) {
                 continue;
             }
@@ -582,7 +609,9 @@ impl SelfHostedExplorerService {
             // Prefer copied interpreters to avoid hard links to build-host python paths.
             cmd.arg("--copies");
         }
-        cmd.arg(venv_dir).stdout(Stdio::null()).stderr(Stdio::null());
+        cmd.arg(venv_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         if matches!(cmd.status(), Ok(status) if status.success()) {
             return true;
         }
@@ -607,7 +636,11 @@ impl SelfHostedExplorerService {
         false
     }
 
-    fn ensure_local_venv_python(root: &Path) -> Option<PathBuf> {
+    fn ensure_local_venv_python(
+        root: &Path,
+        required_modules: &[&str],
+        required_pip_packages: &[&str],
+    ) -> Option<PathBuf> {
         let venv_dir = root.join(".venv");
         let candidates = Self::ranked_python_candidates(10);
 
@@ -622,11 +655,10 @@ impl SelfHostedExplorerService {
 
             Self::ensure_python_modules_for_python(
                 &venv_python,
-                &Self::REQUIRED_PY_MODULES,
-                &Self::REQUIRED_PIP_PACKAGES,
+                required_modules,
+                required_pip_packages,
             );
-            if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES)
-            {
+            if Self::python_modules_available_for_python(&venv_python, required_modules) {
                 return Some(venv_python);
             }
         }
@@ -672,14 +704,37 @@ impl SelfHostedExplorerService {
             .map(|dir| dir.canonicalize().unwrap_or(dir))
     }
 
+    fn python_requirements_for_root(
+        root: &Path,
+    ) -> (&'static [&'static str], &'static [&'static str]) {
+        let is_socket = root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name == "kaspa-socket-server")
+            .unwrap_or(false);
+        if is_socket {
+            (
+                Self::SOCKET_REQUIRED_PY_MODULES,
+                Self::SOCKET_REQUIRED_PIP_PACKAGES,
+            )
+        } else {
+            (
+                Self::REST_REQUIRED_PY_MODULES,
+                Self::REST_REQUIRED_PIP_PACKAGES,
+            )
+        }
+    }
+
     fn build_command(root: &Path, bind: &str, port: u16) -> Option<Command> {
+        let (required_modules, required_pip_packages) = Self::python_requirements_for_root(root);
+
         if let Some(venv_python) = Self::find_venv_python(root) {
             Self::ensure_python_modules_for_python(
                 &venv_python,
-                &Self::REQUIRED_PY_MODULES,
-                &Self::REQUIRED_PIP_PACKAGES,
+                required_modules,
+                required_pip_packages,
             );
-            if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES) {
+            if Self::python_modules_available_for_python(&venv_python, required_modules) {
                 let mut cmd = Command::new(&venv_python);
                 #[cfg(windows)]
                 {
@@ -720,7 +775,7 @@ impl SelfHostedExplorerService {
         }
         if root.join("pyproject.toml").exists() {
             if let Some(python) = Self::find_poetry_cached_venv_python(root) {
-                if Self::python_modules_available_for_python(&python, &Self::REQUIRED_PY_MODULES) {
+                if Self::python_modules_available_for_python(&python, required_modules) {
                     let mut cmd = Command::new(python);
                     cmd.arg("-m")
                         .arg("uvicorn")
@@ -745,7 +800,7 @@ impl SelfHostedExplorerService {
                     root,
                     &poetry,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = std::process::Command::new(&poetry);
                     Self::apply_no_window_for_std_command(&mut cmd);
@@ -762,7 +817,7 @@ impl SelfHostedExplorerService {
                     root,
                     &poetry,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = std::process::Command::new(&poetry);
                     Self::apply_no_window_for_std_command(&mut cmd);
@@ -772,7 +827,7 @@ impl SelfHostedExplorerService {
                         .arg("-m")
                         .arg("pip")
                         .arg("install");
-                    for pkg in Self::REQUIRED_PIP_PACKAGES {
+                    for pkg in required_pip_packages {
                         cmd.arg(pkg);
                     }
                     let _ = cmd.status();
@@ -781,7 +836,7 @@ impl SelfHostedExplorerService {
                     root,
                     &poetry,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = Command::new(poetry);
                     cmd.arg("run")
@@ -811,7 +866,7 @@ impl SelfHostedExplorerService {
                     root,
                     &pipenv,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = std::process::Command::new(&pipenv);
                     Self::apply_no_window_for_std_command(&mut cmd);
@@ -830,7 +885,7 @@ impl SelfHostedExplorerService {
                     root,
                     &pipenv,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = std::process::Command::new(&pipenv);
                     Self::apply_no_window_for_std_command(&mut cmd);
@@ -840,7 +895,7 @@ impl SelfHostedExplorerService {
                         .arg("-m")
                         .arg("pip")
                         .arg("install");
-                    for pkg in Self::REQUIRED_PIP_PACKAGES {
+                    for pkg in required_pip_packages {
                         cmd.arg(pkg);
                     }
                     let _ = cmd.status();
@@ -849,7 +904,7 @@ impl SelfHostedExplorerService {
                     root,
                     &pipenv,
                     &["run", "python"],
-                    &Self::REQUIRED_PY_MODULES,
+                    required_modules,
                 ) {
                     let mut cmd = Command::new(pipenv);
                     cmd.arg("run")
@@ -866,7 +921,9 @@ impl SelfHostedExplorerService {
             }
         }
 
-        if let Some(venv_python) = Self::ensure_local_venv_python(root) {
+        if let Some(venv_python) =
+            Self::ensure_local_venv_python(root, required_modules, required_pip_packages)
+        {
             let mut cmd = Command::new(venv_python);
             cmd.arg("-m")
                 .arg("uvicorn")
@@ -879,12 +936,8 @@ impl SelfHostedExplorerService {
         }
 
         let python = Self::find_python()?;
-        Self::ensure_python_modules_for_python(
-            &python,
-            &Self::REQUIRED_PY_MODULES,
-            &Self::REQUIRED_PIP_PACKAGES,
-        );
-        if !Self::python_modules_available_for_python(&python, &Self::REQUIRED_PY_MODULES) {
+        Self::ensure_python_modules_for_python(&python, required_modules, required_pip_packages);
+        if !Self::python_modules_available_for_python(&python, required_modules) {
             return None;
         }
         let mut cmd = Command::new(python);
@@ -1018,7 +1071,9 @@ impl SelfHostedExplorerService {
 
     fn python_runtime_missing_message(server_kind: &str) -> String {
         match Self::python_runtime_install_hint() {
-            Some(hint) => format!("python runtime not found; {server_kind} server not started ({hint})"),
+            Some(hint) => {
+                format!("python runtime not found; {server_kind} server not started ({hint})")
+            }
             None => format!("python runtime not found; {server_kind} server not started"),
         }
     }

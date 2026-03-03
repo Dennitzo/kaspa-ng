@@ -345,7 +345,11 @@ jobs:
               exit 1
             fi
           done
-          bash ./scripts/verify-linux-artifact.sh dist
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            bash ./scripts/verify-linux-artifact.sh dist
+          else
+            bash ./scripts/verify-self-hosted-python-runtime.sh dist
+          fi
           for d in K Kasia KasVault; do
             if [ ! -d "dist/${d}" ]; then
               echo "Optional packaged directory missing: ${d} (continuing)"
@@ -464,6 +468,7 @@ jobs:
               throw "Missing packaged directory: $d"
             }
           }
+          ./scripts/verify-self-hosted-python-runtime.ps1 -ArtifactRoot "dist"
           if (-not (Test-Path "dist\\postgres")) {
             throw "Missing packaged directory: postgres"
           }

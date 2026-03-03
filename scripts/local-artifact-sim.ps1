@@ -666,6 +666,12 @@ function Package-AndVerify {
         }
     }
 
+    $pythonVerifyScript = Join-Path $RootDir "scripts\verify-self-hosted-python-runtime.ps1"
+    & $pythonVerifyScript -ArtifactRoot $rootPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Self-hosted Python runtime verification failed for: $rootPath"
+    }
+
     if (-not (Test-Path -LiteralPath (Join-Path $rootPath "postgres\bin\postgres.exe"))) {
         throw "Missing PostgreSQL runtime binary in packaged layout (postgres.exe)"
     }

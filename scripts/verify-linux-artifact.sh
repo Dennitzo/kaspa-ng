@@ -38,4 +38,6 @@ if ldd "$ROOT/postgres/bin/postgres" 2>/dev/null | grep -q "not found"; then
   exit 1
 fi
 
+bash "$(dirname "$0")/verify-self-hosted-python-runtime.sh" "$ROOT"
+
 echo "Linux artifact verification passed: $ROOT"
