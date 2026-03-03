@@ -112,6 +112,36 @@ function Invoke-Native {
     return $exitCode
 }
 
+function Invoke-Native-WithRetry {
+    param(
+        [string]$File,
+        [string[]]$Arguments = @(),
+        [int]$Retries = 4,
+        [int]$BackoffBaseSeconds = 2,
+        [switch]$AllowFinalFailure
+    )
+
+    $retryCount = [Math]::Max(1, $Retries)
+    $lastExitCode = 0
+    for ($attempt = 1; $attempt -le $retryCount; $attempt++) {
+        $lastExitCode = Invoke-Native -File $File -Arguments $Arguments -AllowFailure
+        if ($lastExitCode -eq 0) {
+            return 0
+        }
+        if ($attempt -lt $retryCount) {
+            $sleepSecs = [Math]::Max(1, $BackoffBaseSeconds * $attempt)
+            Write-Host "Command failed (attempt $attempt/$retryCount): $File $($Arguments -join ' ') ; retrying in ${sleepSecs}s"
+            Start-Sleep -Seconds $sleepSecs
+        }
+    }
+
+    if ($AllowFinalFailure.IsPresent) {
+        return $lastExitCode
+    }
+
+    throw "Command failed after $retryCount attempts: $File $($Arguments -join ' ')"
+}
+
 function Copy-DirContent {
     param(
         [string]$Source,
@@ -139,6 +169,13 @@ function Sync-ExternalRepo {
     $target = Join-Path $RootDir $Dir
     $gitDir = Join-Path $target ".git"
 
+    $retryCount = 4
+    $parsedRetries = 0
+    if (-not [string]::IsNullOrWhiteSpace($env:KASPA_NG_EXTERNAL_SYNC_RETRIES) -and [int]::TryParse($env:KASPA_NG_EXTERNAL_SYNC_RETRIES, [ref]$parsedRetries)) {
+        $retryCount = [Math]::Max(1, $parsedRetries)
+    }
+    $strictSync = Convert-ToBoolFromEnv -Value $env:KASPA_NG_EXTERNAL_SYNC_STRICT -Default $true
+
     if (Test-Path -LiteralPath $gitDir) {
         $currentUrl = ""
         try {
@@ -150,12 +187,24 @@ function Sync-ExternalRepo {
         if (-not [string]::IsNullOrWhiteSpace($currentUrl) -and $currentUrl -ne $Url) {
             Write-Host "External repo remote mismatch for $Dir; recloning ($currentUrl -> $Url)"
             Remove-Item -LiteralPath $target -Recurse -Force
-            Invoke-Native -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) | Out-Null
+            Invoke-Native-WithRetry -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) -Retries $retryCount | Out-Null
             return
         }
 
         Write-Host "Updating external repo $Dir via git pull --ff-only"
-        Invoke-Native -File "git" -Arguments @("-C", $target, "pull", "--ff-only") | Out-Null
+        $pullArgs = @("-C", $target, "pull", "--ff-only")
+        $upstream = (& git -C $target rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" 2>$null).Trim()
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($upstream) -and $upstream.Contains("/")) {
+            $parts = $upstream.Split("/", 2)
+            $pullArgs = @("-C", $target, "pull", "--ff-only", $parts[0], $parts[1])
+        }
+        $pullExit = Invoke-Native-WithRetry -File "git" -Arguments $pullArgs -Retries $retryCount -AllowFinalFailure
+        if ($pullExit -ne 0) {
+            if ($strictSync) {
+                throw "Failed to update external repo: $Dir"
+            }
+            Write-Warning "Failed to update $Dir; continuing with existing checkout"
+        }
         return
     }
 
@@ -165,7 +214,7 @@ function Sync-ExternalRepo {
     }
 
     Write-Host "Cloning external repo $Dir"
-    Invoke-Native -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) | Out-Null
+    Invoke-Native-WithRetry -File "git" -Arguments @("clone", "--depth", "1", $Url, $target) -Retries $retryCount | Out-Null
 }
 
 function Sync-ExternalRepos {

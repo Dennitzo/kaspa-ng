@@ -55,34 +55,6 @@ copy_dir_if_exists() {
   return 1
 }
 
-sync_external_repo() {
-  local dir="$1"
-  local url="$2"
-  local target="${ROOT}/${dir}"
-
-  if [ -d "${target}/.git" ]; then
-    local current_url
-    current_url="$(git -C "${target}" remote get-url origin 2>/dev/null || true)"
-    if [ -n "${current_url}" ] && [ "${current_url}" != "${url}" ]; then
-      echo "External repo remote mismatch for ${dir}; recloning (${current_url} -> ${url})"
-      rm -rf "${target}"
-      git clone --depth 1 "${url}" "${target}"
-      return 0
-    fi
-    echo "Updating external repo ${dir} via git pull --ff-only"
-    git -C "${target}" pull --ff-only
-    return 0
-  fi
-
-  if [ -e "${target}" ]; then
-    echo "External repo ${dir} exists without .git; recloning"
-    rm -rf "${target}"
-  fi
-
-  echo "Cloning external repo ${dir}"
-  git clone --depth 1 "${url}" "${target}"
-}
-
 sync_external_repos_if_needed() {
   if [ "${SYNC_EXTERNAL}" = "1" ] || [ "${SYNC_EXTERNAL}" = "true" ] || [ "${SYNC_EXTERNAL}" = "TRUE" ]; then
     echo "Skipping external repo sync (KASPA_NG_SKIP_EXTERNAL_SYNC=${SYNC_EXTERNAL})"
@@ -94,20 +66,11 @@ sync_external_repos_if_needed() {
     return 0
   fi
 
-  local repos=(
-    "rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git"
-    "simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git"
-    "K-indexer|https://github.com/thesheepcat/K-indexer.git"
-    "kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git"
-    "K|https://github.com/thesheepcat/K.git"
-    "Kasia|https://github.com/K-Kluster/Kasia.git"
-    "kasvault|https://github.com/coderofstuff/kasvault.git"
-  )
-  local entry dir url
-  for entry in "${repos[@]}"; do
-    IFS='|' read -r dir url <<<"${entry}"
-    sync_external_repo "${dir}" "${url}"
-  done
+  # Bundling happens after a successful build; a stale existing checkout is acceptable
+  # if remote endpoints are temporarily unavailable.
+  KASPA_NG_EXTERNAL_SYNC_STRICT="${KASPA_NG_EXTERNAL_SYNC_STRICT:-0}" \
+  KASPA_NG_EXTERNAL_SYNC_RETRIES="${KASPA_NG_EXTERNAL_SYNC_RETRIES:-4}" \
+    bash "${ROOT}/scripts/sync-external-repos.sh" "${ROOT}"
 }
 
 sync_external_repos_if_needed

@@ -128,20 +128,9 @@ sync_external_repo() {
 }
 
 sync_external_repos() {
-  local repos=(
-    "rusty-kaspa|https://github.com/kaspanet/rusty-kaspa.git"
-    "K|https://github.com/thesheepcat/K.git"
-    "K-indexer|https://github.com/thesheepcat/K-indexer.git"
-    "simply-kaspa-indexer|https://github.com/supertypo/simply-kaspa-indexer.git"
-    "kasia-indexer|https://github.com/K-Kluster/kasia-indexer.git"
-    "Kasia|https://github.com/K-Kluster/Kasia.git"
-    "kasvault|https://github.com/coderofstuff/kasvault.git"
-  )
-  local entry dir url
-  for entry in "${repos[@]}"; do
-    IFS='|' read -r dir url <<<"$entry"
-    sync_external_repo "$dir" "$url"
-  done
+  KASPA_NG_EXTERNAL_SYNC_STRICT="${KASPA_NG_EXTERNAL_SYNC_STRICT:-1}" \
+  KASPA_NG_EXTERNAL_SYNC_RETRIES="${KASPA_NG_EXTERNAL_SYNC_RETRIES:-4}" \
+    bash "$ROOT_DIR/scripts/sync-external-repos.sh" "$ROOT_DIR"
 }
 
 nuke_dir() {
@@ -564,7 +553,7 @@ package_and_verify() {
   build_explorer_if_missing
 
   if [[ "$os" == "Darwin" ]]; then
-    "$ROOT_DIR/scripts/macos-bundle.sh" release
+    KASPA_NG_SKIP_EXTERNAL_SYNC=1 "$ROOT_DIR/scripts/macos-bundle.sh" release
     [[ -d "$ROOT_DIR/target/release/Kaspa-NG.app" ]] || {
       echo "Missing macOS app bundle: target/release/Kaspa-NG.app" >&2
       exit 1
