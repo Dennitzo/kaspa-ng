@@ -340,13 +340,16 @@ export default function Addressdetails({ params }: Route.ComponentProps) {
                         1_0000_0000;
                       const amountColor = kasAmount >= 0 ? "#70C7BA" : "#C7707D";
                       const usdAmount = kasAmount * (marketData?.price || 0);
+                      const usdAbsFormatted = numeral(Math.abs(usdAmount)).format("$0,0.00");
+                      const usdFormatted =
+                        usdAmount > 0 ? `+${usdAbsFormatted}` : usdAmount < 0 ? `-${usdAbsFormatted}` : usdAbsFormatted;
                       return (
                         <div className="text-right text-nowrap">
                           <div style={{ color: amountColor }}>
                             {numeral(kasAmount).format("+0,0.00[000000]")}
                             <span className="text-nowrap"> KAS</span>
                           </div>
-                          <div className="text-xs text-gray-500">{numeral(usdAmount).format("+$0,0.00")}</div>
+                          <div className="text-xs text-gray-500">{usdFormatted}</div>
                         </div>
                       );
                     })(),

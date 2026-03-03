@@ -96,6 +96,35 @@ const WEBVIEW_IMAGE_OVERLAY_JS: &str = r#"
     const lower = href.toLowerCase();
     return lower.includes(".gif") || lower.includes("format=gif") || lower.includes("image/gif");
   };
+  const isEmojiLikeAlt = (value) => /^:[^:\s]{1,32}:$/.test((value || "").trim());
+  const isLikelyEmoteImage = (img) => {
+    if (!img) return false;
+    const className = String(img.className || "").toLowerCase();
+    const id = String(img.id || "").toLowerCase();
+    const alt = String(img.getAttribute("alt") || "").toLowerCase();
+    const ariaLabel = String(img.getAttribute("aria-label") || "").toLowerCase();
+    const src = String(img.getAttribute("src") || "").toLowerCase();
+    const title = String(img.getAttribute("title") || "").toLowerCase();
+
+    if (className.includes("emoji") || className.includes("emote")) return true;
+    if (id.includes("emoji") || id.includes("emote")) return true;
+    if (alt.includes("emoji") || alt.includes("emote") || isEmojiLikeAlt(alt)) return true;
+    if (ariaLabel.includes("emoji") || ariaLabel.includes("emote")) return true;
+    if (title.includes("emoji") || title.includes("emote")) return true;
+    if (src.includes("/emoji/") || src.includes("/emote/")) return true;
+
+    const container = img.closest(
+      '[data-testid*="emoji" i], [data-testid*="emote" i], [class*="emoji" i], [class*="emote" i], [id*="emoji" i], [id*="emote" i]'
+    );
+    if (container) return true;
+
+    // Tiny inline images are commonly used for emotes/reactions; keep native behavior.
+    const width = Number(img.naturalWidth || img.width || 0);
+    const height = Number(img.naturalHeight || img.height || 0);
+    if (width > 0 && height > 0 && width <= 48 && height <= 48) return true;
+
+    return false;
+  };
 
   const normalize = (value) => {
     try {
@@ -330,6 +359,7 @@ const WEBVIEW_IMAGE_OVERLAY_JS: &str = r#"
     if (!target) return;
 
     const image = target.closest("img");
+    if (image && isLikelyEmoteImage(image)) return;
     if (image && image.src && openOverlay(image.src)) {
       event.preventDefault();
       event.stopPropagation();

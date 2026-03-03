@@ -109,9 +109,9 @@ raise SystemExit(0 if not missing else 1)
     $missingModules = & $venvPython -c $probeScript @Modules 2>$null
     if ($LASTEXITCODE -ne 0) {
         if ($missingModules) {
-            throw "[python-runtime] $ServerName: packaged venv is missing required modules: $missingModules"
+            throw "[python-runtime] ${ServerName}: packaged venv is missing required modules: $missingModules"
         }
-        throw "[python-runtime] $ServerName: packaged venv is missing required modules"
+        throw "[python-runtime] ${ServerName}: packaged venv is missing required modules"
     }
 }
 
