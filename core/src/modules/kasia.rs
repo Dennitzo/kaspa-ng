@@ -33,6 +33,18 @@ const KASIA_PUBLIC_MAINNET_INDEXER_API: &str = "https://indexer.kasia.fyi";
 const KASIA_PUBLIC_MAINNET_NODE_WS: &str = "wss://wrpc.kasia.fyi";
 #[cfg(not(target_arch = "wasm32"))]
 const KASIA_PUBLIC_TESTNET_NODE_WS: &str = "wss://dev-wrpc.kasia.fyi";
+#[cfg(not(target_arch = "wasm32"))]
+const WEBVIEW_SYNC_INTERVAL: Duration = Duration::from_millis(33);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_TEAL: Color32 = Color32::from_rgb(111, 199, 186);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_NEUTRAL_BLACK: Color32 = Color32::from_rgb(35, 31, 32);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_SECONDARY_GRAY: Color32 = Color32::from_rgb(182, 182, 182);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_BRIGHT_TEAL: Color32 = Color32::from_rgb(73, 234, 203);
+#[cfg(not(target_arch = "wasm32"))]
+const KASVAULT_PRIMARY_TEXT: Color32 = Color32::from_rgb(236, 244, 242);
 
 #[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
@@ -150,6 +162,17 @@ fn ensure_gtk_initialized() -> std::result::Result<(), String> {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn pump_gtk_events_bounded() {
+    const MAX_ITERATIONS_PER_FRAME: usize = 8;
+    for _ in 0..MAX_ITERATIONS_PER_FRAME {
+        if !gtk::events_pending() {
+            break;
+        }
+        gtk::main_iteration_do(false);
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, PartialEq, Eq)]
 struct KasiaRuntimeConfig {
@@ -182,6 +205,8 @@ pub struct Kasia {
     last_probe_status: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     last_webview_attempt: Option<std::time::Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_webview_sync_at: Option<std::time::Instant>,
 }
 
 impl Kasia {
@@ -208,6 +233,8 @@ impl Kasia {
             last_probe_status: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_webview_attempt: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_webview_sync_at: None,
         }
     }
 
@@ -320,6 +347,148 @@ impl Kasia {
             default_testnet_node_url: Some(node_url),
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_in_browser(&self, browser: crate::settings::KasvaultBrowser, url: &str) {
+        if let Err(err) = crate::modules::kasvault::open_url_with_browser(browser, url) {
+            self.runtime
+                .toast(UserNotification::error(format!("Kasia browser open failed: {err}")));
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_browser_card(
+        &mut self,
+        ui: &mut Ui,
+        title: &str,
+        browser: crate::settings::KasvaultBrowser,
+        url: Option<String>,
+    ) {
+        render_kasvault_style_card(ui, |ui, compact| {
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new(title)
+                        .size(if compact { 24.0 } else { 30.0 })
+                        .strong()
+                        .color(KASPA_TEAL),
+                );
+                ui.add_space(if compact { 4.0 } else { 6.0 });
+                ui.label(
+                    RichText::new(i18n(
+                        "Embedded WebView is disabled. Open this tab in your system browser.",
+                    ))
+                    .color(KASPA_SECONDARY_GRAY),
+                );
+
+                ui.add_space(if compact { 10.0 } else { 14.0 });
+                let field_stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.75));
+
+                Frame::new()
+                    .stroke(field_stroke)
+                    .corner_radius(CornerRadius::same(12))
+                    .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
+                    .inner_margin(if compact {
+                        Margin::symmetric(10, 8)
+                    } else {
+                        Margin::symmetric(12, 10)
+                    })
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new(i18n("URL")).strong().color(KASPA_TEAL));
+                            if let Some(url) = &url {
+                                ui.label(
+                                    RichText::new(url.as_str())
+                                        .monospace()
+                                        .color(KASVAULT_PRIMARY_TEXT),
+                                );
+                            } else {
+                                ui.colored_label(theme_color().warning_color, i18n("unavailable"));
+                            }
+                        });
+                    });
+
+                ui.add_space(if compact { 6.0 } else { 8.0 });
+                Frame::new()
+                    .stroke(field_stroke)
+                    .corner_radius(CornerRadius::same(12))
+                    .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
+                    .inner_margin(if compact {
+                        Margin::symmetric(10, 8)
+                    } else {
+                        Margin::symmetric(12, 10)
+                    })
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new(i18n("Browser")).strong().color(KASPA_TEAL));
+                            ui.label(
+                                RichText::new(browser.label())
+                                    .monospace()
+                                    .color(KASVAULT_PRIMARY_TEXT),
+                            );
+                        });
+                    });
+
+                ui.add_space(if compact { 10.0 } else { 12.0 });
+                ui.horizontal_centered(|ui| {
+                    let button = Button::new(
+                        RichText::new(i18n("Open in Browser"))
+                            .strong()
+                            .color(KASPA_NEUTRAL_BLACK),
+                    )
+                    .fill(KASPA_TEAL)
+                    .stroke(Stroke::new(1.0, KASPA_BRIGHT_TEAL))
+                    .corner_radius(CornerRadius::same(10))
+                    .min_size(vec2(if compact { 180.0 } else { 220.0 }, 38.0));
+                    if ui.add_enabled(url.is_some(), button).clicked()
+                        && let Some(url) = &url
+                    {
+                        self.open_in_browser(browser, url);
+                    }
+                });
+            });
+        });
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_kasvault_style_card<F>(ui: &mut Ui, add_contents: F)
+where
+    F: FnOnce(&mut Ui, bool),
+{
+    let viewport_width = ui.available_width();
+    let compact = viewport_width < 640.0;
+    let top_padding = if compact {
+        (ui.available_height() * 0.08).clamp(8.0, 48.0)
+    } else {
+        (ui.available_height() * 0.14).clamp(14.0, 120.0)
+    };
+    ui.add_space(top_padding);
+
+    ui.vertical_centered(|ui| {
+        let content_width = if compact {
+            (ui.available_width() * 0.96).clamp(280.0, 560.0)
+        } else {
+            (ui.available_width() * 0.90).clamp(360.0, 860.0)
+        };
+        ui.allocate_ui_with_layout(
+            vec2(content_width, 0.0),
+            Layout::top_down(Align::Center),
+            |ui| {
+                let fill = KASPA_NEUTRAL_BLACK;
+                let stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.85));
+                Frame::new()
+                    .fill(fill)
+                    .stroke(stroke)
+                    .corner_radius(CornerRadius::same(if compact { 14 } else { 18 }))
+                    .inner_margin(if compact {
+                        Margin::symmetric(14, 12)
+                    } else {
+                        Margin::symmetric(24, 20)
+                    })
+                    .show(ui, |ui| add_contents(ui, compact));
+            },
+        );
+    });
 }
 
 impl ModuleT for Kasia {
@@ -379,9 +548,7 @@ impl ModuleT for Kasia {
                     ui.colored_label(theme_color().error_color, i18n("Kasia is unavailable."));
                     return;
                 }
-                while gtk::events_pending() {
-                    gtk::main_iteration_do(false);
-                }
+                pump_gtk_events_bounded();
             }
 
             if !matches!(core.settings.node.network, Network::Mainnet) {
@@ -398,6 +565,7 @@ impl ModuleT for Kasia {
                 self.last_probe_status = None;
                 self.last_probe_at = None;
                 self.last_webview_attempt = None;
+                self.last_webview_sync_at = None;
                 ui.label(i18n("Kasia is available only on Mainnet."));
                 return;
             }
@@ -475,6 +643,25 @@ impl ModuleT for Kasia {
                 .user_interface
                 .effective_kasia_port(core.settings.node.network);
             self.ensure_local_server(kasia_ui_port);
+
+            if core.settings.rendering.disable_embedded_webview {
+                self.webview.take();
+                self.last_bounds = None;
+                self.last_zoom = None;
+                self.last_signature = None;
+                self.last_webview_attempt = None;
+                self.last_webview_sync_at = None;
+
+                let browser_url = self.server.as_ref().map(|server| server.url.clone());
+                self.render_browser_card(
+                    ui,
+                    i18n("Kasia"),
+                    core.settings.rendering.webview_browser,
+                    browser_url,
+                );
+                return;
+            }
+
             if self.server.is_none() {
                 ui.colored_label(
                     theme_color().error_color,
@@ -516,6 +703,7 @@ impl ModuleT for Kasia {
                 self.webview.take();
                 self.last_bounds = None;
                 self.last_zoom = None;
+                self.last_webview_sync_at = None;
             }
 
             if self.webview.is_none() {
@@ -557,6 +745,7 @@ impl ModuleT for Kasia {
                         self.last_signature = signature;
                         self.status = None;
                         self.last_webview_attempt = None;
+                        self.last_webview_sync_at = Some(std::time::Instant::now());
                     }
                     Err(err) => {
                         #[cfg(target_os = "linux")]
@@ -573,23 +762,30 @@ impl ModuleT for Kasia {
                     }
                 }
             } else if let Some(webview) = &self.webview {
-                if self.last_bounds != Some(bounds) {
-                    if let Err(err) = webview.set_bounds(bounds) {
-                        self.status = Some(format!("Kasia WebView resize error: {err}"));
-                    } else {
-                        self.last_bounds = Some(bounds);
+                let should_sync_webview = self
+                    .last_webview_sync_at
+                    .map(|last| last.elapsed() >= WEBVIEW_SYNC_INTERVAL)
+                    .unwrap_or(true);
+                if should_sync_webview {
+                    if self.last_bounds != Some(bounds) {
+                        if let Err(err) = webview.set_bounds(bounds) {
+                            self.status = Some(format!("Kasia WebView resize error: {err}"));
+                        } else {
+                            self.last_bounds = Some(bounds);
+                        }
                     }
-                }
-                if self
-                    .last_zoom
-                    .map(|zoom| (zoom - target_zoom).abs() > 0.001)
-                    .unwrap_or(true)
-                {
-                    if let Err(err) = webview.zoom(target_zoom) {
-                        self.status = Some(format!("Kasia WebView zoom error: {err}"));
-                    } else {
-                        self.last_zoom = Some(target_zoom);
+                    if self
+                        .last_zoom
+                        .map(|zoom| (zoom - target_zoom).abs() > 0.001)
+                        .unwrap_or(true)
+                    {
+                        if let Err(err) = webview.zoom(target_zoom) {
+                            self.status = Some(format!("Kasia WebView zoom error: {err}"));
+                        } else {
+                            self.last_zoom = Some(target_zoom);
+                        }
                     }
+                    self.last_webview_sync_at = Some(std::time::Instant::now());
                 }
                 let _ = webview.set_visible(true);
             }

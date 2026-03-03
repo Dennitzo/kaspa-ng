@@ -331,7 +331,7 @@ where
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn open_url_with_browser(
+pub(crate) fn open_url_with_browser(
     browser: crate::settings::KasvaultBrowser,
     url: &str,
 ) -> std::result::Result<(), String> {

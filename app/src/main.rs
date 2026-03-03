@@ -7,6 +7,8 @@
 
 use cfg_if::cfg_if;
 use kaspa_ng_core::app::{ApplicationContext, kaspa_ng_main};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+use kaspa_ng_core::settings::{RenderingSettings, Settings};
 use workflow_log::*;
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
@@ -112,15 +114,78 @@ fn sanitize_linux_snap_environment() {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-fn configure_linux_webkit_runtime() {
+fn load_rendering_settings_for_startup() -> RenderingSettings {
+    match Settings::load_for_network_sync(kaspa_ng_core::network::Network::Mainnet) {
+        Ok(settings) => settings.rendering,
+        Err(err) => {
+            log_warn!("Unable to load rendering settings for startup: {err}");
+            RenderingSettings::default()
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn linux_hardware_rendering_available(
+    is_nvidia_proprietary: bool,
+    is_nvidia_nouveau: bool,
+) -> bool {
+    if is_nvidia_proprietary || is_nvidia_nouveau {
+        return true;
+    }
+
+    std::fs::read_dir("/dev/dri")
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .any(|name| name.starts_with("renderD") || name.starts_with("card"))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn configure_linux_webkit_runtime(rendering: &RenderingSettings) {
     // Workaround for known WebKitGTK instability on Linux/NVIDIA with DMABuf renderer.
+    // Applies to both proprietary NVIDIA and nouveau driver stacks.
     // Can be overridden by explicitly setting WEBKIT_DISABLE_DMABUF_RENDERER.
-    let is_nvidia = std::path::Path::new("/proc/driver/nvidia/version").exists();
-    if is_nvidia && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+    let is_nvidia_proprietary = std::path::Path::new("/proc/driver/nvidia/version").exists();
+    let is_nvidia_nouveau = std::path::Path::new("/sys/module/nouveau").exists();
+    if (is_nvidia_proprietary || is_nvidia_nouveau)
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
         unsafe {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
-        log_warn!("Enabled WEBKIT_DISABLE_DMABUF_RENDERER=1 (Linux/NVIDIA WebKitGTK stability workaround)");
+        let driver = if is_nvidia_proprietary {
+            "nvidia"
+        } else {
+            "nouveau"
+        };
+        log_warn!(
+            "Enabled WEBKIT_DISABLE_DMABUF_RENDERER=1 (Linux/{driver} WebKitGTK stability workaround)"
+        );
+    }
+
+    let hardware_available =
+        linux_hardware_rendering_available(is_nvidia_proprietary, is_nvidia_nouveau);
+    let should_force_software = !rendering.hardware_acceleration || !hardware_available;
+
+    if should_force_software && std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+        unsafe {
+            std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+        }
+        if !rendering.hardware_acceleration {
+            log_warn!(
+                "Enabled LIBGL_ALWAYS_SOFTWARE=1 (hardware acceleration disabled in settings)"
+            );
+        } else {
+            log_warn!(
+                "Enabled LIBGL_ALWAYS_SOFTWARE=1 (no hardware rendering device detected, fallback active)"
+            );
+        }
+    } else if rendering.hardware_acceleration {
+        if hardware_available {
+            log_warn!("Hardware rendering is enabled and a GPU device is available");
+        }
     }
 }
 
@@ -142,7 +207,10 @@ cfg_if! {
             sanitize_linux_ld_library_path();
 
             #[cfg(target_os = "linux")]
-            configure_linux_webkit_runtime();
+            {
+                let rendering = load_rendering_settings_for_startup();
+                configure_linux_webkit_runtime(&rendering);
+            }
 
             kaspa_alloc::init_allocator_with_default_settings();
 

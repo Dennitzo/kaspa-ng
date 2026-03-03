@@ -685,6 +685,28 @@ impl Default for MetricsSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[serde(default)]
+pub struct RenderingSettings {
+    pub hardware_acceleration: bool,
+    pub software_rendering_fallback: bool,
+    pub disable_embedded_webview: bool,
+    #[serde(default = "default_webview_browser")]
+    pub webview_browser: KasvaultBrowser,
+}
+
+impl Default for RenderingSettings {
+    fn default() -> Self {
+        Self {
+            hardware_acceleration: true,
+            software_rendering_fallback: true,
+            disable_embedded_webview: false,
+            webview_browser: default_webview_browser(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct UserInterfaceSettings {
     pub theme_color: String,
     pub theme_style: String,
@@ -874,7 +896,7 @@ pub enum KasvaultBrowser {
 impl KasvaultBrowser {
     pub fn label(self) -> &'static str {
         match self {
-            KasvaultBrowser::SystemDefault => "System Default",
+            KasvaultBrowser::SystemDefault => "Default Browser",
             KasvaultBrowser::Chrome => "Google Chrome",
             KasvaultBrowser::Firefox => "Mozilla Firefox",
             KasvaultBrowser::Brave => "Brave",
@@ -908,6 +930,10 @@ fn default_explorer_rest_port() -> u16 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_webview_browser() -> KasvaultBrowser {
+    KasvaultBrowser::SystemDefault
 }
 
 fn default_explorer_socket_port() -> u16 {
@@ -1395,6 +1421,8 @@ pub struct Settings {
     pub self_hosted: SelfHostedSettings,
     #[serde(default)]
     pub kasvault: KasvaultSettings,
+    #[serde(default)]
+    pub rendering: RenderingSettings,
     pub node: NodeSettings,
     pub user_interface: UserInterfaceSettings,
     pub language_code: String,
@@ -1418,6 +1446,7 @@ impl Default for Settings {
             explorer: ExplorerSettings::default(),
             self_hosted: SelfHostedSettings::default(),
             kasvault: KasvaultSettings::default(),
+            rendering: RenderingSettings::default(),
             node: NodeSettings::default(),
             user_interface: UserInterfaceSettings::default(),
             language_code: "en".to_string(),

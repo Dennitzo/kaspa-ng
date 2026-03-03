@@ -717,6 +717,139 @@ impl Settings {
             .default_open(true)
             .show(ui, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
+                CollapsingHeader::new(i18n("Rendering"))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        let mut rendering = self.settings.rendering.clone();
+                        let mut changed = false;
+                        let mut rendering_mode = if rendering.hardware_acceleration {
+                            i18n("Hardware rendering").to_string()
+                        } else {
+                            i18n("Software rendering").to_string()
+                        };
+
+                        ui.horizontal(|ui| {
+                            ui.label(i18n("Rendering mode"));
+                            ComboBox::from_id_salt("rendering_mode_combo")
+                                .selected_text(rendering_mode.clone())
+                                .show_ui(ui, |ui| {
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut rendering_mode,
+                                            i18n("Hardware rendering").to_string(),
+                                            i18n("Hardware rendering"),
+                                        )
+                                        .changed();
+                                    changed |= ui
+                                        .selectable_value(
+                                            &mut rendering_mode,
+                                            i18n("Software rendering").to_string(),
+                                            i18n("Software rendering"),
+                                        )
+                                        .changed();
+                                });
+                        });
+
+                        if rendering_mode == i18n("Hardware rendering") {
+                            rendering.hardware_acceleration = true;
+                            rendering.software_rendering_fallback = true;
+                        } else {
+                            rendering.hardware_acceleration = false;
+                        }
+
+                        ui.label(i18n(
+                            "Hardware rendering uses a software rendering fallback when required.",
+                        ));
+
+                        changed |= ui
+                            .checkbox(
+                                &mut rendering.disable_embedded_webview,
+                                i18n(
+                                    "Disable embedded WebView (open Explorer/K-Social/Kasia in system browser)",
+                                ),
+                            )
+                            .changed();
+
+                        ui.add_enabled_ui(rendering.disable_embedded_webview, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(i18n("Browser"));
+                                ComboBox::from_id_salt("webview_browser_combo")
+                                    .selected_text(rendering.webview_browser.label())
+                                    .show_ui(ui, |ui| {
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::SystemDefault,
+                                                i18n("Default Browser"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::Chrome,
+                                                i18n("Google Chrome"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::Firefox,
+                                                i18n("Mozilla Firefox"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::Brave,
+                                                i18n("Brave"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::Edge,
+                                                i18n("Microsoft Edge"),
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut rendering.webview_browser,
+                                                crate::settings::KasvaultBrowser::Safari,
+                                                i18n("Safari"),
+                                            )
+                                            .changed();
+                                    });
+                            });
+                        });
+
+                        if !rendering.hardware_acceleration {
+                            ui.colored_label(
+                                theme_color().warning_color,
+                                i18n("Software rendering is active. Restart Kaspa NG to apply changes."),
+                            );
+                        }
+
+                        #[cfg(not(target_os = "linux"))]
+                        ui.colored_label(
+                            theme_color().warning_color,
+                            i18n("Automatic rendering fallback currently applies on Linux."),
+                        );
+
+                        if changed {
+                            self.settings.rendering = rendering.clone();
+                            core.settings.rendering = rendering;
+                            core.store_settings();
+                            self.runtime.toast(UserNotification::info(i18n(
+                                "Rendering settings saved. Restart Kaspa NG to apply changes.",
+                            )));
+                        }
+
+                        ui.add_space(6.);
+                        ui.separator();
+                        ui.add_space(6.);
+                    });
+
+                #[cfg(not(target_arch = "wasm32"))]
                 CollapsingHeader::new(i18n("Self Hosted"))
                     .default_open(true)
                     .show(ui, |ui| {
@@ -1105,7 +1238,7 @@ impl Settings {
                                             .selectable_value(
                                                 &mut kasvault.browser,
                                                 crate::settings::KasvaultBrowser::SystemDefault,
-                                                i18n("System Default"),
+                                                i18n("Default Browser"),
                                             )
                                             .changed();
                                         changed |= ui

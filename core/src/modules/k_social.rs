@@ -31,6 +31,18 @@ const DEFAULT_K_PORT: u16 = 19120;
 #[cfg(not(target_arch = "wasm32"))]
 const K_OFFICIAL_MAINNET_API: &str = "https://mainnet.kaspatalk.net";
 #[cfg(not(target_arch = "wasm32"))]
+const WEBVIEW_SYNC_INTERVAL: Duration = Duration::from_millis(33);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_TEAL: Color32 = Color32::from_rgb(111, 199, 186);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_NEUTRAL_BLACK: Color32 = Color32::from_rgb(35, 31, 32);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_SECONDARY_GRAY: Color32 = Color32::from_rgb(182, 182, 182);
+#[cfg(not(target_arch = "wasm32"))]
+const KASPA_BRIGHT_TEAL: Color32 = Color32::from_rgb(73, 234, 203);
+#[cfg(not(target_arch = "wasm32"))]
+const KASVAULT_PRIMARY_TEXT: Color32 = Color32::from_rgb(236, 244, 242);
+#[cfg(not(target_arch = "wasm32"))]
 const WEBVIEW_SHORTCUTS_JS: &str = r#"
 (() => {
   if (window.__kaspaNgClipboardShortcuts) return;
@@ -375,6 +387,17 @@ fn ensure_gtk_initialized() -> std::result::Result<(), String> {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+fn pump_gtk_events_bounded() {
+    const MAX_ITERATIONS_PER_FRAME: usize = 8;
+    for _ in 0..MAX_ITERATIONS_PER_FRAME {
+        if !gtk::events_pending() {
+            break;
+        }
+        gtk::main_iteration_do(false);
+    }
+}
+
 pub struct KSocial {
     #[allow(dead_code)]
     runtime: Runtime,
@@ -400,6 +423,8 @@ pub struct KSocial {
     waiting_since: Option<Instant>,
     #[cfg(not(target_arch = "wasm32"))]
     last_webview_attempt: Option<Instant>,
+    #[cfg(not(target_arch = "wasm32"))]
+    last_webview_sync_at: Option<Instant>,
     logs: VecDeque<String>,
 }
 
@@ -459,6 +484,8 @@ impl KSocial {
             waiting_since: None,
             #[cfg(not(target_arch = "wasm32"))]
             last_webview_attempt: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_webview_sync_at: None,
             logs: VecDeque::new(),
         }
     }
@@ -496,6 +523,148 @@ impl KSocial {
             }
         }
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_in_browser(&self, browser: crate::settings::KasvaultBrowser, url: &str) {
+        if let Err(err) = crate::modules::kasvault::open_url_with_browser(browser, url) {
+            self.runtime
+                .toast(UserNotification::error(format!("K-Social browser open failed: {err}")));
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_browser_card(
+        &mut self,
+        ui: &mut Ui,
+        title: &str,
+        browser: crate::settings::KasvaultBrowser,
+        url: Option<String>,
+    ) {
+        render_kasvault_style_card(ui, |ui, compact| {
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new(title)
+                        .size(if compact { 24.0 } else { 30.0 })
+                        .strong()
+                        .color(KASPA_TEAL),
+                );
+                ui.add_space(if compact { 4.0 } else { 6.0 });
+                ui.label(
+                    RichText::new(i18n(
+                        "Embedded WebView is disabled. Open this tab in your system browser.",
+                    ))
+                    .color(KASPA_SECONDARY_GRAY),
+                );
+
+                ui.add_space(if compact { 10.0 } else { 14.0 });
+                let field_stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.75));
+
+                Frame::new()
+                    .stroke(field_stroke)
+                    .corner_radius(CornerRadius::same(12))
+                    .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
+                    .inner_margin(if compact {
+                        Margin::symmetric(10, 8)
+                    } else {
+                        Margin::symmetric(12, 10)
+                    })
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new(i18n("URL")).strong().color(KASPA_TEAL));
+                            if let Some(url) = &url {
+                                ui.label(
+                                    RichText::new(url.as_str())
+                                        .monospace()
+                                        .color(KASVAULT_PRIMARY_TEXT),
+                                );
+                            } else {
+                                ui.colored_label(theme_color().warning_color, i18n("unavailable"));
+                            }
+                        });
+                    });
+
+                ui.add_space(if compact { 6.0 } else { 8.0 });
+                Frame::new()
+                    .stroke(field_stroke)
+                    .corner_radius(CornerRadius::same(12))
+                    .fill(KASPA_NEUTRAL_BLACK.linear_multiply(0.92))
+                    .inner_margin(if compact {
+                        Margin::symmetric(10, 8)
+                    } else {
+                        Margin::symmetric(12, 10)
+                    })
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new(i18n("Browser")).strong().color(KASPA_TEAL));
+                            ui.label(
+                                RichText::new(browser.label())
+                                    .monospace()
+                                    .color(KASVAULT_PRIMARY_TEXT),
+                            );
+                        });
+                    });
+
+                ui.add_space(if compact { 10.0 } else { 12.0 });
+                ui.horizontal_centered(|ui| {
+                    let button = Button::new(
+                        RichText::new(i18n("Open in Browser"))
+                            .strong()
+                            .color(KASPA_NEUTRAL_BLACK),
+                    )
+                    .fill(KASPA_TEAL)
+                    .stroke(Stroke::new(1.0, KASPA_BRIGHT_TEAL))
+                    .corner_radius(CornerRadius::same(10))
+                    .min_size(vec2(if compact { 180.0 } else { 220.0 }, 38.0));
+                    if ui.add_enabled(url.is_some(), button).clicked()
+                        && let Some(url) = &url
+                    {
+                        self.open_in_browser(browser, url);
+                    }
+                });
+            });
+        });
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn render_kasvault_style_card<F>(ui: &mut Ui, add_contents: F)
+where
+    F: FnOnce(&mut Ui, bool),
+{
+    let viewport_width = ui.available_width();
+    let compact = viewport_width < 640.0;
+    let top_padding = if compact {
+        (ui.available_height() * 0.08).clamp(8.0, 48.0)
+    } else {
+        (ui.available_height() * 0.14).clamp(14.0, 120.0)
+    };
+    ui.add_space(top_padding);
+
+    ui.vertical_centered(|ui| {
+        let content_width = if compact {
+            (ui.available_width() * 0.96).clamp(280.0, 560.0)
+        } else {
+            (ui.available_width() * 0.90).clamp(360.0, 860.0)
+        };
+        ui.allocate_ui_with_layout(
+            vec2(content_width, 0.0),
+            Layout::top_down(Align::Center),
+            |ui| {
+                let fill = KASPA_NEUTRAL_BLACK;
+                let stroke = Stroke::new(1.0, KASPA_TEAL.linear_multiply(0.85));
+                Frame::new()
+                    .fill(fill)
+                    .stroke(stroke)
+                    .corner_radius(CornerRadius::same(if compact { 14 } else { 18 }))
+                    .inner_margin(if compact {
+                        Margin::symmetric(14, 12)
+                    } else {
+                        Margin::symmetric(24, 20)
+                    })
+                    .show(ui, |ui| add_contents(ui, compact));
+            },
+        );
+    });
 }
 
 impl ModuleT for KSocial {
@@ -517,6 +686,7 @@ impl ModuleT for KSocial {
                 self.last_probe_status = None;
                 self.waiting_since = None;
                 self.last_webview_attempt = None;
+                self.last_webview_sync_at = None;
                 self.push_log("K-Social: blocked (Mainnet only)");
                 return;
             }
@@ -599,9 +769,7 @@ impl ModuleT for KSocial {
                     ui.colored_label(theme_color().error_color, i18n("K-Social is unavailable."));
                     return;
                 }
-                while gtk::events_pending() {
-                    gtk::main_iteration_do(false);
-                }
+                pump_gtk_events_bounded();
             }
 
             if !matches!(core.settings.node.network, Network::Mainnet) {
@@ -637,6 +805,29 @@ impl ModuleT for KSocial {
             } else {
                 ("127.0.0.1".to_string(), 0)
             };
+
+            if core.settings.rendering.disable_embedded_webview {
+                self.webview.take();
+                self.last_bounds = None;
+                self.last_zoom = None;
+                self.last_signature = None;
+                self.last_webview_attempt = None;
+                self.last_webview_sync_at = None;
+
+                self.ensure_local_server(&api_host, api_port);
+                let browser_url = self
+                    .server
+                    .as_ref()
+                    .map(|server| format!("http://{}:{}/", server.host, server.port));
+                self.render_browser_card(
+                    ui,
+                    i18n("K-Social"),
+                    core.settings.rendering.webview_browser,
+                    browser_url,
+                );
+                return;
+            }
+
             let mut k_api_ready = !use_self_hosted;
 
             if use_self_hosted {
@@ -800,6 +991,7 @@ impl ModuleT for KSocial {
                     self.webview.take();
                     self.last_bounds = None;
                     self.last_zoom = None;
+                    self.last_webview_sync_at = None;
                 }
 
                 if self.webview.is_none() {
@@ -868,6 +1060,7 @@ impl ModuleT for KSocial {
                             self.status = None;
                             self.waiting_since = None;
                             self.last_webview_attempt = None;
+                            self.last_webview_sync_at = Some(Instant::now());
                             self.push_log("K-Social: WebView attached");
                         }
                         Err(err) => {
@@ -885,27 +1078,36 @@ impl ModuleT for KSocial {
                         }
                     }
                 } else if let Some(webview) = &self.webview {
-                    let mut resize_error: Option<String> = None;
-                    if self.last_bounds != Some(bounds) {
-                        if let Err(err) = webview.set_bounds(bounds) {
-                            resize_error = Some(err.to_string());
-                        } else {
-                            self.last_bounds = Some(bounds);
+                    let should_sync_webview = self
+                        .last_webview_sync_at
+                        .map(|last| last.elapsed() >= WEBVIEW_SYNC_INTERVAL)
+                        .unwrap_or(true);
+                    let mut sync_error: Option<String> = None;
+                    if should_sync_webview {
+                        let mut resize_error: Option<String> = None;
+                        if self.last_bounds != Some(bounds) {
+                            if let Err(err) = webview.set_bounds(bounds) {
+                                resize_error = Some(err.to_string());
+                            } else {
+                                self.last_bounds = Some(bounds);
+                            }
                         }
-                    }
-                    if self
-                        .last_zoom
-                        .map(|zoom| (zoom - target_zoom).abs() > 0.001)
-                        .unwrap_or(true)
-                    {
-                        if let Err(err) = webview.zoom(target_zoom) {
-                            resize_error = Some(err.to_string());
-                        } else {
-                            self.last_zoom = Some(target_zoom);
+                        if self
+                            .last_zoom
+                            .map(|zoom| (zoom - target_zoom).abs() > 0.001)
+                            .unwrap_or(true)
+                        {
+                            if let Err(err) = webview.zoom(target_zoom) {
+                                resize_error = Some(err.to_string());
+                            } else {
+                                self.last_zoom = Some(target_zoom);
+                            }
                         }
+                        sync_error = resize_error;
+                        self.last_webview_sync_at = Some(Instant::now());
                     }
                     let _ = webview.set_visible(true);
-                    if let Some(err) = resize_error {
+                    if let Some(err) = sync_error {
                         self.status = Some(format!("K-Social WebView resize error: {err}"));
                         self.push_log(format!("K-Social: WebView resize error ({err})"));
                     }
