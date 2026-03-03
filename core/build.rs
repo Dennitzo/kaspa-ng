@@ -845,7 +845,11 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         .args(["pull", "--ff-only"])
         .status();
     if status.map(|s| !s.success()).unwrap_or(true) {
-        return Err(format!("Failed to update {name} via git pull --ff-only").into());
+        // Network hiccups or upstream transient errors should not break the build when
+        // the repo is already present locally; continue with existing checkout.
+        println!(
+            "cargo:warning=Failed to update {name} via git pull --ff-only; continuing with local checkout"
+        );
     }
 
     Ok(())
