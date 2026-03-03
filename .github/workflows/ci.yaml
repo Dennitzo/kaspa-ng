@@ -1386,12 +1386,17 @@ jobs:
           mkdir -p .debpkg/usr/share/applications
           cp core/resources/packaging/kaspa-ng.desktop .debpkg/usr/share/applications/
 
-      - name: Upload Linux build to GitHub 
+      - name: Create Linux build tarball
+        if: runner.os == 'Linux'
+        run: |
+          tar -czf "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64.tar.gz" "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64"
+
+      - name: Upload Linux build to GitHub (tarball)
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with: 
           name: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
-          path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64
+          path: kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64.tar.gz
           overwrite: true
 
       - name: Package Debian Release

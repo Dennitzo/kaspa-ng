@@ -32,19 +32,21 @@ pub struct SelfHostedExplorerService {
 }
 
 impl SelfHostedExplorerService {
-    const REQUIRED_PY_MODULES: [&'static str; 10] = [
+    const REQUIRED_PY_MODULES: [&'static str; 12] = [
         "uvicorn",
         "fastapi_utils",
         "typing_inspect",
         "sqlalchemy",
         "socketio",
         "asyncpg",
+        "aiohttp",
+        "aiocache",
         "grpc",
         "requests",
         "kaspa_script_address",
         "kaspa",
     ];
-    const REQUIRED_PIP_PACKAGES: [&'static str; 16] = [
+    const REQUIRED_PIP_PACKAGES: [&'static str; 18] = [
         "uvicorn",
         "fastapi",
         "fastapi-utils",
@@ -56,6 +58,8 @@ impl SelfHostedExplorerService {
         "requests",
         "websockets",
         "asyncpg",
+        "aiohttp",
+        "aiocache",
         "cachetools",
         "psycopg2-binary",
         "waitress",
@@ -573,6 +577,33 @@ impl SelfHostedExplorerService {
         None
     }
 
+    fn ensure_local_venv_python(root: &Path) -> Option<PathBuf> {
+        let bootstrap_python = Self::find_python()?;
+        let venv_dir = root.join(".venv");
+        let mut create_cmd = std::process::Command::new(&bootstrap_python);
+        Self::apply_no_window_for_std_command(&mut create_cmd);
+        let _ = create_cmd
+            .current_dir(root)
+            .arg("-m")
+            .arg("venv")
+            .arg(&venv_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        let venv_python = Self::find_venv_python(root)?;
+        Self::ensure_python_modules_for_python(
+            &venv_python,
+            &Self::REQUIRED_PY_MODULES,
+            &Self::REQUIRED_PIP_PACKAGES,
+        );
+        if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES) {
+            Some(venv_python)
+        } else {
+            None
+        }
+    }
+
     fn find_server_root(name: &str) -> Option<PathBuf> {
         let mut candidates = Vec::new();
         let is_macos_bundle = Self::running_from_macos_bundle();
@@ -618,32 +649,44 @@ impl SelfHostedExplorerService {
                 &Self::REQUIRED_PY_MODULES,
                 &Self::REQUIRED_PIP_PACKAGES,
             );
-            let mut cmd = Command::new(venv_python);
-            #[cfg(windows)]
-            {
-                // gunicorn depends on fcntl and is not supported on Windows.
-                cmd.arg("-m")
-                    .arg("uvicorn")
-                    .arg("main:app")
-                    .arg("--host")
-                    .arg(bind)
-                    .arg("--port")
-                    .arg(port.to_string());
+            if Self::python_modules_available_for_python(&venv_python, &Self::REQUIRED_PY_MODULES) {
+                let mut cmd = Command::new(&venv_python);
+                #[cfg(windows)]
+                {
+                    // gunicorn depends on fcntl and is not supported on Windows.
+                    cmd.arg("-m")
+                        .arg("uvicorn")
+                        .arg("main:app")
+                        .arg("--host")
+                        .arg(bind)
+                        .arg("--port")
+                        .arg(port.to_string());
+                }
+                #[cfg(not(windows))]
+                {
+                    if Self::python_module_available_for_python(&venv_python, "gunicorn") {
+                        let bind_arg = format!("{bind}:{port}");
+                        cmd.arg("-m")
+                            .arg("gunicorn")
+                            .arg("-w")
+                            .arg("1")
+                            .arg("-k")
+                            .arg("uvicorn.workers.UvicornWorker")
+                            .arg("main:app")
+                            .arg("-b")
+                            .arg(&bind_arg);
+                    } else {
+                        cmd.arg("-m")
+                            .arg("uvicorn")
+                            .arg("main:app")
+                            .arg("--host")
+                            .arg(bind)
+                            .arg("--port")
+                            .arg(port.to_string());
+                    }
+                }
+                return Some(cmd);
             }
-            #[cfg(not(windows))]
-            {
-                let bind_arg = format!("{bind}:{port}");
-                cmd.arg("-m")
-                    .arg("gunicorn")
-                    .arg("-w")
-                    .arg("1")
-                    .arg("-k")
-                    .arg("uvicorn.workers.UvicornWorker")
-                    .arg("main:app")
-                    .arg("-b")
-                    .arg(&bind_arg);
-            }
-            return Some(cmd);
         }
         if root.join("pyproject.toml").exists() {
             if let Some(python) = Self::find_poetry_cached_venv_python(root) {
@@ -787,12 +830,27 @@ impl SelfHostedExplorerService {
             }
         }
 
+        if let Some(venv_python) = Self::ensure_local_venv_python(root) {
+            let mut cmd = Command::new(venv_python);
+            cmd.arg("-m")
+                .arg("uvicorn")
+                .arg("main:app")
+                .arg("--host")
+                .arg(bind)
+                .arg("--port")
+                .arg(port.to_string());
+            return Some(cmd);
+        }
+
         let python = Self::find_python()?;
         Self::ensure_python_modules_for_python(
             &python,
             &Self::REQUIRED_PY_MODULES,
             &Self::REQUIRED_PIP_PACKAGES,
         );
+        if !Self::python_modules_available_for_python(&python, &Self::REQUIRED_PY_MODULES) {
+            return None;
+        }
         let mut cmd = Command::new(python);
         cmd.arg("-m")
             .arg("uvicorn")

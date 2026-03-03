@@ -242,7 +242,7 @@ impl SelfHostedLoaderService {
     }
 
     fn postgres_binary_major_version(postgres_path: &Path) -> Option<u32> {
-        if !postgres_path.exists() || !postgres_path.is_file() {
+        if !Self::prepare_postgres_binary(postgres_path) {
             return None;
         }
         let mut cmd = std::process::Command::new(postgres_path);
@@ -279,7 +279,7 @@ impl SelfHostedLoaderService {
 
         for dir in Self::postgres_candidate_bin_dirs() {
             let candidate = dir.join(&binary_name);
-            if !candidate.exists() || !candidate.is_file() {
+            if !Self::prepare_postgres_binary(&candidate) {
                 continue;
             }
             let postgres_candidate = dir.join(if cfg!(windows) {
@@ -299,7 +299,7 @@ impl SelfHostedLoaderService {
     }
 
     fn runnable_binary(path: &Path) -> bool {
-        if !path.exists() || !path.is_file() {
+        if !Self::prepare_postgres_binary(path) {
             return false;
         }
         let mut cmd = std::process::Command::new(path);
@@ -309,6 +309,27 @@ impl SelfHostedLoaderService {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn prepare_postgres_binary(path: &Path) -> bool {
+        if !path.exists() || !path.is_file() {
+            return false;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(path) {
+                let mode = metadata.permissions().mode();
+                if mode & 0o111 == 0 {
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(mode | 0o111);
+                    let _ = std::fs::set_permissions(path, perms);
+                }
+            }
+        }
+
+        true
     }
 
     fn apply_no_window_for_std_command(_cmd: &mut std::process::Command) {

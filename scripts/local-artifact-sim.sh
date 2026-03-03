@@ -551,11 +551,12 @@ copy_dir_filtered() {
 }
 
 package_and_verify() {
-  local short_sha platform root os
+  local short_sha platform root os tarball
   short_sha="$(git rev-parse --short HEAD 2>/dev/null || echo "local")"
   platform="$(detect_platform_suffix)"
   root="${ARTIFACT_ROOT:-kaspa-ng-${short_sha}-${platform}-local-sim}"
   os="$(uname -s)"
+  tarball=""
 
   nuke_dir "$root"
   mkdir -p "$root"
@@ -648,7 +649,13 @@ package_and_verify() {
     [[ -f "$root/Kaspa-NG.app/Contents/MacOS/kaspa-ng" ]] || { echo "Missing app executable" >&2; exit 1; }
   fi
 
-  echo "LOCAL_ARTIFACT_SIM_OK root=$root"
+  if [[ "$os" == "Linux" ]]; then
+    tarball="${root}.tar.gz"
+    rm -f "$tarball"
+    tar -czf "$tarball" "$root"
+  fi
+
+  echo "LOCAL_ARTIFACT_SIM_OK root=$root tarball=${tarball:-none}"
 }
 
 echo "==> [0/5] Sync external repositories"

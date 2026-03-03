@@ -222,6 +222,9 @@ impl SelfHostedPostgresService {
     }
 
     fn postgres_binary_major_version_from_bin(postgres_bin: &Path) -> Option<u32> {
+        if !Self::prepare_binary(postgres_bin) {
+            return None;
+        }
         let mut cmd = std::process::Command::new(postgres_bin);
         Self::apply_no_window_for_std_command(&mut cmd);
         Self::apply_postgres_runtime_env_for_std_command(&mut cmd, postgres_bin);
@@ -442,7 +445,7 @@ impl SelfHostedPostgresService {
         for bin_dir in Self::candidate_bin_dirs() {
             let candidate = bin_dir.join(&bin_name);
             searched.push(candidate.display().to_string());
-            if !candidate.exists() || !candidate.is_file() {
+            if !Self::prepare_binary(&candidate) {
                 continue;
             }
             let is_supported_major = if binary == "postgres" {
@@ -483,7 +486,7 @@ impl SelfHostedPostgresService {
     }
 
     fn is_runnable_binary(path: &Path) -> bool {
-        if !path.exists() || !path.is_file() {
+        if !Self::prepare_binary(path) {
             return false;
         }
 
@@ -494,6 +497,27 @@ impl SelfHostedPostgresService {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         matches!(cmd.status(), Ok(status) if status.success())
+    }
+
+    fn prepare_binary(path: &Path) -> bool {
+        if !path.exists() || !path.is_file() {
+            return false;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(path) {
+                let mode = metadata.permissions().mode();
+                if mode & 0o111 == 0 {
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(mode | 0o111);
+                    let _ = std::fs::set_permissions(path, perms);
+                }
+            }
+        }
+
+        true
     }
 
     fn running_from_macos_bundle() -> bool {
