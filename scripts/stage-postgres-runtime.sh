@@ -18,6 +18,32 @@ copy_tree() {
   return 0
 }
 
+copy_linux_runtime_deps() {
+  local root="$1"
+  local dst_lib="$2"
+  local bins=(postgres initdb pg_ctl)
+  local skip_re='^(/lib.*/ld-linux.*|/lib.*/libc\.so|/lib.*/libm\.so|/lib.*/libpthread\.so|/lib.*/librt\.so|/lib.*/libdl\.so|/lib.*/libresolv\.so)(\..*)?$'
+  local bin dep target
+
+  mkdir -p "$dst_lib"
+
+  for bin in "${bins[@]}"; do
+    if [ ! -x "$root/bin/$bin" ]; then
+      continue
+    fi
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      if [[ "$dep" =~ $skip_re ]]; then
+        continue
+      fi
+      target="$dst_lib/$(basename "$dep")"
+      if [ ! -e "$target" ]; then
+        cp -L "$dep" "$target"
+      fi
+    done < <(ldd "$root/bin/$bin" 2>/dev/null | awk '/=> \// {print $3}')
+  done
+}
+
 postgres_major() {
   local exe="$1"
   local version_line major
@@ -75,6 +101,9 @@ stage_tree() {
   copy_tree "$SRC/bin" "$OUT/bin" || return 1
   copy_tree "$SRC/lib" "$OUT/lib" || return 1
   copy_tree "$SRC/share" "$OUT/share" || return 1
+  if [ "$(uname -s)" = "Linux" ]; then
+    copy_linux_runtime_deps "$OUT" "$OUT/lib"
+  fi
   validate_staged_output "$OUT" || return 1
   echo "Staged PostgreSQL runtime from bundled source: ${SRC} -> $OUT"
   return 0

@@ -295,6 +295,40 @@ impl SelfHostedLoaderService {
             }
         }
 
+        let path_var = std::env::var_os("PATH")?;
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(&binary_name);
+            if !Self::prepare_postgres_binary(&candidate) {
+                continue;
+            }
+
+            if binary == "postgres" {
+                let supported = Self::runnable_binary(&candidate)
+                    && Self::postgres_binary_major_version(&candidate)
+                        .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                        .unwrap_or(false);
+                if supported {
+                    return Some(candidate);
+                }
+                continue;
+            }
+
+            let sibling_postgres = dir.join(if cfg!(windows) {
+                "postgres.exe"
+            } else {
+                "postgres"
+            });
+            let supported = Self::postgres_binary_major_version(&candidate)
+                .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                .unwrap_or(false)
+                || Self::postgres_binary_major_version(&sibling_postgres)
+                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                    .unwrap_or(false);
+            if supported {
+                return Some(candidate);
+            }
+        }
+
         None
     }
 

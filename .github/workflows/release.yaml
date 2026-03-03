@@ -345,14 +345,7 @@ jobs:
               exit 1
             fi
           done
-          if [ ! -d "dist/postgres" ]; then
-            echo "Missing packaged directory: postgres"
-            exit 1
-          fi
-          if [ ! -x "dist/postgres/bin/postgres" ]; then
-            echo "Missing PostgreSQL runtime binary: dist/postgres/bin/postgres"
-            exit 1
-          fi
+          bash ./scripts/verify-linux-artifact.sh dist
           for d in K Kasia KasVault; do
             if [ ! -d "dist/${d}" ]; then
               echo "Optional packaged directory missing: ${d} (continuing)"

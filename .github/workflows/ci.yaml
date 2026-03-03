@@ -1376,8 +1376,7 @@ jobs:
           for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
-          [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/postgres" ] || { echo "Missing packaged directory: postgres"; exit 1; }
-          [ -x "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/postgres/bin/postgres" ] || { echo "Missing PostgreSQL runtime binary: postgres/bin/postgres"; exit 1; }
+          bash ./scripts/verify-linux-artifact.sh "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64"
           for d in K Kasia KasVault; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done

@@ -474,8 +474,12 @@ impl SelfHostedPostgresService {
             }
         }
 
+        if let Some(candidate) = Self::find_in_path(binary) {
+            return Ok(candidate);
+        }
+
         Err(Error::Custom(format!(
-            "postgres binary not found or unsupported version: {bin_name} (expected PostgreSQL {} from bundled runtime; searched: {})",
+            "postgres binary not found or unsupported version: {bin_name} (expected PostgreSQL {} from bundled runtime or PATH; searched: {})",
             Self::EXPECTED_POSTGRES_MAJOR,
             if searched.is_empty() {
                 "<none>".to_string()
@@ -660,10 +664,42 @@ impl SelfHostedPostgresService {
 
     #[allow(dead_code)]
     fn find_in_path(bin_name: &str) -> Option<PathBuf> {
+        let resolved_name = if cfg!(windows) {
+            format!("{bin_name}.exe")
+        } else {
+            bin_name.to_string()
+        };
         let path_var = std::env::var_os("PATH")?;
         std::env::split_paths(&path_var)
-            .map(|dir| dir.join(bin_name))
-            .find(|candidate| Self::is_runnable_binary(candidate))
+            .map(|dir| dir.join(&resolved_name))
+            .find(|candidate| {
+                if !Self::prepare_binary(candidate) {
+                    return false;
+                }
+                if bin_name == "postgres" {
+                    return Self::is_runnable_binary(candidate)
+                        && Self::postgres_binary_major_version_from_bin(candidate)
+                            .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                            .unwrap_or(false);
+                }
+
+                let sibling_postgres = candidate.parent().map(|dir| {
+                    dir.join(if cfg!(windows) {
+                        "postgres.exe"
+                    } else {
+                        "postgres"
+                    })
+                });
+
+                Self::postgres_binary_major_version_from_bin(candidate)
+                    .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                    .unwrap_or(false)
+                    || sibling_postgres
+                        .as_ref()
+                        .and_then(|path| Self::postgres_binary_major_version_from_bin(path))
+                        .map(|major| major == Self::EXPECTED_POSTGRES_MAJOR)
+                        .unwrap_or(false)
+            })
     }
 
     fn initdb_if_needed(&self, settings: &SelfHostedSettings, data_dir: &Path) -> Result<()> {
