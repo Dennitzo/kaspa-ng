@@ -284,7 +284,10 @@ impl SelfHostedKIndexerService {
             }
         }
 
-        candidates.into_iter().find(Self::is_executable)
+        candidates
+            .into_iter()
+            .find(Self::is_executable)
+            .map(|path| path.canonicalize().unwrap_or(path))
     }
 
     async fn start_processor(self: &Arc<Self>) -> Result<()> {
@@ -325,7 +328,14 @@ impl SelfHostedKIndexerService {
             return Ok(());
         };
 
-        let mut cmd = Command::new(binary);
+        self.logs.push(
+            "INFO",
+            &format!(
+                "starting K-transaction-processor binary: {}",
+                binary.display()
+            ),
+        );
+        let mut cmd = Command::new(&binary);
         cmd.arg("-H")
             .arg(&settings.db_host)
             .arg("-P")
@@ -443,7 +453,11 @@ impl SelfHostedKIndexerService {
             return Ok(());
         };
 
-        let mut cmd = Command::new(binary);
+        self.logs.push(
+            "INFO",
+            &format!("starting K-webserver binary: {}", binary.display()),
+        );
+        let mut cmd = Command::new(&binary);
         cmd.arg("-H")
             .arg(&settings.db_host)
             .arg("-P")

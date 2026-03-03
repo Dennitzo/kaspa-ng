@@ -356,7 +356,7 @@ impl SelfHostedIndexerService {
         fn pick(path: PathBuf) -> Option<PathBuf> {
             ensure_executable(&path);
             if is_executable(&path) {
-                Some(path)
+                Some(path.canonicalize().unwrap_or(path))
             } else {
                 None
             }
@@ -456,7 +456,11 @@ impl SelfHostedIndexerService {
 
         let database_url = Self::build_database_url(&settings, &node);
 
-        let mut cmd = Command::new(binary);
+        self.logs.push(
+            "INFO",
+            &format!("starting simply-kaspa-indexer binary: {}", binary.display()),
+        );
+        let mut cmd = Command::new(&binary);
         let rpc_url = Self::effective_indexer_rpc_url(&settings, &node);
         let network_arg = Self::indexer_network_arg(&node);
         cmd.arg("-s")

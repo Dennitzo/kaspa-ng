@@ -608,6 +608,7 @@ impl SelfHostedExplorerService {
         candidates
             .into_iter()
             .find(|dir| dir.join("main.py").exists())
+            .map(|dir| dir.canonicalize().unwrap_or(dir))
     }
 
     fn build_command(root: &Path, bind: &str, port: u16) -> Option<Command> {

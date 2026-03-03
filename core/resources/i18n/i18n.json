@@ -4537,6 +4537,7 @@
       "No wallets found, please create a new wallet": "No wallets found, please create a new wallet",
       "Node": "Node",
       "Node Status": "Node Status",
+      "Node synced, reconnecting wallet...": "Node synced, reconnecting wallet...",
       "Noise": "Noise",
       "None": "None",
       "Normal": "Normal",
