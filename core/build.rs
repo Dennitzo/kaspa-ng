@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .all_rustc()
         .emit()?;
 
-    sync_external_repo_if_needed("rusty-kaspa", "https://github.com/kaspanet/rusty-kaspa.git")?;
+    sync_required_external_repo_if_needed("rusty-kaspa", "https://github.com/kaspanet/rusty-kaspa.git")?;
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
     ensure_postgres_runtime_ready()?;
@@ -850,6 +850,68 @@ fn sync_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Err
         println!(
             "cargo:warning=Failed to update {name} via git pull --ff-only; continuing with local checkout"
         );
+    }
+
+    Ok(())
+}
+
+fn sync_required_external_repo_if_needed(name: &str, url: &str) -> Result<(), Box<dyn Error>> {
+    if std::env::var("KASPA_NG_SKIP_EXTERNAL_SYNC")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    ensure_external_repo_not_tracked(&repo_root, name);
+    let target = repo_root.join(name);
+
+    if !target.exists() {
+        println!("cargo:warning=Cloning {name}...");
+        clone_external_repo(&repo_root, name, url)?;
+    } else if !target.join(".git").exists() {
+        println!("cargo:warning={name} has no .git; replacing with a fresh clone");
+        let _ = std::fs::remove_dir_all(&target);
+        clone_external_repo(&repo_root, name, url)?;
+    }
+
+    let set_origin = Command::new("git")
+        .current_dir(&target)
+        .args(["remote", "set-url", "origin", url])
+        .status();
+    if set_origin.map(|s| !s.success()).unwrap_or(true) {
+        return Err(format!("Failed to set origin URL for {name}").into());
+    }
+
+    let fetch = Command::new("git")
+        .current_dir(&target)
+        .args(["fetch", "--depth", "1", "origin"])
+        .status();
+    if fetch.map(|s| !s.success()).unwrap_or(true) {
+        return Err(format!("Failed to fetch {name} from {url}").into());
+    }
+
+    // Keep this dependency deterministic and always up-to-date by forcing the checkout
+    // to the latest fetched upstream commit.
+    let reset = Command::new("git")
+        .current_dir(&target)
+        .args(["reset", "--hard", "FETCH_HEAD"])
+        .status();
+    if reset.map(|s| !s.success()).unwrap_or(true) {
+        return Err(format!("Failed to hard-reset {name} to FETCH_HEAD").into());
+    }
+
+    let clean = Command::new("git")
+        .current_dir(&target)
+        .args(["clean", "-fd"])
+        .status();
+    if clean.map(|s| !s.success()).unwrap_or(true) {
+        return Err(format!("Failed to clean untracked files for {name}").into());
     }
 
     Ok(())

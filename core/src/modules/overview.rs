@@ -322,7 +322,12 @@ impl Overview {
                 CollapsingHeader::new(i18n("Build"))
                     .default_open(true)
                     .show(ui, |ui| {
-                        ui.add(Label::new(format!("Kaspa NG v{}-{} + Rusty Kaspa v{}", env!("CARGO_PKG_VERSION"),crate::app::GIT_DESCRIBE, kaspa_version())));
+                        ui.add(Label::new(format!(
+                            "Kaspa NG v{}-{} + Rusty Kaspa v{}",
+                            kaspa_version(),
+                            crate::app::GIT_DESCRIBE,
+                            kaspa_version()
+                        )));
                         // if ui.add(Label::new(format!("Kaspa NG v{}-{} + Rusty Kaspa v{}", env!("CARGO_PKG_VERSION"),crate::app::GIT_DESCRIBE, kaspa_wallet_core::version())).sense(Sense::click())).clicked() {
                         //     core.select::<modules::Changelog>();
                         // }

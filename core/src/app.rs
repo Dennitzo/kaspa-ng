@@ -90,6 +90,7 @@ cfg_if! {
             use clap::{arg, command, Arg, Command};
             use std::env::{args,var};
             use std::iter::once;
+            let display_version = kaspa_version();
 
             if args().any(|arg| arg == "--daemon") || var("KASPA_NG_DAEMON").is_ok() {
                 let args = once("kaspad".to_string()).chain(args().skip(1).filter(|arg| arg != "--daemon"));//.collect::<Vec<String>>();
@@ -104,7 +105,10 @@ cfg_if! {
 
                 let cmd = Command::new("kaspa-ng")
 
-                    .about(format!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (Rusty Kaspa v{})", kaspa_version()))
+                    .about(format!(
+                        "kaspa-ng v{}-{GIT_DESCRIBE} (Rusty Kaspa v{})",
+                        display_version, display_version
+                    ))
                     .arg(arg!(--version "Display software version"))
                     .arg(arg!(--disable "Disable node services when starting"))
                     .arg(arg!(--daemon "Run as Rusty Kaspa p2p daemon"))
@@ -140,7 +144,7 @@ cfg_if! {
                     let matches = cmd.get_matches();
 
                     if matches.get_one::<bool>("version").cloned().unwrap_or(false) {
-                        println!("v{VERSION}-{GIT_DESCRIBE}");
+                        println!("v{}-{GIT_DESCRIBE}", display_version);
                         std::process::exit(0);
                     } else if matches.get_one::<bool>("cli").cloned().unwrap_or(false) {
                         Args::Cli
@@ -243,7 +247,11 @@ cfg_if! {
 
                     workflow_log::set_colors_enabled(true);
 
-                    println!("kaspa-ng v{VERSION}-{GIT_DESCRIBE} (Rusty Kaspa v{})", kaspa_version());
+                    let display_version = kaspa_version();
+                    println!(
+                        "kaspa-ng v{}-{GIT_DESCRIBE} (Rusty Kaspa v{})",
+                        display_version, display_version
+                    );
 
                     // Log to stderr (if you run with `RUST_LOG=debug`).
                     env_logger::init();
