@@ -1,5 +1,6 @@
 use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
+use std::collections::HashSet;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -26,6 +27,7 @@ pub struct SelfHostedKasiaIndexerService {
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
     last_blocked_reason: Mutex<Option<String>>,
+    db_reset_attempted_for_network: Mutex<HashSet<String>>,
 }
 
 impl SelfHostedKasiaIndexerService {
@@ -299,6 +301,7 @@ impl SelfHostedKasiaIndexerService {
             logs: logs.kasia_indexer,
             child: Mutex::new(None),
             last_blocked_reason: Mutex::new(None),
+            db_reset_attempted_for_network: Mutex::new(HashSet::new()),
         }
     }
 
@@ -466,6 +469,75 @@ impl SelfHostedKasiaIndexerService {
         }
         Ok(())
     }
+
+    fn sync_failure_loop_detected(logs: &Arc<LogStore>) -> bool {
+        let recent = logs.snapshot(300);
+        let has_missing_header = recent
+            .iter()
+            .any(|line| line.message.contains("cannot find header"));
+        let has_syncer_stopped = recent
+            .iter()
+            .any(|line| line.message.contains("stopped but we are still syncing"));
+        let retry_count = recent
+            .iter()
+            .filter(|line| line.message.contains("retrying kasia-indexer startup"))
+            .count();
+
+        has_missing_header && has_syncer_stopped && retry_count >= 2
+    }
+
+    fn maybe_reset_db_for_sync_loop(&self) {
+        let node = self.node_settings.lock().unwrap().clone();
+        let Some(network_type) = Self::kasia_network(&node) else {
+            return;
+        };
+        let network_key = network_type.to_string();
+        {
+            let mut guard = self.db_reset_attempted_for_network.lock().unwrap();
+            if guard.contains(&network_key) {
+                return;
+            }
+            if !Self::sync_failure_loop_detected(&self.logs) {
+                return;
+            }
+            guard.insert(network_key.clone());
+        }
+
+        let db_path = Self::default_db_root().join(network_type);
+        self.logs.push(
+            "WARN",
+            &format!(
+                "detected kasia-indexer sync loop (missing header). resetting local DB at {}",
+                db_path.display()
+            ),
+        );
+
+        if !db_path.exists() {
+            self.logs.push(
+                "INFO",
+                &format!("kasia-indexer DB path does not exist: {}", db_path.display()),
+            );
+            return;
+        }
+
+        match std::fs::remove_dir_all(&db_path) {
+            Ok(_) => {
+                self.logs.push(
+                    "INFO",
+                    &format!("kasia-indexer DB reset completed: {}", db_path.display()),
+                );
+            }
+            Err(err) => {
+                self.logs.push(
+                    "ERROR",
+                    &format!(
+                        "failed to reset kasia-indexer DB at {}: {err}",
+                        db_path.display()
+                    ),
+                );
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -552,6 +624,7 @@ impl Service for SelfHostedKasiaIndexerService {
                                 Self::child_is_running(&mut guard, "kasia-indexer", &this.logs)
                             };
                             if !running {
+                                this.maybe_reset_db_for_sync_loop();
                                 this.logs.push("INFO", "retrying kasia-indexer startup");
                                 let _ = this.start_indexer().await;
                             }
