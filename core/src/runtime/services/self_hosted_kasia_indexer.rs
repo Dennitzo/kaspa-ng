@@ -515,7 +515,10 @@ impl SelfHostedKasiaIndexerService {
         if !db_path.exists() {
             self.logs.push(
                 "INFO",
-                &format!("kasia-indexer DB path does not exist: {}", db_path.display()),
+                &format!(
+                    "kasia-indexer DB path does not exist: {}",
+                    db_path.display()
+                ),
             );
             return;
         }
