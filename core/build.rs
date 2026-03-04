@@ -13,7 +13,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .all_rustc()
         .emit()?;
 
-    sync_required_external_repo_if_needed("rusty-kaspa", "https://github.com/kaspanet/rusty-kaspa.git")?;
+    sync_required_external_repo_if_needed(
+        "rusty-kaspa",
+        "https://github.com/kaspanet/rusty-kaspa.git",
+    )?;
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
     ensure_postgres_runtime_ready()?;
