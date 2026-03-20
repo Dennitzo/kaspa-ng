@@ -3,14 +3,16 @@ use crate::runtime::services::{LogStore, LogStores};
 use std::net::TcpListener;
 use std::process::Stdio;
 use std::time::{Duration as StdDuration, Instant};
+use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-#[cfg(unix)]
 use tokio::time::{sleep, timeout};
 
 pub enum SelfHostedExplorerEvents {
     Enable,
     Disable,
+    RestartRest,
+    RestartSocket,
     UpdateSettings(SelfHostedSettings),
     UpdateNodeSettings(NodeSettings),
     Exit,
@@ -103,6 +105,9 @@ impl SelfHostedExplorerService {
 
     fn detect_log_level<'a>(line: &str, fallback: &'a str) -> &'a str {
         let upper = line.to_ascii_uppercase();
+        if upper.contains("DEBUG") || upper.contains("[DEBUG]") || upper.contains("::DEBUG::") {
+            return "INFO";
+        }
         if upper.contains("CRITICAL")
             || upper.contains("[CRITICAL]")
             || upper.contains("ERROR")
@@ -184,6 +189,18 @@ impl SelfHostedExplorerService {
     pub fn update_node_settings(&self, settings: NodeSettings) {
         self.service_events
             .try_send(SelfHostedExplorerEvents::UpdateNodeSettings(settings))
+            .unwrap();
+    }
+
+    pub fn restart_rest(&self) {
+        self.service_events
+            .try_send(SelfHostedExplorerEvents::RestartRest)
+            .unwrap();
+    }
+
+    pub fn restart_socket(&self) {
+        self.service_events
+            .try_send(SelfHostedExplorerEvents::RestartSocket)
             .unwrap();
     }
 
@@ -999,6 +1016,31 @@ impl SelfHostedExplorerService {
             }
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
             let _ = cmd.status();
+
+            // `kaspa` currently advertises `Requires-Python <=3.14`, which rejects patch
+            // versions like 3.14.3. On those runtimes, force-install a known wheel variant.
+            let kaspa_requested = pip_packages
+                .iter()
+                .any(|pkg| pkg.trim().eq_ignore_ascii_case("kaspa"));
+            let py_is_314_or_newer = Self::python_version_for_executable(python)
+                .map(|(major, minor)| major == 3 && minor >= 14)
+                .unwrap_or(false);
+            if kaspa_requested
+                && py_is_314_or_newer
+                && !Self::python_module_available_for_python(python, "kaspa")
+            {
+                let mut fallback_cmd = std::process::Command::new(python);
+                Self::apply_no_window_for_std_command(&mut fallback_cmd);
+                fallback_cmd
+                    .arg("-m")
+                    .arg("pip")
+                    .arg("install")
+                    .arg("--ignore-requires-python")
+                    .arg("kaspa==1.1.0")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                let _ = fallback_cmd.status();
+            }
         }
     }
 
@@ -1106,6 +1148,51 @@ impl SelfHostedExplorerService {
     fn port_is_available(bind: &str, port: u16) -> bool {
         let addr = format!("{bind}:{port}");
         TcpListener::bind(addr).is_ok()
+    }
+
+    fn child_is_running(child: &mut Option<Child>, process_name: &str, logs: &Arc<LogStore>) -> bool {
+        let Some(proc) = child.as_mut() else {
+            return false;
+        };
+
+        match proc.try_wait() {
+            Ok(Some(status)) => {
+                logs.push(
+                    "WARN",
+                    &format!("{process_name} exited with status: {status}"),
+                );
+                *child = None;
+                false
+            }
+            Ok(None) => true,
+            Err(err) => {
+                logs.push("WARN", &format!("{process_name} state check failed: {err}"));
+                *child = None;
+                false
+            }
+        }
+    }
+
+    fn probe_host_from_bind(bind: &str) -> String {
+        let trimmed = bind.trim();
+        if trimmed.is_empty() || trimmed == "0.0.0.0" || trimmed == "::" || trimmed == "[::]" {
+            "127.0.0.1".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    async fn wait_for_tcp_healthy(host: &str, port: u16, deadline: StdDuration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < deadline {
+            let connect = timeout(StdDuration::from_millis(900), TcpStream::connect((host, port)))
+                .await;
+            if let Ok(Ok(_)) = connect {
+                return true;
+            }
+            sleep(StdDuration::from_millis(250)).await;
+        }
+        false
     }
 
     async fn start_rest(self: &Arc<Self>) -> Result<()> {
@@ -1444,15 +1531,82 @@ impl SelfHostedExplorerService {
     }
 
     async fn start_all(self: &Arc<Self>) -> Result<()> {
+        let settings = self.settings.lock().unwrap().clone();
+        let node_settings = self.node_settings.lock().unwrap().clone();
+        let probe_host = Self::probe_host_from_bind(&settings.api_bind);
+        let rest_port = settings.effective_explorer_rest_port(node_settings.network);
+        let socket_port = settings.effective_explorer_socket_port(node_settings.network);
+
         let _ = self.start_rest().await;
+        if self.rest_child.lock().unwrap().is_none() {
+            self.socket_logs.push(
+                "WARN",
+                "Socket startup skipped because REST server is not running",
+            );
+            return Ok(());
+        }
+        if !Self::wait_for_tcp_healthy(&probe_host, rest_port, StdDuration::from_secs(30)).await {
+            self.socket_logs.push(
+                "WARN",
+                &format!(
+                    "Socket startup delayed: REST health check on {}:{} timed out",
+                    probe_host, rest_port
+                ),
+            );
+            return Ok(());
+        }
+
         let _ = self.start_socket().await;
+        if self.socket_child.lock().unwrap().is_some() {
+            let _ =
+                Self::wait_for_tcp_healthy(&probe_host, socket_port, StdDuration::from_secs(20))
+                    .await;
+        }
         Ok(())
+    }
+
+    async fn ensure_running(self: &Arc<Self>) {
+        let rest_running = {
+            let mut guard = self.rest_child.lock().unwrap();
+            Self::child_is_running(&mut guard, "REST server", &self.rest_logs)
+        };
+        if !rest_running {
+            let _ = self.start_rest().await;
+        }
+
+        let rest_running = {
+            let mut guard = self.rest_child.lock().unwrap();
+            Self::child_is_running(&mut guard, "REST server", &self.rest_logs)
+        };
+        if !rest_running {
+            return;
+        }
+
+        let socket_running = {
+            let mut guard = self.socket_child.lock().unwrap();
+            Self::child_is_running(&mut guard, "socket server", &self.socket_logs)
+        };
+        if !socket_running {
+            let _ = self.start_socket().await;
+        }
     }
 
     async fn stop_all(&self) -> Result<()> {
         let _ = self.stop_rest().await;
         let _ = self.stop_socket().await;
         Ok(())
+    }
+
+    async fn restart_rest_only(self: &Arc<Self>) -> Result<()> {
+        let _ = self.stop_rest().await;
+        sleep(StdDuration::from_millis(350)).await;
+        self.start_rest().await
+    }
+
+    async fn restart_socket_only(self: &Arc<Self>) -> Result<()> {
+        let _ = self.stop_socket().await;
+        sleep(StdDuration::from_millis(300)).await;
+        self.start_socket().await
     }
 }
 
@@ -1468,6 +1622,7 @@ impl Service for SelfHostedExplorerService {
             if this.is_enabled.load(Ordering::SeqCst) {
                 let _ = this.start_all().await;
             }
+            let mut retry_tick = tokio::time::interval(StdDuration::from_secs(5));
 
             loop {
                 select! {
@@ -1483,6 +1638,16 @@ impl Service for SelfHostedExplorerService {
                                 let was_enabled = this.is_enabled.swap(false, Ordering::SeqCst);
                                 if was_enabled {
                                     let _ = this.stop_all().await;
+                                }
+                            }
+                            Ok(SelfHostedExplorerEvents::RestartRest) => {
+                                if this.is_enabled.load(Ordering::SeqCst) {
+                                    let _ = this.restart_rest_only().await;
+                                }
+                            }
+                            Ok(SelfHostedExplorerEvents::RestartSocket) => {
+                                if this.is_enabled.load(Ordering::SeqCst) {
+                                    let _ = this.restart_socket_only().await;
                                 }
                             }
                             Ok(SelfHostedExplorerEvents::UpdateSettings(settings)) => {
@@ -1523,6 +1688,11 @@ impl Service for SelfHostedExplorerService {
                                 let _ = this.stop_all().await;
                                 break;
                             }
+                        }
+                    }
+                    _ = retry_tick.tick().fuse() => {
+                        if this.is_enabled.load(Ordering::SeqCst) {
+                            this.ensure_running().await;
                         }
                     }
                 }

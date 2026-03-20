@@ -1,10 +1,15 @@
 # encoding: utf-8
 import logging
+import ssl
 import time
 
 import aiocache
 import aiohttp
 from aiocache import cached
+try:
+    import certifi
+except Exception:  # pragma: no cover
+    certifi = None
 
 FLOOD_DETECTED = False
 CACHE = None
@@ -12,6 +17,16 @@ CACHE = None
 _logger = logging.getLogger(__name__)
 
 aiocache.logger.setLevel(logging.WARNING)
+
+
+def _build_ssl_context():
+    if certifi is None:
+        return ssl.create_default_context()
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception as exc:  # pragma: no cover
+        _logger.warning(f"Failed to initialize certifi CA bundle: {exc}")
+        return ssl.create_default_context()
 
 
 @cached(ttl=60)
@@ -25,7 +40,9 @@ async def get_kas_market_data():
     global FLOOD_DETECTED
     global CACHE
     if not FLOOD_DETECTED or time.time() - FLOOD_DETECTED > 300:
-        async with aiohttp.ClientSession() as session:
+        ssl_context = _build_ssl_context()
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        async with aiohttp.ClientSession(connector=connector) as session:
             try:
                 _logger.debug("Querying CoinGecko mirror")
                 async with session.get("https://price.kaspa.ws/cg.json", timeout=10) as resp:

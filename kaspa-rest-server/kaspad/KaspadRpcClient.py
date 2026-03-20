@@ -2,14 +2,24 @@
 import logging
 from asyncio import wait_for
 
-from kaspa import RpcClient, Resolver
+try:
+    from kaspa import RpcClient, Resolver
+except Exception:
+    RpcClient = None
+    Resolver = None
 
 from constants import KASPAD_WRPC_URL, NETWORK_TYPE
 
 _logger = logging.getLogger(__name__)
 
 
-async def kaspad_rpc_client() -> RpcClient:
+async def kaspad_rpc_client():
+    if RpcClient is None or Resolver is None:
+        if not getattr(kaspad_rpc_client, "_fallback_warned", False):
+            _logger.warning("kaspa Python SDK unavailable; falling back to gRPC Kaspad client")
+            kaspad_rpc_client._fallback_warned = True
+        return None
+
     if KASPAD_WRPC_URL:
         use_resolver = KASPAD_WRPC_URL == "resolver"
         if not hasattr(kaspad_rpc_client, "client"):

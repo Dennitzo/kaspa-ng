@@ -701,31 +701,30 @@ impl SelfHostedLoaderService {
         self.postgres_service.enable(true);
     }
 
-    async fn restart_indexers(&self, settings: &SelfHostedSettings, node: &NodeSettings) {
+    async fn restart_main_indexer(&self, settings: &SelfHostedSettings) {
         self.logs.push(
             "WARN",
-            "indexer health check failed; restarting indexer services",
+            "indexer health check failed; restarting indexer service",
         );
-        self.explorer_service.enable(false);
         self.indexer_service.enable(false);
-        self.k_indexer_service.enable(false);
-        self.kasia_indexer_service.enable(false);
         sleep(Duration::from_millis(500)).await;
         self.indexer_service.enable(settings.indexer_enabled);
-        self.k_indexer_service
-            .enable(Self::should_run_k_indexer(settings, node));
-        self.kasia_indexer_service
-            .enable(Self::should_run_kasia_indexer(settings, node));
     }
 
-    async fn restart_explorer(&self) {
+    async fn restart_explorer_rest(&self) {
         self.logs.push(
             "WARN",
-            "REST/socket health check failed; restarting explorer services",
+            "REST health check failed; restarting REST service",
         );
-        self.explorer_service.enable(false);
-        sleep(Duration::from_millis(450)).await;
-        self.explorer_service.enable(true);
+        self.explorer_service.restart_rest();
+    }
+
+    async fn restart_explorer_socket(&self) {
+        self.logs.push(
+            "WARN",
+            "Socket health check failed; restarting socket service",
+        );
+        self.explorer_service.restart_socket();
     }
 
     async fn reconcile(self: &Arc<Self>) {
@@ -809,7 +808,13 @@ impl SelfHostedLoaderService {
         }
 
         let node_synced = Self::check_node_synced(&node).await;
-        let was_connected = self.status.snapshot().connected;
+        let status_snapshot = self.status.snapshot();
+        let was_connected = status_snapshot.connected;
+        let dependents_active_or_booting = status_snapshot.indexers_ready
+            || status_snapshot.rest_ready
+            || status_snapshot.socket_ready
+            || self.indexer_boot_started_at.lock().unwrap().is_some()
+            || self.explorer_boot_started_at.lock().unwrap().is_some();
         let node_sync_failures = if node_synced || switching_network {
             Self::health_failures(&self.node_sync_failures, true)
         } else {
@@ -819,8 +824,12 @@ impl SelfHostedLoaderService {
             && !node_synced
             && !switching_network
             && node_sync_failures < Self::NODE_SYNC_FAILURE_THRESHOLD;
+        let tolerate_node_sync_during_warmup = dependents_active_or_booting
+            && !node_synced
+            && !switching_network
+            && node_sync_failures < Self::NODE_SYNC_FAILURE_THRESHOLD;
 
-        if !node_synced && !tolerate_node_sync_glitch {
+        if !node_synced && !tolerate_node_sync_glitch && !tolerate_node_sync_during_warmup {
             self.stop_dependents().await;
             *self.indexer_boot_started_at.lock().unwrap() = None;
             *self.explorer_boot_started_at.lock().unwrap() = None;
@@ -843,7 +852,7 @@ impl SelfHostedLoaderService {
             );
             return;
         }
-        if tolerate_node_sync_glitch {
+        if tolerate_node_sync_glitch || tolerate_node_sync_during_warmup {
             self.maybe_log_ping(format!(
                 "ping: postgres=ok node=sync-miss({}/{}) keeping indexers/rest/socket running",
                 node_sync_failures,
@@ -852,10 +861,8 @@ impl SelfHostedLoaderService {
         }
 
         self.indexer_service.enable(settings.indexer_enabled);
-        self.k_indexer_service
-            .enable(Self::should_run_k_indexer(&settings, &node));
-        self.kasia_indexer_service
-            .enable(Self::should_run_kasia_indexer(&settings, &node));
+        let k_indexer_required = Self::should_run_k_indexer(&settings, &node);
+        let kasia_required = Self::should_run_kasia_indexer(&settings, &node);
 
         let indexer_boot_started_at = {
             let mut guard = self.indexer_boot_started_at.lock().unwrap();
@@ -871,14 +878,24 @@ impl SelfHostedLoaderService {
             true
         };
 
-        let k_indexer_required = Self::should_run_k_indexer(&settings, &node);
+        if !indexer_ready {
+            self.k_indexer_service.enable(false);
+            self.kasia_indexer_service.enable(false);
+        }
+
         let k_indexer_ready = if k_indexer_required {
             Self::check_tcp(&probe_host, settings.effective_k_web_port(node.network)).await
         } else {
             true
         };
 
-        let kasia_required = Self::should_run_kasia_indexer(&settings, &node);
+        if indexer_ready {
+            self.k_indexer_service.enable(k_indexer_required);
+        }
+        if !(indexer_ready && k_indexer_ready) {
+            self.kasia_indexer_service.enable(false);
+        }
+
         let kasia_ready = if kasia_required {
             let ports = SelfHostedKasiaIndexerService::health_probe_ports(&settings, &node);
             Self::check_tcp_any(&probe_host, &ports).await
@@ -886,16 +903,17 @@ impl SelfHostedLoaderService {
             true
         };
 
-        let indexers_ready = indexer_ready && k_indexer_ready && kasia_ready;
+        let critical_indexers_ready = indexer_ready;
+        let indexers_ready = critical_indexers_ready && k_indexer_ready && kasia_ready;
         let indexer_in_grace = indexer_boot_started_at
             .map(|started| started.elapsed() < Self::INDEXER_BOOT_GRACE)
             .unwrap_or(false);
-        let indexer_failures = if indexers_ready || indexer_in_grace || switching_network {
+        let indexer_failures = if critical_indexers_ready || indexer_in_grace || switching_network {
             Self::health_failures(&self.indexer_failures, true)
         } else {
             Self::health_failures(&self.indexer_failures, false)
         };
-        if !indexers_ready {
+        if !critical_indexers_ready {
             self.explorer_service.enable(false);
             *self.explorer_boot_started_at.lock().unwrap() = None;
             if !switching_network
@@ -903,28 +921,12 @@ impl SelfHostedLoaderService {
                 && indexer_failures >= Self::INDEXER_RESTART_FAILURE_THRESHOLD
                 && Self::should_restart(&self.last_indexer_restart)
             {
-                self.restart_indexers(&settings, &node).await;
+                self.restart_main_indexer(&settings).await;
             }
-
-            let mut waiting = Vec::new();
-            if settings.indexer_enabled && !indexer_ready {
-                waiting.push("indexer");
-            }
-            if k_indexer_required && !k_indexer_ready {
-                waiting.push("k-indexer");
-            }
-            if kasia_required && !kasia_ready {
-                waiting.push("kasia-indexer");
-            }
-            let waiting = if waiting.is_empty() {
-                "indexers".to_string()
-            } else {
-                waiting.join(", ")
-            };
 
             self.publish_status(
                 "Initialisation",
-                format!("Waiting for {waiting}"),
+                "Waiting for indexer".to_string(),
                 LoaderReadiness {
                     connected: false,
                     postgres_ready: true,
@@ -940,8 +942,57 @@ impl SelfHostedLoaderService {
             return;
         }
 
+        if k_indexer_required && !k_indexer_ready {
+            self.kasia_indexer_service.enable(false);
+            self.explorer_service.enable(false);
+            *self.explorer_boot_started_at.lock().unwrap() = None;
+            self.publish_status(
+                "Initialisation",
+                "Waiting for k-indexer".to_string(),
+                LoaderReadiness {
+                    connected: false,
+                    postgres_ready: true,
+                    indexers_ready: false,
+                    rest_ready: false,
+                    socket_ready: false,
+                },
+            );
+            self.maybe_log_ping("ping: postgres=ok indexer=ok k-indexer=waiting rest=waiting socket=waiting".to_string());
+            return;
+        }
+
+        if indexer_ready && k_indexer_ready {
+            self.kasia_indexer_service.enable(kasia_required);
+        }
+
+        if kasia_required && !kasia_ready {
+            if !was_connected {
+                self.explorer_service.enable(false);
+                *self.explorer_boot_started_at.lock().unwrap() = None;
+                self.publish_status(
+                    "Initialisation",
+                    "Waiting for kasia-indexer".to_string(),
+                    LoaderReadiness {
+                        connected: false,
+                        postgres_ready: true,
+                        indexers_ready: false,
+                        rest_ready: false,
+                        socket_ready: false,
+                    },
+                );
+                self.maybe_log_ping("ping: postgres=ok indexer=ok k-indexer=ok kasia-indexer=waiting rest=waiting socket=waiting".to_string());
+                return;
+            }
+            self.maybe_log_ping(
+                "ping: optional kasia-indexer is down; keeping rest/socket online".to_string(),
+            );
+        }
+
         *self.indexer_boot_started_at.lock().unwrap() = None;
         self.explorer_service.enable(true);
+        if !indexers_ready {
+            self.maybe_log_ping("ping: optional indexers are down; keeping rest/socket online".to_string());
+        }
         let explorer_boot_started_at = {
             let mut guard = self.explorer_boot_started_at.lock().unwrap();
             if guard.is_none() {
@@ -975,11 +1026,22 @@ impl SelfHostedLoaderService {
                 && explorer_failures >= Self::EXPLORER_RESTART_FAILURE_THRESHOLD
                 && Self::should_restart(&self.last_explorer_restart)
             {
-                self.restart_explorer().await;
+                if !rest_ready {
+                    self.restart_explorer_rest().await;
+                } else if !socket_ready {
+                    self.restart_explorer_socket().await;
+                }
             }
+            let waiting_message = if !rest_ready {
+                "Waiting for REST API".to_string()
+            } else if !socket_ready {
+                "Waiting for socket server".to_string()
+            } else {
+                "Waiting for explorer services".to_string()
+            };
             self.publish_status(
                 "Initialisation",
-                "Waiting for REST API and socket server".to_string(),
+                waiting_message,
                 LoaderReadiness {
                     connected: false,
                     postgres_ready: true,

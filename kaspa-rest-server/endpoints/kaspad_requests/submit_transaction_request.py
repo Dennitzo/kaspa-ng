@@ -4,19 +4,28 @@ from asyncio import wait_for
 from typing import List
 
 from fastapi import Query, HTTPException
-from kaspa import (
-    Transaction,
-    TransactionInput,
-    TransactionOutpoint,
-    TransactionOutput,
-    ScriptPublicKey,
-    Hash,
-)
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
 from kaspad.KaspadRpcClient import kaspad_rpc_client
 from server import app, kaspad_client
+
+try:
+    from kaspa import (
+        Transaction,
+        TransactionInput,
+        TransactionOutpoint,
+        TransactionOutput,
+        ScriptPublicKey,
+        Hash,
+    )
+except Exception:
+    Transaction = None
+    TransactionInput = None
+    TransactionOutpoint = None
+    TransactionOutput = None
+    ScriptPublicKey = None
+    Hash = None
 
 _logger = logging.getLogger(__name__)
 
@@ -116,7 +125,17 @@ async def submit_a_new_transaction(
         return JSONResponse(status_code=500, content={"error": str(tx_resp)})
 
 
-def convert_from_legacy_tx(transaction: SubmitTxModel) -> Transaction | None:
+def convert_from_legacy_tx(transaction: SubmitTxModel):
+    if (
+        Transaction is None
+        or TransactionInput is None
+        or TransactionOutpoint is None
+        or TransactionOutput is None
+        or ScriptPublicKey is None
+        or Hash is None
+    ):
+        return None
+
     if not transaction:
         return
     return Transaction(

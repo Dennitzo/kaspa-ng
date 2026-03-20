@@ -478,12 +478,18 @@ impl SelfHostedKasiaIndexerService {
         let has_syncer_stopped = recent
             .iter()
             .any(|line| line.message.contains("stopped but we are still syncing"));
+        let has_retention_root_mismatch = recent.iter().any(|line| {
+            line.message
+                .to_ascii_lowercase()
+                .contains("retention root")
+        });
         let retry_count = recent
             .iter()
             .filter(|line| line.message.contains("retrying kasia-indexer startup"))
             .count();
 
-        has_missing_header && has_syncer_stopped && retry_count >= 2
+        has_retention_root_mismatch
+            || (has_missing_header && has_syncer_stopped && retry_count >= 1)
     }
 
     fn maybe_reset_db_for_sync_loop(&self) {

@@ -1,5 +1,6 @@
 use crate::imports::*;
 use crate::runtime::services::{LogStore, LogStores};
+use std::collections::HashSet;
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -25,6 +26,8 @@ pub struct SelfHostedIndexerService {
     pub is_enabled: AtomicBool,
     logs: Arc<LogStore>,
     child: Mutex<Option<Child>>,
+    retention_checkpoint_recovery_requested: AtomicBool,
+    retention_checkpoint_recovery_done_for_network: Mutex<HashSet<String>>,
 }
 
 impl SelfHostedIndexerService {
@@ -150,6 +153,8 @@ impl SelfHostedIndexerService {
             is_enabled: AtomicBool::new(false),
             logs: logs.indexer,
             child: Mutex::new(None),
+            retention_checkpoint_recovery_requested: AtomicBool::new(false),
+            retention_checkpoint_recovery_done_for_network: Mutex::new(HashSet::new()),
         }
     }
 
@@ -251,6 +256,29 @@ impl SelfHostedIndexerService {
     fn indexer_network_arg(node: &NodeSettings) -> &'static str {
         let _ = node;
         "mainnet"
+    }
+
+    fn network_key(node: &NodeSettings) -> String {
+        crate::settings::network_profile_slug(node.network).to_string()
+    }
+
+    fn line_requests_retention_checkpoint_recovery(line: &str) -> bool {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("does not have retention root on its chain")
+            || lower.contains("use --ignore-checkpoint=p")
+    }
+
+    fn mark_retention_checkpoint_recovery_requested(&self) {
+        if self
+            .retention_checkpoint_recovery_requested
+            .swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        self.logs.push(
+            "WARN",
+            "detected retention-checkpoint mismatch; next indexer restart will use --ignore-checkpoint p",
+        );
     }
 
     async fn wait_for_database(settings: &SelfHostedSettings, node: &NodeSettings) -> Result<()> {
@@ -463,6 +491,15 @@ impl SelfHostedIndexerService {
         let mut cmd = Command::new(&binary);
         let rpc_url = Self::effective_indexer_rpc_url(&settings, &node);
         let network_arg = Self::indexer_network_arg(&node);
+        let network_key = Self::network_key(&node);
+        let should_apply_checkpoint_recovery = self
+            .retention_checkpoint_recovery_requested
+            .load(Ordering::SeqCst)
+            && !self
+                .retention_checkpoint_recovery_done_for_network
+                .lock()
+                .unwrap()
+                .contains(&network_key);
         cmd.arg("-s")
             .arg(&rpc_url)
             .arg("-n")
@@ -471,6 +508,13 @@ impl SelfHostedIndexerService {
             .arg(database_url)
             .arg("-l")
             .arg(&indexer_listen);
+        if should_apply_checkpoint_recovery {
+            cmd.arg("-i").arg("p");
+            self.logs.push(
+                "WARN",
+                "starting indexer with --ignore-checkpoint p after retention-checkpoint mismatch",
+            );
+        }
 
         if settings.indexer_upgrade_db {
             cmd.arg("-u");
@@ -509,10 +553,14 @@ impl SelfHostedIndexerService {
         };
 
         let logs_info = self.logs.clone();
+        let this_stdout = self.clone();
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    if Self::line_requests_retention_checkpoint_recovery(&line) {
+                        this_stdout.mark_retention_checkpoint_recovery_requested();
+                    }
                     log_info!("self-hosted-indexer: {line}");
                     logs_info.push("INFO", &line);
                 }
@@ -520,10 +568,14 @@ impl SelfHostedIndexerService {
         }
 
         let logs_warn = self.logs.clone();
+        let this_stderr = self.clone();
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
+                    if Self::line_requests_retention_checkpoint_recovery(&line) {
+                        this_stderr.mark_retention_checkpoint_recovery_requested();
+                    }
                     log_warn!("self-hosted-indexer: {line}");
                     logs_warn.push("WARN", &line);
                 }
@@ -532,6 +584,14 @@ impl SelfHostedIndexerService {
 
         if let Some(pid) = child.id() {
             Self::write_pidfile(node.network, pid);
+        }
+        if should_apply_checkpoint_recovery {
+            self.retention_checkpoint_recovery_requested
+                .store(false, Ordering::SeqCst);
+            self.retention_checkpoint_recovery_done_for_network
+                .lock()
+                .unwrap()
+                .insert(network_key);
         }
         *self.child.lock().unwrap() = Some(child);
         self.logs

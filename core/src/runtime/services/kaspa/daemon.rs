@@ -5,23 +5,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use workflow_core::prelude::DuplexChannel;
 
-/// Termination method with which to terminate the kaspad process.
-/// This should remain Sigkill until Kaspad learns to terminate
-/// rapidly during it's sync process.
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
-enum TerminationMethod {
-    #[default]
-    Sigkill,
-    Sigterm,
-}
-
 struct Inner {
     path: Option<PathBuf>,
     is_running: Arc<AtomicBool>,
     pid: Mutex<Option<u32>>,
     service_events: Channel<KaspadServiceEvents>,
     task_ctl: DuplexChannel,
-    termination_method: TerminationMethod,
 }
 
 #[derive(Clone)]
@@ -38,7 +27,6 @@ impl Daemon {
                 pid: Mutex::new(None),
                 service_events: (*service_events).clone(),
                 task_ctl: DuplexChannel::oneshot(),
-                termination_method: TerminationMethod::default(),
             }),
         }
     }
@@ -106,7 +94,7 @@ impl super::Kaspad for Daemon {
             loop {
                 select! {
                     _ = task_ctl.request.recv().fuse() => {
-                        if this.inner.termination_method == TerminationMethod::Sigterm && is_unix {
+                        if is_unix {
                             let pid = this.inner.pid.lock().unwrap();
                             if let Some(_pid) = *pid {
                                 #[cfg(unix)]
