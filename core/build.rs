@@ -1984,15 +1984,10 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
 
         if !ok {
             println!("cargo:warning=KasVault npm install failed; retrying with --include=optional");
-            ok = npm_cmd(&[
-                "install",
-                "--no-audit",
-                "--no-fund",
-                "--include=optional",
-            ])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+            ok = npm_cmd(&["install", "--no-audit", "--no-fund", "--include=optional"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
         }
 
         if !ok {
