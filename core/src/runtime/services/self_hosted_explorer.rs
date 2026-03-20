@@ -411,6 +411,16 @@ impl SelfHostedExplorerService {
         Some((major, minor))
     }
 
+    fn python_minor_preference(minor: u32) -> u8 {
+        // Prefer versions that are currently compatible with the self-hosted Python deps.
+        // Python 3.14+ can break `kaspa` installs in some environments, so keep it as fallback.
+        if (10..=13).contains(&minor) { 1 } else { 0 }
+    }
+
+    fn python_version_is_preferred(version: (u32, u32)) -> bool {
+        version.0 == 3 && Self::python_minor_preference(version.1) > 0
+    }
+
     fn ranked_python_candidates(min_minor: u32) -> Vec<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -537,7 +547,12 @@ impl SelfHostedExplorerService {
             ranked.push((major, minor, candidate));
         }
 
-        ranked.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        ranked.sort_by(|a, b| {
+            Self::python_minor_preference(b.1)
+                .cmp(&Self::python_minor_preference(a.1))
+                .then(b.0.cmp(&a.0))
+                .then(b.1.cmp(&a.1))
+        });
         ranked.into_iter().map(|(_, _, path)| path).collect()
     }
 
@@ -725,11 +740,25 @@ impl SelfHostedExplorerService {
         let (required_modules, required_pip_packages) = Self::python_requirements_for_root(root);
 
         if let Some(venv_python) = Self::find_venv_python(root) {
-            Self::ensure_python_modules_for_python(
-                &venv_python,
-                required_modules,
-                required_pip_packages,
-            );
+            let modules_ready =
+                Self::python_modules_available_for_python(&venv_python, required_modules);
+            if !modules_ready {
+                let preferred = Self::python_version_for_executable(&venv_python)
+                    .map(Self::python_version_is_preferred)
+                    .unwrap_or(true);
+                if preferred {
+                    Self::ensure_python_modules_for_python(
+                        &venv_python,
+                        required_modules,
+                        required_pip_packages,
+                    );
+                } else {
+                    log_info!(
+                        "self-hosted-explorer: existing venv python is newer than preferred; skipping in-place module bootstrap for {}",
+                        venv_python.display()
+                    );
+                }
+            }
             if Self::python_modules_available_for_python(&venv_python, required_modules) {
                 let mut cmd = Command::new(&venv_python);
                 #[cfg(windows)]

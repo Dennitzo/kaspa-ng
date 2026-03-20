@@ -36,17 +36,22 @@ async def get_kas_market_data():
             except Exception:
                 pass  # Ignore and fall back
             _logger.info("Mirror failed, querying CoinGecko")
-            async with session.get("https://api.coingecko.com/api/v3/coins/kaspa", timeout=10) as resp:
-                if resp.status == 200:
-                    FLOOD_DETECTED = False
-                    CACHE = (await resp.json())["market_data"]
-                    return CACHE
-                elif resp.status == 429:
-                    FLOOD_DETECTED = time.time()
-                    if CACHE:
-                        _logger.warning("Using cached value. 429 detected.")
-                    _logger.warning("Rate limit exceeded.")
-                else:
-                    _logger.error(f"Did not retrieve the market data. Status code {resp.status}")
+            try:
+                async with session.get("https://api.coingecko.com/api/v3/coins/kaspa", timeout=10) as resp:
+                    if resp.status == 200:
+                        FLOOD_DETECTED = False
+                        CACHE = (await resp.json())["market_data"]
+                        return CACHE
+                    if resp.status == 429:
+                        FLOOD_DETECTED = time.time()
+                        if CACHE:
+                            _logger.warning("Using cached value. 429 detected.")
+                        _logger.warning("Rate limit exceeded.")
+                    else:
+                        _logger.error(f"Did not retrieve the market data. Status code {resp.status}")
+            except Exception as e:
+                _logger.warning(f"CoinGecko request failed: {e}")
+                if CACHE:
+                    _logger.warning("Using cached market data after CoinGecko failure.")
 
-    return CACHE
+    return CACHE or {}
