@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${1:-release}"
 APP_NAME="Kaspa-NG"
+MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"
 POSTGRES_STAGE_SCRIPT="${ROOT}/scripts/stage-postgres-runtime.sh"
 SYNC_EXTERNAL="${KASPA_NG_SKIP_EXTERNAL_SYNC:-0}"
 
@@ -237,7 +238,7 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <key>CFBundleIconFile</key>
   <string>${APP_NAME}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>10.13</string>
+  <string>${MACOS_MIN_VERSION}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

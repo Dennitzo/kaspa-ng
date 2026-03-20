@@ -11,14 +11,22 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }}
+    name: Build ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-22.04
+            label: ubuntu-22.04
+          - os: macos-13
+            label: macos-13-x64
+          - os: macos-14
+            label: macos-14-arm64
+          - os: windows-latest
+            label: windows-latest
 
     steps:
       - name: Checkout sources
@@ -124,6 +132,13 @@ jobs:
       - name: Verify Protoc
         run: protoc --version
 
+      - name: Configure macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "MACOSX_DEPLOYMENT_TARGET=12.0" >> "$GITHUB_ENV"
+          echo "MACOS_MIN_VERSION=12.0" >> "$GITHUB_ENV"
+
       - name: Configure Linux pkg-config path
         if: runner.os == 'Linux'
         run: |
@@ -153,7 +168,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ matrix.os }}
+          shared-key: release-${{ matrix.os }}-${{ runner.arch }}
 
       - name: Build kaspa-ng (release)
         run: cargo build --release --bin kaspa-ng
@@ -202,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
-          OUT="kaspa-ng-${{ runner.os }}-${RELEASE_TAG}.tar.gz"
+          OUT="kaspa-ng-${{ runner.os }}-${RUNNER_ARCH}-${RELEASE_TAG}.tar.gz"
           rm -rf dist
           mkdir -p dist
           if [ "$RUNNER_OS" = "macOS" ]; then
@@ -475,7 +490,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kaspa-ng-${{ runner.os }}-${{ github.ref_name }}
+          name: kaspa-ng-${{ runner.os }}-${{ runner.arch }}-${{ github.ref_name }}
           path: ${{ env.ASSET }}
           overwrite: true
 
@@ -483,7 +498,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: kaspa-ng-macos-app-bundle-${{ github.ref_name }}
+          name: kaspa-ng-macos-app-bundle-${{ runner.arch }}-${{ github.ref_name }}
           path: ${{ env.MACOS_APP_BUNDLE_ASSET }}
           overwrite: true
 
@@ -492,4 +507,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ASSET }}
+          body_path: RELEASE_NOTES.md
+
+      - name: Upload macOS App Bundle to GitHub Release
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.MACOS_APP_BUNDLE_ASSET }}
           body_path: RELEASE_NOTES.md

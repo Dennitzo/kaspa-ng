@@ -8,3 +8,11 @@ rustflags = [
   "--cfg=wasm_js",
   '--cfg=getrandom_backend="wasm_js"',
 ]
+
+[env]
+# Ensure macOS builds are resilient even when parent shells export stale AR/RANLIB
+# (for example from a previous Homebrew LLVM setup on Apple Silicon paths).
+AR_x86_64_apple_darwin = { value = "/usr/bin/ar", force = true }
+RANLIB_x86_64_apple_darwin = { value = "/usr/bin/ranlib", force = true }
+AR_aarch64_apple_darwin = { value = "/usr/bin/ar", force = true }
+RANLIB_aarch64_apple_darwin = { value = "/usr/bin/ranlib", force = true }

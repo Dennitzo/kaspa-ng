@@ -554,7 +554,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-22.04, windows-latest, macos-latest ]
+        os: [ ubuntu-22.04, windows-latest, macos-13, macos-14 ]
     name: Building, ${{ matrix.os }}
     steps:
 
@@ -624,7 +624,12 @@ jobs:
 
       - name: Setup Environment
         shell: bash
-        run: echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
+        run: |
+          echo "SHORT_SHA=`git rev-parse --short HEAD`" >> $GITHUB_ENV
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "MACOSX_DEPLOYMENT_TARGET=12.0" >> "$GITHUB_ENV"
+            echo "MACOS_MIN_VERSION=12.0" >> "$GITHUB_ENV"
+          fi
 
       - name: Install Protoc (Linux)
         if: runner.os == 'Linux'
@@ -1066,7 +1071,7 @@ jobs:
       - name: Build on MacOS (x64)
         if: |
           runner.os == 'macOS' &&
-          runner.arch == 'x64'
+          runner.arch == 'X64'
         run: |
           source $HOME/.cargo/env
           set -o pipefail
@@ -1189,7 +1194,7 @@ jobs:
       - name: Upload MacOS (x64) build to GitHub
         if: |
           runner.os == 'macOS' &&
-          runner.arch == 'x64'
+          runner.arch == 'X64'
         uses: actions/upload-artifact@v4
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
@@ -1199,7 +1204,7 @@ jobs:
       - name: Upload MacOS (x64) App Bundle to GitHub
         if: |
           runner.os == 'macOS' &&
-          runner.arch == 'x64'
+          runner.arch == 'X64'
         uses: actions/upload-artifact@v4
         with:
           name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64-app-bundle

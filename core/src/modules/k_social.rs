@@ -1357,14 +1357,8 @@ fn handle_k_request(
     if normalized == "/registerSW.js" {
         let body = b"/* kaspa-ng: service worker disabled */";
         let headers = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: {}\r\n{}\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n",
             body.len(),
-            if keep_alive { "keep-alive" } else { "close" },
-            if keep_alive {
-                "Keep-Alive: timeout=5, max=100"
-            } else {
-                ""
-            }
         );
         let _ = write_all_with_retry(&mut stream, headers.as_bytes());
         let _ = write_all_with_retry(&mut stream, body);
@@ -1375,14 +1369,8 @@ fn handle_k_request(
     if normalized == "/sw.js" || normalized.starts_with("/workbox-") {
         let body = b"// kaspa-ng: service worker disabled";
         let headers = format!(
-            "HTTP/1.1 404 Not Found\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: {}\r\n{}\r\n",
+            "HTTP/1.1 404 Not Found\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n",
             body.len(),
-            if keep_alive { "keep-alive" } else { "close" },
-            if keep_alive {
-                "Keep-Alive: timeout=5, max=100"
-            } else {
-                ""
-            }
         );
         let _ = write_all_with_retry(&mut stream, headers.as_bytes());
         let _ = write_all_with_retry(&mut stream, body);

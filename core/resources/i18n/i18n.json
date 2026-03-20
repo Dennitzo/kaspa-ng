@@ -4198,6 +4198,7 @@
       "Apply": "Apply",
       "Architecture {arch}": "Architecture {arch}",
       "Are you sure you want to reset all settings?": "Are you sure you want to reset all settings?",
+      "Automatic rendering fallback currently applies on Linux.": "Automatic rendering fallback currently applies on Linux.",
       "Autoscroll": "Autoscroll",
       "Awaiting metrics from the local API.": "Awaiting metrics from the local API.",
       "BALANCE": "BALANCE",

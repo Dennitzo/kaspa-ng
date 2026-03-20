@@ -108,6 +108,12 @@ fn resolve_npm_command() -> Option<String> {
         candidates.push("npm.cmd".to_string());
         candidates.push("npm.exe".to_string());
     }
+    #[cfg(not(windows))]
+    {
+        candidates.push("/usr/local/opt/node-22/bin/npm".to_string());
+        candidates.push("/opt/homebrew/opt/node@22/bin/npm".to_string());
+        candidates.push("/usr/local/bin/npm".to_string());
+    }
 
     if let Some((node_cmd, _, _)) = detected_node_info() {
         let node_path = if PathBuf::from(&node_cmd).components().count() > 1 {
@@ -165,6 +171,12 @@ fn detected_node_info() -> Option<(String, String, u32)> {
     }
     candidates.push("node".to_string());
     candidates.push("nodejs".to_string());
+    #[cfg(not(windows))]
+    {
+        candidates.push("/usr/local/opt/node-22/bin/node".to_string());
+        candidates.push("/opt/homebrew/opt/node@22/bin/node".to_string());
+        candidates.push("/usr/local/bin/node".to_string());
+    }
 
     for cmd in candidates {
         if let Some(version) = command_output_line(&cmd, &["--version"])
@@ -182,7 +194,7 @@ fn parse_node_major(version: &str) -> Option<u32> {
 }
 
 fn command_output_line(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
+    let output = command_with_node_path(program).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -191,11 +203,52 @@ fn command_output_line(program: &str, args: &[&str]) -> Option<String> {
 }
 
 fn command_succeeds(program: &str, args: &[&str]) -> bool {
-    Command::new(program)
+    command_with_node_path(program)
         .args(args)
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn command_with_node_path(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    inject_node_path_for_npm(&mut cmd, program);
+    cmd
+}
+
+fn inject_node_path_for_npm(cmd: &mut Command, program: &str) {
+    let program_path = Path::new(program);
+    let Some(file_name) = program_path.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+
+    let is_npm = matches!(file_name, "npm" | "npm.cmd" | "npm.exe");
+    if !is_npm {
+        return;
+    }
+
+    let Some(parent) = program_path.parent() else {
+        return;
+    };
+    if parent.as_os_str().is_empty() {
+        return;
+    }
+
+    let node_binary = if cfg!(windows) {
+        parent.join("node.exe")
+    } else {
+        parent.join("node")
+    };
+    if !node_binary.exists() {
+        return;
+    }
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut path_entries: Vec<PathBuf> = vec![parent.to_path_buf()];
+    path_entries.extend(std::env::split_paths(&current_path));
+    if let Ok(joined) = std::env::join_paths(path_entries) {
+        cmd.env("PATH", joined);
+    }
 }
 
 fn command_path_succeeds(program: &Path, args: &[&str]) -> bool {
@@ -531,9 +584,18 @@ fn find_python_launcher() -> Option<String> {
 
     #[cfg(not(windows))]
     {
+        candidates.extend(
+            ["python3.13", "python3.12", "python3.11", "python3.10"]
+                .into_iter()
+                .map(str::to_string),
+        );
         candidates.push("python3".to_string());
         candidates.push("python".to_string());
-        candidates.extend(discover_python3_minor_launchers());
+        candidates.extend(
+            discover_python3_minor_launchers()
+                .into_iter()
+                .filter(|cmd| !cmd.ends_with(".14")),
+        );
     }
 
     for candidate in candidates {
@@ -1088,14 +1150,19 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
 
     let package_json = k_root.join("package.json");
     let lockfile = k_root.join("package-lock.json");
+    let vite_config = k_root.join("vite.config.ts");
     let src_dir = k_root.join("src");
     let public_dir = k_root.join("public");
     let build_index = k_root.join("dist").join("index.html");
+    let build_target_stamp = k_root.join("dist").join(".kaspa-ng-vite-target");
+    let target_override = k_social_vite_target_override();
 
     println!("cargo:rerun-if-changed={}", package_json.display());
     println!("cargo:rerun-if-changed={}", lockfile.display());
+    println!("cargo:rerun-if-changed={}", vite_config.display());
     println!("cargo:rerun-if-changed={}", src_dir.display());
     println!("cargo:rerun-if-changed={}", public_dir.display());
+    println!("cargo:rerun-if-env-changed=KASPA_NG_K_VITE_TARGET");
     println!(
         "cargo:rerun-if-changed={}",
         k_root
@@ -1118,13 +1185,22 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
     let latest_src = newest_mtime(&package_json)
         .into_iter()
         .chain(newest_mtime(&lockfile))
+        .chain(newest_mtime(&vite_config))
         .chain(newest_mtime(&src_dir))
         .chain(newest_mtime(&public_dir))
         .max();
 
+    let target_stamp_matches = match target_override.as_deref() {
+        Some(expected) => std::fs::read_to_string(&build_target_stamp)
+            .map(|value| value.trim() == expected)
+            .unwrap_or(false),
+        None => true,
+    };
+
     if build_index.exists()
         && let (Some(bin_time), Some(src_time)) = (mtime(&build_index), latest_src)
         && bin_time >= src_time
+        && target_stamp_matches
     {
         sync_k_social_build(&k_root, &repo_root)?;
         return Ok(());
@@ -1137,12 +1213,12 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
 
     if !node_modules.exists() {
         let status = if lockfile.exists() {
-            Command::new(&npm)
+            command_with_node_path(&npm)
                 .current_dir(&k_root)
                 .args(["ci", "--no-audit", "--no-fund"])
                 .status()
         } else {
-            Command::new(&npm)
+            command_with_node_path(&npm)
                 .current_dir(&k_root)
                 .args(["install", "--no-audit", "--no-fund"])
                 .status()
@@ -1152,16 +1228,41 @@ fn build_k_social_if_needed() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let status = Command::new(&npm)
-        .current_dir(&k_root)
-        .args(["run", "build"])
-        .status();
+    let mut build_cmd = command_with_node_path(&npm);
+    build_cmd.current_dir(&k_root).args(["run", "build"]);
+    if let Some(target) = target_override.as_deref() {
+        println!("cargo:warning=Building K with Vite target override: {target}");
+        build_cmd.args(["--", "--target", target]);
+    }
+    let status = build_cmd.status();
     if status.map(|s| !s.success()).unwrap_or(true) {
         return Err("K build failed".into());
     }
 
+    if let Some(target) = target_override {
+        let _ = std::fs::write(&build_target_stamp, format!("{target}\n"));
+    } else {
+        let _ = std::fs::remove_file(&build_target_stamp);
+    }
+
     sync_k_social_build(&k_root, &repo_root)?;
     Ok(())
+}
+
+fn k_social_vite_target_override() -> Option<String> {
+    if let Ok(value) = std::env::var("KASPA_NG_K_VITE_TARGET") {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(trimmed.to_string());
+    }
+
+    if std::env::consts::OS == "macos" && std::env::consts::ARCH == "x86_64" {
+        return Some("safari15".to_string());
+    }
+
+    None
 }
 
 fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
@@ -2675,14 +2776,14 @@ fn normalize_k_indexer_wasm_dependency_lock(
     // Without this, fresh lockfiles can pull newer wasm-bindgen/js-sys releases that break
     // workflow-node and kaspa-rpc-core under current toolchains.
     let required_versions = [
-        ("js-sys", "0.3.91"),
-        ("web-sys", "0.3.91"),
-        ("wasm-bindgen", "0.2.114"),
-        ("wasm-bindgen-futures", "0.4.64"),
-        ("wasm-bindgen-macro", "0.2.114"),
-        ("wasm-bindgen-macro-support", "0.2.114"),
-        ("wasm-bindgen-shared", "0.2.114"),
-        ("serde-wasm-bindgen", "0.6.5"),
+        ("js-sys", "0.3.77"),
+        ("web-sys", "0.3.77"),
+        ("wasm-bindgen", "0.2.100"),
+        ("wasm-bindgen-futures", "0.4.50"),
+        ("wasm-bindgen-macro", "0.2.100"),
+        ("wasm-bindgen-macro-support", "0.2.100"),
+        ("wasm-bindgen-shared", "0.2.100"),
+        ("serde-wasm-bindgen", "0.6.1"),
     ];
 
     for (package, version) in required_versions {
