@@ -93,11 +93,136 @@ require_cmd() {
   }
 }
 
+resolve_npm_cmd() {
+  if [[ -n "${NPM:-}" ]] && (command -v "${NPM}" >/dev/null 2>&1 || [[ -x "${NPM}" ]]); then
+    echo "${NPM}"
+    return 0
+  fi
+
+  local candidate
+  for candidate in npm /usr/local/opt/node-22/bin/npm /opt/homebrew/opt/node@22/bin/npm /usr/local/bin/npm; do
+    if command -v "$candidate" >/dev/null 2>&1 || [[ -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ensure_node_and_npm_path() {
+  local npm_cmd
+  npm_cmd="$(resolve_npm_cmd || true)"
+  if [[ -z "$npm_cmd" ]]; then
+    return 1
+  fi
+
+  export NPM="$npm_cmd"
+  if [[ "$npm_cmd" == */* ]]; then
+    local node_dir
+    node_dir="$(dirname "$npm_cmd")"
+    if [[ -x "$node_dir/node" ]] && [[ ":$PATH:" != *":$node_dir:"* ]]; then
+      export PATH="$node_dir:$PATH"
+    fi
+  fi
+  return 0
+}
+
+npm_exec() {
+  "${NPM:-npm}" "$@"
+}
+
+compiler_supports_wasm_target() {
+  local compiler="$1"
+  local tmp_c tmp_o
+
+  tmp_c="$(mktemp /tmp/kasia-wasm-cc-test.XXXXXX.c)"
+  tmp_o="$(mktemp /tmp/kasia-wasm-cc-test.XXXXXX.o)"
+  printf 'int kasia_wasm_cc_test(void) { return 0; }\n' >"$tmp_c"
+
+  if "$compiler" --target=wasm32-unknown-unknown -c "$tmp_c" -o "$tmp_o" >/dev/null 2>&1; then
+    rm -f "$tmp_c" "$tmp_o"
+    return 0
+  fi
+
+  rm -f "$tmp_c" "$tmp_o"
+  return 1
+}
+
+resolve_wasm_clang() {
+  local candidate resolved
+
+  for candidate in \
+    "${KASIA_WASM_CC:-}" \
+    "${CC_wasm32_unknown_unknown:-}" \
+    clang \
+    /usr/local/opt/llvm/bin/clang \
+    /opt/homebrew/opt/llvm/bin/clang \
+    /usr/local/opt/llvm-15.0.7/bin/clang \
+    /usr/bin/clang
+  do
+    [[ -n "$candidate" ]] || continue
+    if command -v "$candidate" >/dev/null 2>&1; then
+      resolved="$(command -v "$candidate")"
+    elif [[ -x "$candidate" ]]; then
+      resolved="$candidate"
+    else
+      continue
+    fi
+
+    if compiler_supports_wasm_target "$resolved"; then
+      echo "$resolved"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+setup_kasia_wasm_toolchain() {
+  local wasm_cc wasm_dir wasm_ar wasm_ranlib
+  wasm_cc="$(resolve_wasm_clang || true)"
+  if [[ -z "$wasm_cc" ]]; then
+    echo "No wasm-capable clang found for Kasia wasm build (need compiler supporting --target=wasm32-unknown-unknown)" >&2
+    return 1
+  fi
+
+  export KASIA_WASM_CC="$wasm_cc"
+  export CC_wasm32_unknown_unknown="$wasm_cc"
+  export CXX_wasm32_unknown_unknown="$wasm_cc"
+  export TARGET_CC="$wasm_cc"
+  wasm_dir="$(dirname "$wasm_cc")"
+  if [[ ":$PATH:" != *":$wasm_dir:"* ]]; then
+    export PATH="$wasm_dir:$PATH"
+  fi
+
+  wasm_ar="$wasm_dir/llvm-ar"
+  wasm_ranlib="$wasm_dir/llvm-ranlib"
+  if [[ -x "$wasm_ar" ]]; then
+    export AR="$wasm_ar"
+    export AR_wasm32_unknown_unknown="$wasm_ar"
+  else
+    unset AR
+    unset AR_wasm32_unknown_unknown
+  fi
+  if [[ -x "$wasm_ranlib" ]]; then
+    export RANLIB="$wasm_ranlib"
+    export RANLIB_wasm32_unknown_unknown="$wasm_ranlib"
+  else
+    unset RANLIB
+    unset RANLIB_wasm32_unknown_unknown
+  fi
+
+  echo "Using wasm compiler for Kasia: $wasm_cc"
+}
+
 require_cmd git
 require_cmd cargo
-require_cmd npm
 require_cmd python3
 require_cmd curl
+ensure_node_and_npm_path || {
+  echo "Required command not found: npm" >&2
+  exit 1
+}
 
 sync_external_repo() {
   local dir="$1"
@@ -190,7 +315,7 @@ ensure_rollup_native() {
   esac
 
   echo "rollup native binding missing; installing ${pkg}"
-  npm install --no-audit --no-fund --no-save "$pkg"
+  npm_exec install --no-audit --no-fund --no-save "$pkg"
   node -e "require('rollup/dist/native.js')" >/dev/null
 }
 
@@ -225,7 +350,7 @@ ensure_swc_native() {
   esac
 
   echo "swc native binding missing; reinstalling @swc/core and ${pkg}"
-  npm install --no-audit --no-fund --no-save @swc/core "$pkg"
+  npm_exec install --no-audit --no-fund --no-save @swc/core "$pkg"
   resign_native_nodes "node_modules/@swc"
   node -e "require('@swc/core')" >/dev/null
 }
@@ -261,7 +386,7 @@ ensure_tailwind_oxide_native() {
   esac
 
   echo "tailwindcss oxide native binding missing; reinstalling @tailwindcss/oxide and ${pkg}"
-  npm install --no-audit --no-fund --no-save @tailwindcss/oxide "$pkg"
+  npm_exec install --no-audit --no-fund --no-save @tailwindcss/oxide "$pkg"
   resign_native_nodes "node_modules/@tailwindcss"
   node -e "require('@tailwindcss/oxide')" >/dev/null
 }
@@ -306,7 +431,7 @@ ensure_js_native_bundle() {
   fi
 
   echo "ensuring native JS binding bundle: ${pkgs[*]}"
-  npm install --no-audit --no-fund --no-save "${pkgs[@]}"
+  npm_exec install --no-audit --no-fund --no-save "${pkgs[@]}"
   resign_native_nodes "node_modules/@swc"
   resign_native_nodes "node_modules/@tailwindcss"
 
@@ -318,18 +443,18 @@ npm_install_with_fallback() {
   local install_ok=0
 
   if [[ -f package-lock.json ]]; then
-    npm ci --no-audit --no-fund && install_ok=1 || true
+    npm_exec ci --no-audit --no-fund && install_ok=1 || true
     if [[ "$install_ok" != "1" ]]; then
       echo "npm ci failed; resetting node_modules and retrying npm install"
       nuke_dir node_modules
-      npm install --no-audit --no-fund && install_ok=1
+      npm_exec install --no-audit --no-fund && install_ok=1
     fi
   else
-    npm install --no-audit --no-fund && install_ok=1 || true
+    npm_exec install --no-audit --no-fund && install_ok=1 || true
     if [[ "$install_ok" != "1" ]]; then
       echo "npm install failed; resetting node_modules and retrying once"
       nuke_dir node_modules
-      npm install --no-audit --no-fund && install_ok=1
+      npm_exec install --no-audit --no-fund && install_ok=1
     fi
   fi
 
@@ -448,12 +573,13 @@ build_kasia() {
   (
     cd Kasia
     export BROWSERSLIST_IGNORE_OLD_DATA=1
+    setup_kasia_wasm_toolchain
     npm_install_with_fallback
-    npm run wasm:build \
+    npm_exec run wasm:build \
       2> >(grep -vF "[WARN  wasm_pack::install] could not download pre-built \`wasm-bindgen\`" >&2 || true)
-    npm run build:production -- --logLevel error \
+    npm_exec run build:production -- --logLevel error \
       2> >(grep -vF "[baseline-browser-mapping]" >&2 || true) \
-      || npm exec vite build -- --logLevel error \
+      || npm_exec exec vite build -- --logLevel error \
         2> >(grep -vF "[baseline-browser-mapping]" >&2 || true)
   )
 }
@@ -468,7 +594,7 @@ build_explorer_if_missing() {
   (
     cd kaspa-explorer-ng
     npm_install_with_fallback
-    npm run build
+    npm_exec run build
   )
 }
 

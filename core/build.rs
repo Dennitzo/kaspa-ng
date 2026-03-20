@@ -210,6 +210,110 @@ fn command_succeeds(program: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+fn compiler_supports_wasm_target(compiler: &str) -> bool {
+    let mut probe_c = std::env::temp_dir();
+    probe_c.push(format!("kasia-wasm-cc-probe-{}.c", std::process::id()));
+    let mut probe_o = std::env::temp_dir();
+    probe_o.push(format!("kasia-wasm-cc-probe-{}.o", std::process::id()));
+
+    if std::fs::write(&probe_c, "int kasia_wasm_cc_probe(void){return 0;}\n").is_err() {
+        return false;
+    }
+
+    let status = Command::new(compiler)
+        .args([
+            "--target=wasm32-unknown-unknown",
+            "-c",
+            probe_c.to_string_lossy().as_ref(),
+            "-o",
+            probe_o.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .ok();
+
+    let _ = std::fs::remove_file(&probe_c);
+    let _ = std::fs::remove_file(&probe_o);
+
+    status.map(|s| s.success()).unwrap_or(false)
+}
+
+fn resolve_kasia_wasm_compiler() -> Option<String> {
+    let mut candidates: Vec<String> = Vec::new();
+
+    if let Ok(value) = std::env::var("KASIA_WASM_CC") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+    if let Ok(value) = std::env::var("CC_wasm32_unknown_unknown") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            candidates.push(trimmed.to_string());
+        }
+    }
+
+    candidates.push("clang".to_string());
+    candidates.push("/usr/local/opt/llvm/bin/clang".to_string());
+    candidates.push("/opt/homebrew/opt/llvm/bin/clang".to_string());
+    candidates.push("/usr/local/opt/llvm-15.0.7/bin/clang".to_string());
+    candidates.push("/usr/bin/clang".to_string());
+
+    candidates.into_iter().find(|candidate| {
+        let compiler = if PathBuf::from(candidate).components().count() > 1 {
+            Some(PathBuf::from(candidate))
+        } else {
+            locate_executable_in_path(candidate)
+        };
+
+        compiler
+            .as_deref()
+            .and_then(|path| path.to_str())
+            .map(compiler_supports_wasm_target)
+            .unwrap_or(false)
+    })
+}
+
+fn apply_kasia_wasm_compiler_env(cmd: &mut Command, wasm_cc: Option<&str>) {
+    let Some(cc) = wasm_cc else {
+        return;
+    };
+
+    let compiler_path = Path::new(cc);
+    let parent = compiler_path.parent();
+
+    cmd.env("KASIA_WASM_CC", cc)
+        .env("CC_wasm32_unknown_unknown", cc)
+        .env("CXX_wasm32_unknown_unknown", cc)
+        .env("TARGET_CC", cc);
+
+    if let Some(parent) = parent {
+        let llvm_ar = parent.join("llvm-ar");
+        if llvm_ar.exists() {
+            cmd.env("AR", &llvm_ar)
+                .env("AR_wasm32_unknown_unknown", &llvm_ar);
+        } else {
+            cmd.env_remove("AR").env_remove("AR_wasm32_unknown_unknown");
+        }
+
+        let llvm_ranlib = parent.join("llvm-ranlib");
+        if llvm_ranlib.exists() {
+            cmd.env("RANLIB", &llvm_ranlib)
+                .env("RANLIB_wasm32_unknown_unknown", &llvm_ranlib);
+        } else {
+            cmd.env_remove("RANLIB")
+                .env_remove("RANLIB_wasm32_unknown_unknown");
+        }
+
+        let current_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut path_entries: Vec<PathBuf> = vec![parent.to_path_buf()];
+        path_entries.extend(std::env::split_paths(&current_path));
+        if let Ok(joined) = std::env::join_paths(path_entries) {
+            cmd.env("PATH", joined);
+        }
+    }
+}
+
 fn command_with_node_path(program: &str) -> Command {
     let mut cmd = Command::new(program);
     inject_node_path_for_npm(&mut cmd, program);
@@ -1334,6 +1438,16 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     )?;
     let npm = resolve_npm_command()
         .ok_or("npm command not found (checked NPM env, PATH and common node-adjacent paths)")?;
+    let wasm_cc = resolve_kasia_wasm_compiler();
+    if wasm_cc.is_none() {
+        return Err(
+            "No wasm-capable clang found for Kasia (need compiler supporting --target=wasm32-unknown-unknown). Set KASIA_WASM_CC to a valid compiler path.".into(),
+        );
+    }
+    if let Some(cc) = wasm_cc.as_deref() {
+        println!("cargo:warning=Using Kasia wasm compiler: {cc}");
+    }
+
     let npm_cmd = |args: &[&str]| {
         let mut cmd = Command::new(&npm);
         cmd.current_dir(&kasia_root)
@@ -1397,19 +1511,13 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     let _ = ensure_kasia_native_optional_deps(&npm_cmd);
     let _ = prune_kasia_nested_swc_native_binding(&kasia_root);
 
-    let wasm_built = build_kasia_cipher_wasm_no_opt(&kasia_root);
+    let wasm_built = build_kasia_cipher_wasm_no_opt(&kasia_root, wasm_cc.as_deref());
     if !wasm_built {
-        let wasm_status = npm_cmd(&["run", "wasm:build"]).status();
+        let mut wasm_cmd = npm_cmd(&["run", "wasm:build"]);
+        apply_kasia_wasm_compiler_env(&mut wasm_cmd, wasm_cc.as_deref());
+        let wasm_status = wasm_cmd.status();
         if wasm_status.map(|s| !s.success()).unwrap_or(true) {
-            println!(
-                "cargo:warning=Kasia wasm:build failed; restoring fallback cipher package and continuing with production build"
-            );
-            ensure_kasia_fallback_packages(
-                &cipher_wasm_dir,
-                &cipher_wasm_package,
-                &biometry_vendor_dir,
-                &biometry_vendor_package,
-            )?;
+            return Err("Kasia wasm:build failed".into());
         }
     }
 
@@ -1479,24 +1587,24 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn build_kasia_cipher_wasm_no_opt(kasia_root: &Path) -> bool {
+fn build_kasia_cipher_wasm_no_opt(kasia_root: &Path, wasm_cc: Option<&str>) -> bool {
     let cipher_dir = kasia_root.join("cipher");
     if !cipher_dir.exists() {
         return false;
     }
 
-    let status = Command::new("wasm-pack")
-        .current_dir(&cipher_dir)
-        .args([
-            "build",
-            "--target",
-            "web",
-            "--release",
-            "--no-opt",
-            "-d",
-            "../cipher-wasm",
-        ])
-        .status();
+    let mut cmd = Command::new("wasm-pack");
+    cmd.current_dir(&cipher_dir).args([
+        "build",
+        "--target",
+        "web",
+        "--release",
+        "--no-opt",
+        "-d",
+        "../cipher-wasm",
+    ]);
+    apply_kasia_wasm_compiler_env(&mut cmd, wasm_cc);
+    let status = cmd.status();
 
     match status {
         Ok(s) if s.success() => true,
@@ -1863,12 +1971,12 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
 
     if !node_modules.exists() {
         let mut ok = if lockfile.exists() {
-            npm_cmd(&["ci", "--no-audit", "--no-fund", "--prefer-offline"])
+            npm_cmd(&["ci", "--no-audit", "--no-fund"])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false)
         } else {
-            npm_cmd(&["install", "--no-audit", "--no-fund", "--prefer-offline"])
+            npm_cmd(&["install", "--no-audit", "--no-fund"])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false)
@@ -1880,7 +1988,6 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
                 "install",
                 "--no-audit",
                 "--no-fund",
-                "--prefer-offline",
                 "--include=optional",
             ])
             .status()
