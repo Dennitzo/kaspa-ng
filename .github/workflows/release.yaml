@@ -21,10 +21,8 @@ jobs:
         include:
           - os: ubuntu-22.04
             label: ubuntu-22.04
-          - os: macos-13
-            label: macos-13-x64
-          - os: macos-14
-            label: macos-14-arm64
+          - os: macos-latest
+            label: macos-latest
           - os: windows-latest
             label: windows-latest
 
