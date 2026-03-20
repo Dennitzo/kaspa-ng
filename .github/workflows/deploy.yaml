@@ -65,8 +65,17 @@ jobs:
           set -euo pipefail
           node -v
           npm -v
-          npm install -g npm@latest || true
-          npm -v
+
+      - name: Normalize npm config (CI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          NPMRC_FILE="${RUNNER_TEMP}/npm-ci-clean.npmrc"
+          : > "${NPMRC_FILE}"
+          echo "NPM_CONFIG_USERCONFIG=${NPMRC_FILE}" >> "${GITHUB_ENV}"
+          npm config delete prefer-offline --userconfig "${NPMRC_FILE}" || true
+          npm config delete prefer-online --userconfig "${NPMRC_FILE}" || true
+          npm config delete offline --userconfig "${NPMRC_FILE}" || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
