@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "rusty-kaspa",
         "https://github.com/kaspanet/rusty-kaspa.git",
     )?;
+    ensure_rusty_kaspa_workflow_perf_monitor_patch()?;
     export_rusty_kaspa_workspace_version()?;
     prepare_self_hosted_python_if_needed()?;
     ensure_postgres_runtime_ready()?;
@@ -1156,6 +1157,70 @@ fn export_rusty_kaspa_workspace_version() -> Result<(), Box<dyn Error>> {
     } else {
         println!("cargo:warning=Unable to parse Rusty Kaspa workspace version");
     }
+
+    Ok(())
+}
+
+fn ensure_rusty_kaspa_workflow_perf_monitor_patch() -> Result<(), Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root")?
+        .to_path_buf();
+    let rusty_toml = repo_root.join("rusty-kaspa").join("Cargo.toml");
+    const PATCH_LINE: &str =
+        "workflow-perf-monitor = { path = \"../vendor/workflow-perf-monitor\" }";
+
+    if !rusty_toml.exists() {
+        return Ok(());
+    }
+
+    let contents = std::fs::read_to_string(&rusty_toml)?;
+    if contents.contains(PATCH_LINE) {
+        return Ok(());
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_patch = false;
+    let mut added = false;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == "[patch.crates-io]" {
+            in_patch = true;
+            lines.push(line.to_string());
+            continue;
+        }
+
+        if in_patch && trimmed.starts_with('[') && trimmed.ends_with(']') && !added {
+            lines.push(PATCH_LINE.to_string());
+            added = true;
+            in_patch = false;
+        }
+
+        lines.push(line.to_string());
+    }
+
+    if in_patch && !added {
+        lines.push(PATCH_LINE.to_string());
+        added = true;
+    }
+
+    if !added {
+        if !lines.last().map(|l| l.trim().is_empty()).unwrap_or(true) {
+            lines.push(String::new());
+        }
+        lines.push("[patch.crates-io]".to_string());
+        lines.push(PATCH_LINE.to_string());
+    }
+
+    let mut output = lines.join("\n");
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
+    std::fs::write(&rusty_toml, output)?;
+    println!("cargo:warning=Patched rusty-kaspa Cargo.toml with workflow-perf-monitor override");
 
     Ok(())
 }
