@@ -1056,26 +1056,8 @@ jobs:
           APP_BUNDLE_OUT="kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64.app.zip"
           ditto -c -k --sequesterRsrc --keepParent "$ROOT/Kaspa-NG.app" "$APP_BUNDLE_OUT"
           [ -f "$APP_BUNDLE_OUT" ] || { echo "Missing macOS app bundle archive: $APP_BUNDLE_OUT"; exit 1; }
-
-      - name: Upload MacOS (arm64) build to GitHub
-        if: |
-          runner.os == 'macOS' &&
-          runner.arch == 'ARM64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
-          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64
-          overwrite: true
-
-      - name: Upload MacOS (arm64) App Bundle to GitHub
-        if: |
-          runner.os == 'macOS' &&
-          runner.arch == 'ARM64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64-app-bundle
-          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-arm64.app.zip
-          overwrite: true
+          echo "MACOS_ARTIFACT_ARCH=arm64" >> "$GITHUB_ENV"
+          echo "MACOS_APP_BUNDLE_OUT=${APP_BUNDLE_OUT}" >> "$GITHUB_ENV"
 
       - name: Build on MacOS (x64)
         if: |
@@ -1199,25 +1181,15 @@ jobs:
           APP_BUNDLE_OUT="kaspa-ng-${{ env.SHORT_SHA }}-macos-x64.app.zip"
           ditto -c -k --sequesterRsrc --keepParent "$ROOT/Kaspa-NG.app" "$APP_BUNDLE_OUT"
           [ -f "$APP_BUNDLE_OUT" ] || { echo "Missing macOS app bundle archive: $APP_BUNDLE_OUT"; exit 1; }
+          echo "MACOS_ARTIFACT_ARCH=x64" >> "$GITHUB_ENV"
+          echo "MACOS_APP_BUNDLE_OUT=${APP_BUNDLE_OUT}" >> "$GITHUB_ENV"
 
-      - name: Upload MacOS (x64) build to GitHub
-        if: |
-          runner.os == 'macOS' &&
-          runner.arch == 'X64'
+      - name: Upload MacOS App Bundle to GitHub
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
-          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64
-          overwrite: true
-
-      - name: Upload MacOS (x64) App Bundle to GitHub
-        if: |
-          runner.os == 'macOS' &&
-          runner.arch == 'X64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64-app-bundle
-          path: kaspa-ng-${{ env.SHORT_SHA }}-macos-x64.app.zip
+          name: kaspa-ng-${{ env.SHORT_SHA }}-macos-${{ env.MACOS_ARTIFACT_ARCH }}-app-bundle
+          path: ${{ env.MACOS_APP_BUNDLE_OUT }}
           overwrite: true
 
       - name: Build on Linux
