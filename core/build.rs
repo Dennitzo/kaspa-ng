@@ -320,6 +320,31 @@ fn command_with_node_path(program: &str) -> Command {
     cmd
 }
 
+fn apply_npm_env_safety(cmd: &mut Command) {
+    // Prevent inherited/global npm preferences from causing conflicts in nested installs.
+    for key in [
+        "NPM_CONFIG_PREFER_OFFLINE",
+        "NPM_CONFIG_PREFER_ONLINE",
+        "NPM_CONFIG_OFFLINE",
+        "npm_config_prefer_offline",
+        "npm_config_prefer_online",
+        "npm_config_offline",
+    ] {
+        cmd.env_remove(key);
+    }
+
+    #[cfg(windows)]
+    {
+        cmd.env("NPM_CONFIG_USERCONFIG", "NUL");
+        cmd.env("npm_config_userconfig", "NUL");
+    }
+    #[cfg(not(windows))]
+    {
+        cmd.env("NPM_CONFIG_USERCONFIG", "/dev/null");
+        cmd.env("npm_config_userconfig", "/dev/null");
+    }
+}
+
 fn inject_node_path_for_npm(cmd: &mut Command, program: &str) {
     let program_path = Path::new(program);
     let Some(file_name) = program_path.file_name().and_then(|name| name.to_str()) else {
@@ -1216,6 +1241,7 @@ fn build_explorer_if_needed() -> Result<(), Box<dyn Error>> {
             .env("npm_config_audit", "false")
             .env("npm_config_fund", "false")
             .args(args);
+        apply_npm_env_safety(&mut cmd);
         cmd
     };
 
@@ -1456,6 +1482,7 @@ fn build_kasia_if_needed() -> Result<(), Box<dyn Error>> {
             .env("npm_config_audit", "false")
             .env("npm_config_fund", "false")
             .args(args);
+        apply_npm_env_safety(&mut cmd);
         cmd
     };
 
@@ -1966,6 +1993,7 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
             .env("npm_config_fetch_retry_mintimeout", "10000")
             .env("npm_config_fetch_retry_maxtimeout", "120000")
             .args(args);
+        apply_npm_env_safety(&mut cmd);
         cmd
     };
 
@@ -2004,11 +2032,10 @@ fn build_kasvault_if_needed() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let status = Command::new(&npm)
-        .current_dir(&kasvault_root)
-        .env("DISABLE_ESLINT_PLUGIN", "true")
-        .args(["run", "build"])
-        .status();
+    let status = {
+        let mut cmd = npm_cmd(&["run", "build"]);
+        cmd.env("DISABLE_ESLINT_PLUGIN", "true").status()
+    };
     if status.map(|s| !s.success()).unwrap_or(true) {
         return Err("KasVault build failed".into());
     }
