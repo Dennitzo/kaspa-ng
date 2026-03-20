@@ -401,7 +401,7 @@ function Ensure-RollupNative {
 
 function Npm-InstallWithFallback {
     if (Test-Path -LiteralPath "package-lock.json") {
-        $code = Invoke-Native -File "npm" -Arguments @("ci", "--prefer-offline", "--no-audit", "--no-fund") -AllowFailure
+        $code = Invoke-Native -File "npm" -Arguments @("ci", "--no-audit", "--no-fund") -AllowFailure
         if ($code -ne 0) {
             Invoke-Native -File "npm" -Arguments @("install", "--no-audit", "--no-fund") | Out-Null
         }

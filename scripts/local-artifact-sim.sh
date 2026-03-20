@@ -318,7 +318,7 @@ npm_install_with_fallback() {
   local install_ok=0
 
   if [[ -f package-lock.json ]]; then
-    npm ci --prefer-offline --no-audit --no-fund && install_ok=1 || true
+    npm ci --no-audit --no-fund && install_ok=1 || true
     if [[ "$install_ok" != "1" ]]; then
       echo "npm ci failed; resetting node_modules and retrying npm install"
       nuke_dir node_modules

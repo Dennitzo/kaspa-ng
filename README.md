@@ -104,6 +104,12 @@ cargo build --release
 ./target/release/kaspa-ng
 ```
 
+### macOS Intel chip x64
+```bash
+env -u CC -u CXX -u AR -u RANLIB -u SDKROOT -u NPM cargo build --release
+KASPA_NG_SKIP_EXTERNAL_SYNC=1 MACOS_MIN_VERSION=12.0 ./scripts/macos-bundle.sh release
+```
+
 While the application is a static serve, you can not load it from the local file system due to CORS restrictions. Due to this, a web server is required. This application is designed to be built with [Trunk](https://trunkrs.dev/) and is served from the `dist/` folder.  This is a self-contained client-side application - once the application is loaded, the web server is no longer required.
 
 #### Running Headless
