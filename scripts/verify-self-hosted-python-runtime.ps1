@@ -21,23 +21,43 @@ function Require-File {
 
 function Resolve-PythonExe {
     $candidates = @()
+    if ($env:KASPA_NG_PYTHON_RUNTIME_ROOT) {
+        $candidates += (Join-Path $env:KASPA_NG_PYTHON_RUNTIME_ROOT "python.exe")
+        $candidates += (Join-Path $env:KASPA_NG_PYTHON_RUNTIME_ROOT "bin\python.exe")
+        $candidates += (Join-Path $env:KASPA_NG_PYTHON_RUNTIME_ROOT "Scripts\python.exe")
+        $candidates += (Join-Path $env:KASPA_NG_PYTHON_RUNTIME_ROOT "bin\python3")
+        $candidates += (Join-Path $env:KASPA_NG_PYTHON_RUNTIME_ROOT "bin\python")
+    }
+
     if ($env:KASPA_NG_PYTHON_BIN) {
         $candidates += $env:KASPA_NG_PYTHON_BIN
     }
+    $candidates += (Join-Path $ArtifactRoot "python\python.exe")
+    $candidates += (Join-Path $ArtifactRoot "python\bin\python.exe")
+    $candidates += (Join-Path $ArtifactRoot "python\Scripts\python.exe")
+    $candidates += (Join-Path $ArtifactRoot "python\bin\python3")
+    $candidates += (Join-Path $ArtifactRoot "python\bin\python")
 
-    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCmd) {
-        $candidates += $pythonCmd.Source
+    $allowSystemFallback = $false
+    if ($env:KASPA_NG_ALLOW_SYSTEM_PYTHON) {
+        $allowSystemFallback = @("1", "true", "yes") -contains $env:KASPA_NG_ALLOW_SYSTEM_PYTHON.ToLowerInvariant()
     }
 
-    $python3Cmd = Get-Command python3 -ErrorAction SilentlyContinue
-    if ($python3Cmd) {
-        $candidates += $python3Cmd.Source
-    }
+    if ($allowSystemFallback) {
+        $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+        if ($pythonCmd) {
+            $candidates += $pythonCmd.Source
+        }
 
-    if ($env:LOCALAPPDATA) {
-        foreach ($minor in @(14, 13, 12, 11, 10)) {
-            $candidates += (Join-Path $env:LOCALAPPDATA ("Programs\Python\Python3{0}\python.exe" -f $minor))
+        $python3Cmd = Get-Command python3 -ErrorAction SilentlyContinue
+        if ($python3Cmd) {
+            $candidates += $python3Cmd.Source
+        }
+
+        if ($env:LOCALAPPDATA) {
+            foreach ($minor in @(14, 13, 12, 11, 10)) {
+                $candidates += (Join-Path $env:LOCALAPPDATA ("Programs\Python\Python3{0}\python.exe" -f $minor))
+            }
         }
     }
 
@@ -128,7 +148,7 @@ Require-File (Join-Path $socketRoot "Pipfile")
 
 $pythonExe = Resolve-PythonExe
 if (-not $pythonExe) {
-    throw "No compatible Python runtime (>=3.10) found for self-hosted services"
+    throw "No compatible bundled Python runtime (>=3.10) found for self-hosted services. Expected '$ArtifactRoot\python\python.exe' (or python\bin\python3 on Unix artifacts). Set KASPA_NG_PYTHON_RUNTIME_ROOT or KASPA_NG_PYTHON_BIN to override, or KASPA_NG_ALLOW_SYSTEM_PYTHON=1 for temporary system fallback."
 }
 
 $bootstrapScript = @'

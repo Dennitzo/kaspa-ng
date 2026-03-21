@@ -33,6 +33,12 @@ jobs:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
 
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
+
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
         run: bash ./scripts/fetch-postgres-runtime.sh
@@ -41,6 +47,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync external repositories
         shell: bash
@@ -190,6 +205,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ github.event.release.tag_name }}-windows-x64 || true
           pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/postgres"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-python-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/python"
           cargo build --bin kaspa-ng --release
           if [ ! -d target/release/kaspa-explorer-ng ] && [ ! -d kaspa-explorer-ng/build ] && [ -d kaspa-explorer-ng ]; then
             echo "kaspa-explorer-ng build missing after cargo build; running fallback build"
@@ -215,6 +231,12 @@ jobs:
               cp "K-indexer/target/release/${bin}" kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
             elif [ "${bin}" = "kasia-indexer.exe" ] && [ -f "kasia-indexer/target/release/indexer.exe" ]; then
               cp "kasia-indexer/target/release/indexer.exe" kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${bin}
+            fi
+          done
+          mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/resources
+          for bin in stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            if [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${bin}" ]; then
+              mv "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${bin}" "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/resources/${bin}"
             fi
           done
           if [ -d target/release/kaspa-explorer-ng ]; then
@@ -251,10 +273,16 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
-          for f in kaspa-ng.exe stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
-            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/
+          [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/kaspa-ng.exe" ] || { echo "Missing packaged binary: kaspa-ng.exe"; exit 1; }
+          for f in stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/verify-self-hosted-python-runtime.ps1 -ArtifactRoot "kaspa-ng-${{ github.event.release.tag_name }}-windows-x64"
@@ -275,6 +303,7 @@ jobs:
           runner.arch == 'ARM64'
         run: |
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           cargo build --bin kaspa-ng --release
           KASPA_NG_SKIP_EXTERNAL_SYNC=1 ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-arm64"
@@ -292,6 +321,12 @@ jobs:
               cp "K-indexer/target/release/${bin}" "$ROOT/"
             elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
               cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
+            fi
+          done
+          mkdir -p "$ROOT/resources"
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "$ROOT/${bin}" ]; then
+              mv "$ROOT/${bin}" "$ROOT/resources/${bin}"
             fi
           done
           if [ -d target/release/kaspa-explorer-ng ]; then
@@ -328,10 +363,16 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres "$ROOT/"
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python "$ROOT/"
+          [ -f "$ROOT/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
@@ -354,6 +395,7 @@ jobs:
           runner.arch == 'x64'
         run: |
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           cargo build --bin kaspa-ng --release
           KASPA_NG_SKIP_EXTERNAL_SYNC=1 ./scripts/macos-bundle.sh release
           ROOT="kaspa-ng-${{ github.event.release.tag_name }}-macos-x64"
@@ -371,6 +413,12 @@ jobs:
               cp "K-indexer/target/release/${bin}" "$ROOT/"
             elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
               cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
+            fi
+          done
+          mkdir -p "$ROOT/resources"
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "$ROOT/${bin}" ]; then
+              mv "$ROOT/${bin}" "$ROOT/resources/${bin}"
             fi
           done
           if [ -d target/release/kaspa-explorer-ng ]; then
@@ -407,10 +455,16 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres "$ROOT/"
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python "$ROOT/"
+          [ -f "$ROOT/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
@@ -431,6 +485,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           cargo build --bin kaspa-ng --release
           mkdir -p .debpkg/usr/bin
           cp target/release/kaspa-ng .debpkg/usr/bin/
@@ -452,6 +507,16 @@ jobs:
             elif [ "${bin}" = "kasia-indexer" ] && [ -f "kasia-indexer/target/release/indexer" ]; then
               cp "kasia-indexer/target/release/indexer" kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${bin}
               cp "kasia-indexer/target/release/indexer" .debpkg/usr/bin/${bin}
+            fi
+          done
+          mkdir -p kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/resources
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${bin}" ]; then
+              mv "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${bin}" "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/resources/${bin}"
+            fi
+            if [ -f ".debpkg/usr/bin/${bin}" ]; then
+              mkdir -p .debpkg/usr/bin/resources
+              mv ".debpkg/usr/bin/${bin}" ".debpkg/usr/bin/resources/${bin}"
             fi
           done
           if [ -d target/release/kaspa-explorer-ng ]; then
@@ -501,12 +566,19 @@ jobs:
           fi
           cp -r target/release/postgres kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
           cp -r target/release/postgres .debpkg/usr/bin/
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
+          cp -r target/release/python .debpkg/usr/bin/
           cp core/resources/icons/icon-256.png kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng.png
           cp core/resources/packaging/kaspa-ng.desktop kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-linux-artifact.sh "kaspa-ng-${{ github.event.release.tag_name }}-linux-gnu-amd64"
@@ -533,7 +605,7 @@ jobs:
           maintainer: ASPECTRON
           version: ${{ github.ref }} # refs/tags/v*.*.*
           arch: 'amd64'
-          depends: 'libglib2.0-0, libatk1.0-0, libgtk-3-0, python3, python3-venv, python3-pip'
+          depends: 'libglib2.0-0, libatk1.0-0, libgtk-3-0'
           desc: 'Kaspa NG desktop p2p node and wallet'
 
       - name: Upload release asset

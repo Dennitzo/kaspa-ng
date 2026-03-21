@@ -610,6 +610,14 @@ stage_postgres_runtime() {
   bash "$stage_script" "$out_dir"
 }
 
+stage_python_runtime() {
+  local stage_script out_dir
+  stage_script="$ROOT_DIR/scripts/stage-python-runtime.sh"
+  out_dir="$ROOT_DIR/target/release/python"
+  [[ -f "$stage_script" ]] || return 0
+  bash "$stage_script" "$out_dir"
+}
+
 detect_platform_suffix() {
   local os arch
   os="$(uname -s)"
@@ -634,7 +642,9 @@ detect_platform_suffix() {
 copy_binary_if_exists() {
   local bin="$1"
   local dest="$2"
-  if [[ -f "target/release/${bin}" ]]; then
+  if [[ -f "target/release/resources/${bin}" ]]; then
+    cp "target/release/resources/${bin}" "$dest/"
+  elif [[ -f "target/release/${bin}" ]]; then
     cp "target/release/${bin}" "$dest/"
   elif [[ -f "rusty-kaspa/target/release/${bin}" ]]; then
     cp "rusty-kaspa/target/release/${bin}" "$dest/"
@@ -695,8 +705,9 @@ package_and_verify() {
   fi
 
   local bin
+  mkdir -p "$root/resources"
   for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-    copy_binary_if_exists "$bin" "$root"
+    copy_binary_if_exists "$bin" "$root/resources"
   done
 
   if [[ -d target/release/kaspa-explorer-ng ]]; then
@@ -715,6 +726,12 @@ package_and_verify() {
     exit 1
   fi
   cp -r target/release/postgres "$root/postgres"
+
+  if [[ ! -d target/release/python ]]; then
+    echo "Missing staged Python runtime: target/release/python" >&2
+    exit 1
+  fi
+  cp -r target/release/python "$root/python"
 
   if [[ -d target/release/K/dist ]]; then
     mkdir -p "$root/K"
@@ -740,10 +757,11 @@ package_and_verify() {
     cp -r kasvault/build "$root/KasVault/"
   fi
 
-  for bin in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-    [[ -f "$root/$bin" ]] || { echo "Missing packaged binary: $bin" >&2; exit 1; }
+  [[ -f "$root/kaspa-ng" ]] || { echo "Missing packaged binary: kaspa-ng" >&2; exit 1; }
+  for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+    [[ -f "$root/resources/$bin" ]] || { echo "Missing packaged binary: resources/$bin" >&2; exit 1; }
   done
-  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader K Kasia KasVault postgres; do
+  for dir in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader K Kasia KasVault postgres python; do
     [[ -d "$root/$dir" ]] || { echo "Missing packaged directory: $dir" >&2; exit 1; }
   done
   bash "$ROOT_DIR/scripts/verify-self-hosted-python-runtime.sh" "$root"
@@ -793,6 +811,8 @@ if [[ "$SKIP_CARGO" != "1" ]]; then
   build_release 2>&1 | tee "$LOG_DIR/cargo-build-release.log"
   echo "==> [3b/5] Stage internal PostgreSQL runtime"
   stage_postgres_runtime 2>&1 | tee "$LOG_DIR/postgres-runtime-stage.log"
+  echo "==> [3c/5] Stage internal Python runtime"
+  stage_python_runtime 2>&1 | tee "$LOG_DIR/python-runtime-stage.log"
 else
   echo "==> [3/5] Skipped cargo build"
 fi

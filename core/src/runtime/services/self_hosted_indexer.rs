@@ -404,6 +404,8 @@ impl SelfHostedIndexerService {
         };
         let rel_candidates = [
             bin.to_string(),
+            format!("resources/{bin}"),
+            format!("target/release/resources/{bin}"),
             format!("target/release/{bin}"),
             format!("target/debug/{bin}"),
             format!("simply-kaspa-indexer/target/release/{bin}"),
@@ -422,6 +424,14 @@ impl SelfHostedIndexerService {
                 for candidate in &rel_candidates {
                     let path = dir.join(candidate);
                     if let Some(path) = pick(path) {
+                        return Some(path);
+                    }
+                }
+
+                #[cfg(target_os = "macos")]
+                if let Some(contents) = dir.parent() {
+                    let resources_dir = contents.join("Resources").join("resources");
+                    if let Some(path) = pick(resources_dir.join(bin)) {
                         return Some(path);
                     }
                 }

@@ -6,6 +6,7 @@ PROFILE="${1:-release}"
 APP_NAME="Kaspa-NG"
 MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"
 POSTGRES_STAGE_SCRIPT="${ROOT}/scripts/stage-postgres-runtime.sh"
+PYTHON_STAGE_SCRIPT="${ROOT}/scripts/stage-python-runtime.sh"
 SYNC_EXTERNAL="${KASPA_NG_SKIP_EXTERNAL_SYNC:-0}"
 
 BIN="${ROOT}/target/${PROFILE}/kaspa-ng"
@@ -192,6 +193,17 @@ if [ ! -d "${ROOT}/target/${PROFILE}/postgres" ]; then
 fi
 mkdir -p "${RES_DIR}/postgres"
 cp -R "${ROOT}/target/${PROFILE}/postgres"/. "${RES_DIR}/postgres/"
+
+# Bundle internal Python runtime used by self-hosted services.
+if [ -f "$PYTHON_STAGE_SCRIPT" ]; then
+  bash "$PYTHON_STAGE_SCRIPT" "${ROOT}/target/${PROFILE}/python"
+fi
+if [ ! -d "${ROOT}/target/${PROFILE}/python" ]; then
+  echo "Missing staged Python runtime: ${ROOT}/target/${PROFILE}/python" >&2
+  exit 1
+fi
+mkdir -p "${RES_DIR}/python"
+cp -R "${ROOT}/target/${PROFILE}/python"/. "${RES_DIR}/python/"
 
 ICON_SRC="${ROOT}/core/resources/icons/icon-1024.png"
 ICONSET="${RES_DIR}/${APP_NAME}.iconset"

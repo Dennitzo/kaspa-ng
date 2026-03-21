@@ -36,6 +36,12 @@ jobs:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
 
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
+
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
         run: bash ./scripts/fetch-postgres-runtime.sh
@@ -44,6 +50,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync external repositories
         shell: bash
@@ -224,6 +239,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           OUT="kaspa-ng-${{ runner.os }}-${RUNNER_ARCH}-${RELEASE_TAG}.tar.gz"
           rm -rf dist
           mkdir -p dist
@@ -242,6 +258,12 @@ jobs:
                 cp "K-indexer/target/release/${bin}" dist/
               elif [ -f "kasia-indexer/target/release/indexer" ] && [ "${bin}" = "kasia-indexer" ]; then
                 cp "kasia-indexer/target/release/indexer" "dist/${bin}"
+              fi
+            done
+            mkdir -p dist/resources
+            for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+              if [ -f "dist/${bin}" ]; then
+                mv "dist/${bin}" "dist/resources/${bin}"
               fi
             done
             if [ -d target/release/kaspa-explorer-ng ]; then
@@ -295,6 +317,12 @@ jobs:
                 cp "kasia-indexer/target/release/indexer" "dist/${bin}"
               fi
             done
+            mkdir -p dist/resources
+            for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+              if [ -f "dist/${bin}" ]; then
+                mv "dist/${bin}" "dist/resources/${bin}"
+              fi
+            done
             if [ -d target/release/kaspa-explorer-ng ]; then
               cp -r target/release/kaspa-explorer-ng dist/
             elif [ -d kaspa-explorer-ng/build ]; then
@@ -339,14 +367,23 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres dist/postgres
-          required_files=(kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
-          for f in "${required_files[@]}"; do
-            if [ ! -f "dist/${f}" ]; then
-              echo "Missing packaged binary: ${f}"
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python dist/python
+          if [ ! -f "dist/kaspa-ng" ]; then
+            echo "Missing packaged binary: kaspa-ng"
+            exit 1
+          fi
+          required_sidecar_files=(stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
+          for f in "${required_sidecar_files[@]}"; do
+            if [ ! -f "dist/resources/${f}" ]; then
+              echo "Missing packaged binary: resources/${f}"
               exit 1
             fi
           done
-          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader)
+          required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python)
           for d in "${required_dirs[@]}"; do
             if [ ! -d "dist/${d}" ]; then
               echo "Missing packaged directory: ${d}"
@@ -373,6 +410,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target\release\postgres"
+          ./scripts/stage-python-runtime.ps1 -RepoRoot "$PWD" -OutDir "target\release\python"
           $out = "kaspa-ng-Windows-$env:RELEASE_TAG.zip"
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path dist | Out-Null
@@ -419,6 +457,12 @@ jobs:
               Copy-Item "kasia-indexer\\target\\release\\indexer.exe" "dist\\kasia-indexer.exe"
             }
           }
+          New-Item -ItemType Directory -Force -Path dist\resources | Out-Null
+          foreach ($bin in $bins) {
+            if (Test-Path "dist\\$bin") {
+              Move-Item -Force "dist\\$bin" "dist\\resources\\$bin"
+            }
+          }
           if (Test-Path kaspa-explorer-ng\build) {
             New-Item -ItemType Directory -Path dist\kaspa-explorer-ng | Out-Null
             Copy-Item -Recurse -Force kaspa-explorer-ng\build dist\kaspa-explorer-ng\
@@ -457,20 +501,26 @@ jobs:
             throw "Missing staged PostgreSQL runtime: target\\release\\postgres"
           }
           Copy-Item -Recurse -Force target\release\postgres dist\postgres
-          $requiredFiles = @(
-            "kaspa-ng.exe",
+          if (-not (Test-Path target\release\python)) {
+            throw "Missing staged Python runtime: target\\release\\python"
+          }
+          Copy-Item -Recurse -Force target\release\python dist\python
+          if (-not (Test-Path "dist\\kaspa-ng.exe")) {
+            throw "Missing packaged binary: kaspa-ng.exe"
+          }
+          $requiredSidecarFiles = @(
             "stratum-bridge.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",
             "kasia-indexer.exe"
           )
-          foreach ($f in $requiredFiles) {
-            if (-not (Test-Path "dist\\$f")) {
-              throw "Missing packaged binary: $f"
+          foreach ($f in $requiredSidecarFiles) {
+            if (-not (Test-Path "dist\\resources\\$f")) {
+              throw "Missing packaged binary: resources\\$f"
             }
           }
-          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader")
+          $requiredDirs = @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader", "python")
           foreach ($d in $requiredDirs) {
             if (-not (Test-Path "dist\\$d")) {
               throw "Missing packaged directory: $d"

@@ -207,6 +207,8 @@ impl SelfHostedKasiaIndexerService {
             }
         };
         let rel_candidates = [
+            format!("resources/{app_bin}"),
+            format!("target/release/resources/{app_bin}"),
             format!("target/release/{app_bin}"),
             format!("kasia-indexer/target/release/{raw_bin}"),
             format!("target/release/{raw_bin}"),
@@ -224,6 +226,11 @@ impl SelfHostedKasiaIndexerService {
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent()
         {
+            let path = dir.join("resources").join(app_bin);
+            if let Some(path) = pick(path) {
+                return Some(path);
+            }
+
             let path = dir.join(app_bin);
             if let Some(path) = pick(path) {
                 return Some(path);
@@ -249,6 +256,10 @@ impl SelfHostedKasiaIndexerService {
             }
             if is_macos_bundle && let Some(contents) = dir.parent() {
                 let resources = contents.join("Resources");
+                let path = resources.join("resources").join(app_bin);
+                if let Some(path) = pick(path) {
+                    return Some(path);
+                }
                 let path = resources.join("kasia-indexer").join(app_bin);
                 if let Some(path) = pick(path) {
                     return Some(path);
@@ -478,11 +489,9 @@ impl SelfHostedKasiaIndexerService {
         let has_syncer_stopped = recent
             .iter()
             .any(|line| line.message.contains("stopped but we are still syncing"));
-        let has_retention_root_mismatch = recent.iter().any(|line| {
-            line.message
-                .to_ascii_lowercase()
-                .contains("retention root")
-        });
+        let has_retention_root_mismatch = recent
+            .iter()
+            .any(|line| line.message.to_ascii_lowercase().contains("retention root"));
         let retry_count = recent
             .iter()
             .filter(|line| line.message.contains("retrying kasia-indexer startup"))

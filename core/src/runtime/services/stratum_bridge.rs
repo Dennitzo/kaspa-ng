@@ -572,15 +572,37 @@ cfg_if! {
 
                 if let Ok(exe) = std::env::current_exe() {
                     if let Some(dir) = exe.parent() {
+                        let candidate = dir.join("resources").join(bin_name);
+                        if candidate.exists() {
+                            return Some(candidate);
+                        }
                         let candidate = dir.join(bin_name);
                         if candidate.exists() {
                             return Some(candidate);
+                        }
+
+                        #[cfg(target_os = "macos")]
+                        if let Some(contents) = dir.parent() {
+                            let candidate =
+                                contents.join("Resources").join("resources").join(bin_name);
+                            if candidate.exists() {
+                                return Some(candidate);
+                            }
                         }
                     }
                 }
 
                 if !Self::running_from_macos_bundle() && let Ok(cwd) = std::env::current_dir() {
+                    let candidate = cwd.join("resources").join(bin_name);
+                    if candidate.exists() {
+                        return Some(candidate);
+                    }
                     for profile in ["debug", "release"] {
+                        let candidate =
+                            cwd.join("target").join(profile).join("resources").join(bin_name);
+                        if candidate.exists() {
+                            return Some(candidate);
+                        }
                         let candidate = cwd.join("target").join(profile).join(bin_name);
                         if candidate.exists() {
                             return Some(candidate);

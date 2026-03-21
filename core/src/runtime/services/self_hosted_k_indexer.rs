@@ -239,13 +239,23 @@ impl SelfHostedKIndexerService {
 
         if !is_macos_bundle {
             push_candidate(PathBuf::from(format!("K-indexer/target/release/{bin}")));
+            push_candidate(PathBuf::from(format!("target/release/resources/{bin}")));
             push_candidate(PathBuf::from(format!("target/release/{bin}")));
+            push_candidate(PathBuf::from(format!("resources/{bin}")));
             push_candidate(PathBuf::from(&bin));
         }
 
         if let Ok(cwd) = std::env::current_dir() {
             for ancestor in cwd.ancestors().take(8) {
+                push_candidate(ancestor.join("resources").join(&bin));
                 push_candidate(ancestor.join(&bin));
+                push_candidate(
+                    ancestor
+                        .join("target")
+                        .join("release")
+                        .join("resources")
+                        .join(&bin),
+                );
                 push_candidate(ancestor.join("target").join("release").join(&bin));
                 push_candidate(
                     ancestor
@@ -261,7 +271,15 @@ impl SelfHostedKIndexerService {
             && let Some(dir) = exe.parent()
         {
             for ancestor in dir.ancestors().take(8) {
+                push_candidate(ancestor.join("resources").join(&bin));
                 push_candidate(ancestor.join(&bin));
+                push_candidate(
+                    ancestor
+                        .join("target")
+                        .join("release")
+                        .join("resources")
+                        .join(&bin),
+                );
                 push_candidate(ancestor.join("target").join("release").join(&bin));
                 push_candidate(
                     ancestor
@@ -273,6 +291,7 @@ impl SelfHostedKIndexerService {
             }
             if is_macos_bundle && let Some(contents) = dir.parent() {
                 let resources = contents.join("Resources");
+                push_candidate(resources.join("resources").join(&bin));
                 push_candidate(resources.join("K-indexer").join(&bin));
                 push_candidate(
                     resources

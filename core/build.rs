@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
     ensure_rusty_kaspa_workflow_perf_monitor_patch()?;
     export_rusty_kaspa_workspace_version()?;
+    ensure_python_runtime_ready()?;
     prepare_self_hosted_python_if_needed()?;
     ensure_postgres_runtime_ready()?;
 
@@ -539,6 +540,115 @@ fn ensure_postgres_runtime_ready() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn ensure_python_runtime_ready() -> Result<(), Box<dyn Error>> {
+    if is_truthy_env("KASPA_NG_SKIP_PYTHON_RUNTIME_SETUP") {
+        println!(
+            "cargo:warning=Skipping python runtime staging (KASPA_NG_SKIP_PYTHON_RUNTIME_SETUP=1)"
+        );
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+    let repo_root = manifest_dir
+        .parent()
+        .ok_or("failed to resolve repo root for python runtime staging")?
+        .to_path_buf();
+    let target_root = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join("target"));
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    let out_dir = target_root.join(profile).join("python");
+
+    let staged_python = if cfg!(windows) {
+        out_dir.join("python.exe")
+    } else {
+        out_dir.join("bin").join("python3")
+    };
+
+    if command_path_succeeds(&staged_python, &["--version"]) {
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        let script = repo_root.join("scripts").join("stage-python-runtime.ps1");
+        let fetch_script = repo_root.join("scripts").join("fetch-python-runtime.ps1");
+        println!("cargo:rerun-if-changed={}", script.display());
+        println!("cargo:rerun-if-changed={}", fetch_script.display());
+        println!(
+            "cargo:warning=Staging Python runtime to {}",
+            out_dir.display()
+        );
+
+        let out_dir_arg = out_dir.to_string_lossy().to_string();
+        let repo_root_arg = repo_root.to_string_lossy().to_string();
+        let script_arg = script.to_string_lossy().to_string();
+
+        let mut success = false;
+        for shell in ["pwsh", "powershell"] {
+            let status = Command::new(shell)
+                .args([
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    script_arg.as_str(),
+                    "-RepoRoot",
+                    repo_root_arg.as_str(),
+                    "-OutDir",
+                    out_dir_arg.as_str(),
+                ])
+                .status();
+            if matches!(status, Ok(s) if s.success()) {
+                success = true;
+                break;
+            }
+        }
+
+        if !success {
+            return Err(format!(
+                "failed to stage Python runtime via scripts/stage-python-runtime.ps1 (target: {})",
+                out_dir.display()
+            )
+            .into());
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let script = repo_root.join("scripts").join("stage-python-runtime.sh");
+        let fetch_script = repo_root.join("scripts").join("fetch-python-runtime.sh");
+        println!("cargo:rerun-if-changed={}", script.display());
+        println!("cargo:rerun-if-changed={}", fetch_script.display());
+        println!(
+            "cargo:warning=Staging Python runtime to {}",
+            out_dir.display()
+        );
+
+        let status = Command::new("bash")
+            .arg(script)
+            .arg(out_dir.as_os_str())
+            .status();
+        if !matches!(status, Ok(s) if s.success()) {
+            return Err(format!(
+                "failed to stage Python runtime via scripts/stage-python-runtime.sh (target: {})",
+                out_dir.display()
+            )
+            .into());
+        }
+    }
+
+    if !command_path_succeeds(&staged_python, &["--version"]) {
+        return Err(format!(
+            "staged Python runtime is not usable at {}",
+            staged_python.display()
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
 fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
     if std::env::var("KASPA_NG_SKIP_PYTHON_SETUP")
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
@@ -553,11 +663,11 @@ fn prepare_self_hosted_python_if_needed() -> Result<(), Box<dyn Error>> {
         .ok_or("failed to resolve repo root")?
         .to_path_buf();
 
-    let launcher = match find_python_launcher() {
+    let launcher = match find_python_launcher(&repo_root) {
         Some(launcher) => launcher,
         None => {
             println!(
-                "cargo:warning=Python launcher not found during build; skipping self-hosted python setup"
+                "cargo:warning=Bundled python launcher not found during build; skipping self-hosted python setup"
             );
             return Ok(());
         }
@@ -677,53 +787,132 @@ fn discover_python3_minor_launchers() -> Vec<String> {
     }
 }
 
-fn find_python_launcher() -> Option<String> {
-    let mut candidates: Vec<String> = Vec::new();
+fn bundled_python_runtime_roots(repo_root: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
 
-    if let Ok(python_env) = std::env::var("PYTHON") {
-        let trimmed = python_env.trim();
+    if let Ok(root) = std::env::var("KASPA_NG_PYTHON_RUNTIME_ROOT") {
+        let trimmed = root.trim();
+        if !trimmed.is_empty() {
+            roots.push(PathBuf::from(trimmed));
+        }
+    }
+
+    roots.push(repo_root.join("python"));
+
+    if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+        let target = PathBuf::from(target_dir);
+        let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+        roots.push(target.join(&profile).join("python"));
+    } else {
+        roots.push(
+            repo_root
+                .join("target")
+                .join(std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string()))
+                .join("python"),
+        );
+    }
+
+    let mut deduped = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for root in roots {
+        let key = root.canonicalize().unwrap_or_else(|_| root.clone());
+        if seen.insert(key) {
+            deduped.push(root);
+        }
+    }
+    deduped
+}
+
+fn bundled_python_executable_candidates(repo_root: &Path) -> Vec<String> {
+    let mut candidates = Vec::new();
+
+    if let Ok(python_bin) = std::env::var("KASPA_NG_PYTHON_BIN") {
+        let trimmed = python_bin.trim();
         if !trimmed.is_empty() {
             candidates.push(trimmed.to_string());
         }
     }
 
-    #[cfg(windows)]
-    {
-        candidates.extend(
-            [
-                "py -3",
-                "python",
-                "python3",
-                "py -3.14",
-                "py -3.13",
-                "py -3.12",
-                "py -3.11",
-                "py -3.10",
-                "python3.14",
-                "python3.13",
-                "python3.12",
-                "python3.11",
-                "python3.10",
-            ]
-            .into_iter()
-            .map(str::to_string),
-        );
+    for root in bundled_python_runtime_roots(repo_root) {
+        #[cfg(windows)]
+        {
+            candidates.extend(
+                [
+                    root.join("python.exe"),
+                    root.join("bin").join("python.exe"),
+                    root.join("Scripts").join("python.exe"),
+                ]
+                .into_iter()
+                .map(|p| p.to_string_lossy().to_string()),
+            );
+        }
+        #[cfg(not(windows))]
+        {
+            candidates.extend(
+                [
+                    root.join("bin").join("python3"),
+                    root.join("bin").join("python"),
+                ]
+                .into_iter()
+                .map(|p| p.to_string_lossy().to_string()),
+            );
+        }
     }
 
-    #[cfg(not(windows))]
-    {
-        candidates.extend(
-            ["python3.13", "python3.12", "python3.11", "python3.10"]
+    candidates
+}
+
+fn find_python_launcher(repo_root: &Path) -> Option<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    candidates.extend(bundled_python_executable_candidates(repo_root));
+
+    let allow_system_python = is_truthy_env("KASPA_NG_ALLOW_SYSTEM_PYTHON");
+    if allow_system_python {
+        if let Ok(python_env) = std::env::var("PYTHON") {
+            let trimmed = python_env.trim();
+            if !trimmed.is_empty() {
+                candidates.push(trimmed.to_string());
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            candidates.extend(
+                [
+                    "py -3",
+                    "python",
+                    "python3",
+                    "py -3.14",
+                    "py -3.13",
+                    "py -3.12",
+                    "py -3.11",
+                    "py -3.10",
+                    "python3.14",
+                    "python3.13",
+                    "python3.12",
+                    "python3.11",
+                    "python3.10",
+                ]
                 .into_iter()
                 .map(str::to_string),
-        );
-        candidates.push("python3".to_string());
-        candidates.push("python".to_string());
-        candidates.extend(
-            discover_python3_minor_launchers()
-                .into_iter()
-                .filter(|cmd| !cmd.ends_with(".14")),
-        );
+            );
+        }
+
+        #[cfg(not(windows))]
+        {
+            candidates.extend(
+                ["python3.13", "python3.12", "python3.11", "python3.10"]
+                    .into_iter()
+                    .map(str::to_string),
+            );
+            candidates.push("python3".to_string());
+            candidates.push("python".to_string());
+            candidates.extend(
+                discover_python3_minor_launchers()
+                    .into_iter()
+                    .filter(|cmd| !cmd.ends_with(".14")),
+            );
+        }
     }
 
     for candidate in candidates {
@@ -3168,7 +3357,7 @@ fn sync_stratum_bridge_binary(bin_path: &Path, repo_root: &Path) -> Result<(), B
         return Ok(());
     }
 
-    let target_dir = target_profile_dir(repo_root);
+    let target_dir = service_binaries_dir(repo_root);
     std::fs::create_dir_all(&target_dir)?;
     let dest_path = target_dir.join(
         bin_path
@@ -3194,7 +3383,7 @@ fn sync_simply_kaspa_indexer_binary(
         return Ok(());
     }
 
-    let target_dir = target_profile_dir(repo_root);
+    let target_dir = service_binaries_dir(repo_root);
     std::fs::create_dir_all(&target_dir)?;
     let dest_path = target_dir.join(
         bin_path
@@ -3221,7 +3410,7 @@ fn sync_k_indexer_binaries(
         return Ok(());
     }
 
-    let target_dir = target_profile_dir(repo_root);
+    let target_dir = service_binaries_dir(repo_root);
     std::fs::create_dir_all(&target_dir)?;
 
     for bin_path in [web_bin, processor_bin] {
@@ -3249,7 +3438,7 @@ fn sync_kasia_indexer_binary(bin_path: &Path, repo_root: &Path) -> Result<(), Bo
         return Ok(());
     }
 
-    let target_dir = target_profile_dir(repo_root);
+    let target_dir = service_binaries_dir(repo_root);
     std::fs::create_dir_all(&target_dir)?;
 
     let dest_filename = if cfg!(windows) {
@@ -3306,6 +3495,10 @@ fn target_profile_dir(repo_root: &Path) -> PathBuf {
         target_dir = target_dir.join(build_target);
     }
     target_dir.join(profile)
+}
+
+fn service_binaries_dir(repo_root: &Path) -> PathBuf {
+    target_profile_dir(repo_root).join("resources")
 }
 
 fn copy_file_with_windows_lock_tolerance(src: &Path, dst: &Path) -> Result<(), Box<dyn Error>> {

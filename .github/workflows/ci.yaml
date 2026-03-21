@@ -40,6 +40,11 @@ jobs:
         with:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
 
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
@@ -49,6 +54,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync Rust workspace repositories
         shell: bash
@@ -159,6 +171,11 @@ jobs:
         with:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
 
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
@@ -168,6 +185,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync Rust workspace repositories
         shell: bash
@@ -296,6 +320,11 @@ jobs:
         with:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
 
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
@@ -305,6 +334,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync Rust workspace repositories
         shell: bash
@@ -585,6 +621,11 @@ jobs:
         with:
           path: postgres
           key: postgres15-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-postgres-runtime.ps1', 'scripts/fetch-postgres-runtime.sh') }}
+      - name: Cache bundled Python runtime
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: python-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-python-runtime.ps1', 'scripts/fetch-python-runtime.sh') }}
 
       - name: Setup bundled PostgreSQL runtime (Unix)
         if: runner.os != 'Windows'
@@ -594,6 +635,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-postgres-runtime.ps1 -RepoRoot "$PWD"
+      - name: Setup bundled Python runtime (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/fetch-python-runtime.sh
+      - name: Setup bundled Python runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
 
       - name: Sync external repositories
         shell: bash
@@ -816,6 +864,7 @@ jobs:
         run: |
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-windows-x64 || true
           pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-postgres-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/postgres"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-python-runtime.ps1 -RepoRoot "$PWD" -OutDir "target/release/python"
           set -o pipefail
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-windows.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
@@ -881,6 +930,12 @@ jobs:
               cp "kasia-indexer/target/release/indexer.exe" kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${bin}
             fi
           done
+          mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/resources
+          for bin in stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            if [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${bin}" ]; then
+              mv "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${bin}" "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/resources/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           elif [ -d kaspa-explorer-ng/build ]; then
@@ -901,6 +956,11 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K
             cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/K/
@@ -922,10 +982,11 @@ jobs:
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault
             cp -r kasvault/build kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/KasVault/
           fi
-          for f in kaspa-ng.exe stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
-            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/kaspa-ng.exe" ] || { echo "Missing packaged binary: kaspa-ng.exe"; exit 1; }
+          for f in stratum-bridge.exe simply-kaspa-indexer.exe K-webserver.exe K-transaction-processor.exe kasia-indexer.exe; do
+            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/verify-self-hosted-python-runtime.ps1 -ArtifactRoot "kaspa-ng-${{ env.SHORT_SHA }}-windows-x64"
@@ -950,6 +1011,7 @@ jobs:
         run: |
           set -o pipefail
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-arm64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -1006,6 +1068,12 @@ jobs:
               cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
             fi
           done
+          mkdir -p "$ROOT/resources"
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "$ROOT/${bin}" ]; then
+              mv "$ROOT/${bin}" "$ROOT/resources/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
@@ -1026,6 +1094,11 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres "$ROOT/"
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python "$ROOT/"
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -1047,10 +1120,11 @@ jobs:
             mkdir -p "$ROOT/KasVault"
             cp -r kasvault/build "$ROOT/KasVault/"
           fi
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          [ -f "$ROOT/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
@@ -1075,6 +1149,7 @@ jobs:
           source $HOME/.cargo/env
           set -o pipefail
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           env -u CC -u CXX -u AR -u RANLIB -u SDKROOT -u NPM KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-macos-x64.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -1131,6 +1206,12 @@ jobs:
               cp "kasia-indexer/target/release/indexer" "$ROOT/${bin}"
             fi
           done
+          mkdir -p "$ROOT/resources"
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "$ROOT/${bin}" ]; then
+              mv "$ROOT/${bin}" "$ROOT/resources/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng "$ROOT/"
           elif [ -d kaspa-explorer-ng/build ]; then
@@ -1151,6 +1232,11 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres "$ROOT/"
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python "$ROOT/"
           if [ -d target/release/K/dist ]; then
             mkdir -p "$ROOT/K"
             cp -r target/release/K/dist "$ROOT/K/"
@@ -1172,10 +1258,11 @@ jobs:
             mkdir -p "$ROOT/KasVault"
             cp -r kasvault/build "$ROOT/KasVault/"
           fi
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "$ROOT/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          [ -f "$ROOT/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "$ROOT/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "$ROOT/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-self-hosted-python-runtime.sh "$ROOT"
@@ -1206,6 +1293,7 @@ jobs:
           mkdir kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64 || true
           set -o pipefail
           bash ./scripts/stage-postgres-runtime.sh target/release/postgres
+          bash ./scripts/stage-python-runtime.sh target/release/python
           KASIA_WASM_AUTO_FETCH=0 cargo build --release 2>&1 | tee "${{ env.CI_LOG_DIR }}/cargo-build-linux.log"
           if [ ! -d target/release/K/dist ] && [ ! -d K/dist ] && [ -d K ]; then
             echo "K dist missing after cargo build; running fallback build"
@@ -1258,6 +1346,12 @@ jobs:
               cp "kasia-indexer/target/release/indexer" kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${bin}
             fi
           done
+          mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/resources
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${bin}" ]; then
+              mv "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${bin}" "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/resources/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             cp -r target/release/kaspa-explorer-ng kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           elif [ -d kaspa-explorer-ng/build ]; then
@@ -1278,6 +1372,11 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/
           if [ -d target/release/K/dist ]; then
             mkdir -p kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K
             cp -r target/release/K/dist kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/K/
@@ -1316,6 +1415,12 @@ jobs:
               cp "kasia-indexer/target/release/indexer" .debpkg/usr/bin/${bin}
             fi
           done
+          mkdir -p .debpkg/usr/bin/resources
+          for bin in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            if [ -f ".debpkg/usr/bin/${bin}" ]; then
+              mv ".debpkg/usr/bin/${bin}" ".debpkg/usr/bin/resources/${bin}"
+            fi
+          done
           if [ -d target/release/kaspa-explorer-ng ]; then
             mkdir -p .debpkg/usr/bin/kaspa-explorer-ng
             cp -r target/release/kaspa-explorer-ng/* .debpkg/usr/bin/kaspa-explorer-ng/
@@ -1337,6 +1442,11 @@ jobs:
             exit 1
           fi
           cp -r target/release/postgres .debpkg/usr/bin/
+          if [ ! -d target/release/python ]; then
+            echo "Missing staged Python runtime: target/release/python"
+            exit 1
+          fi
+          cp -r target/release/python .debpkg/usr/bin/
           if [ -d target/release/K/dist ]; then
             mkdir -p .debpkg/usr/bin/K
             cp -r target/release/K/dist .debpkg/usr/bin/K/
@@ -1358,10 +1468,11 @@ jobs:
             mkdir -p .debpkg/usr/bin/KasVault
             cp -r kasvault/build .debpkg/usr/bin/KasVault/
           fi
-          for f in kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
-            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${f}" ] || { echo "Missing packaged binary: ${f}"; exit 1; }
+          [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/kaspa-ng" ] || { echo "Missing packaged binary: kaspa-ng"; exit 1; }
+          for f in stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer; do
+            [ -f "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/resources/${f}" ] || { echo "Missing packaged binary: resources/${f}"; exit 1; }
           done
-          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader; do
+          for d in kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python; do
             [ -d "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64/${d}" ] || { echo "Missing packaged directory: ${d}"; exit 1; }
           done
           bash ./scripts/verify-linux-artifact.sh "kaspa-ng-${{ env.SHORT_SHA }}-linux-gnu-amd64"
@@ -1396,7 +1507,7 @@ jobs:
           maintainer: ASPECTRON
           version: "refs/tags/v0.0.1" # refs/tags/v*.*.*
           arch: 'amd64'
-          depends: 'libglib2.0-0, libatk1.0-0, libgtk-4-1, libwebkit2gtk-4.1-0, libjavascriptcoregtk-4.1-0, libsoup-3.0-0, python3, python3-venv, python3-pip'
+          depends: 'libglib2.0-0, libatk1.0-0, libgtk-4-1, libwebkit2gtk-4.1-0, libjavascriptcoregtk-4.1-0, libsoup-3.0-0'
           desc: 'Kaspa NG desktop p2p node and wallet'
       - name: Install and Test Debian Package
         if: runner.os == 'Linux'
@@ -1406,10 +1517,7 @@ jobs:
             libgtk-4-1 \
             libwebkit2gtk-4.1-0 \
             libjavascriptcoregtk-4.1-0 \
-            libsoup-3.0-0 \
-            python3 \
-            python3-venv \
-            python3-pip
+            libsoup-3.0-0
           sudo dpkg -i "${{ steps.package_debian.outputs.file_name }}"
           kaspa-ng --version || echo "Failed to execute kaspa-ng --version"
           echo "Package test completed" >> "${{ env.CI_LOG_DIR }}/debian-test.log"

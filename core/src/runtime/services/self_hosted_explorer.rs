@@ -3,8 +3,8 @@ use crate::runtime::services::{LogStore, LogStores};
 use std::net::TcpListener;
 use std::process::Stdio;
 use std::time::{Duration as StdDuration, Instant};
-use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, timeout};
 
@@ -438,106 +438,190 @@ impl SelfHostedExplorerService {
         version.0 == 3 && Self::python_minor_preference(version.1) > 0
     }
 
+    fn allow_system_python_fallback() -> bool {
+        std::env::var("KASPA_NG_ALLOW_SYSTEM_PYTHON")
+            .map(|value| {
+                value == "1"
+                    || value.eq_ignore_ascii_case("true")
+                    || value.eq_ignore_ascii_case("yes")
+            })
+            .unwrap_or(false)
+    }
+
+    fn local_python_runtime_roots() -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+
+        if let Ok(root) = std::env::var("KASPA_NG_PYTHON_RUNTIME_ROOT") {
+            let trimmed = root.trim();
+            if !trimmed.is_empty() {
+                roots.push(PathBuf::from(trimmed));
+            }
+        }
+
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            roots.push(dir.join("python"));
+            roots.push(dir.join("Resources").join("python"));
+            if let Some(contents) = dir.parent() {
+                roots.push(contents.join("Resources").join("python"));
+            }
+            for ancestor in dir.ancestors().skip(1).take(4) {
+                roots.push(ancestor.join("python"));
+                roots.push(ancestor.join("Resources").join("python"));
+            }
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd.join("python"));
+            for ancestor in cwd.ancestors().skip(1).take(4) {
+                roots.push(ancestor.join("python"));
+            }
+        }
+
+        let mut deduped = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for root in roots {
+            let key = root.canonicalize().unwrap_or_else(|_| root.clone());
+            if seen.insert(key) {
+                deduped.push(root);
+            }
+        }
+
+        deduped
+    }
+
+    fn local_python_binary_candidates() -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+
+        if let Ok(bin) = std::env::var("KASPA_NG_PYTHON_BIN") {
+            let trimmed = bin.trim();
+            if !trimmed.is_empty() {
+                candidates.push(PathBuf::from(trimmed));
+            }
+        }
+
+        for root in Self::local_python_runtime_roots() {
+            #[cfg(target_os = "windows")]
+            {
+                candidates.extend([
+                    root.join("python.exe"),
+                    root.join("bin").join("python.exe"),
+                    root.join("Scripts").join("python.exe"),
+                ]);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                candidates.extend([root.join("bin/python3"), root.join("bin/python")]);
+            }
+        }
+
+        candidates
+    }
+
     fn ranked_python_candidates(min_minor: u32) -> Vec<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
+        candidates.extend(Self::local_python_binary_candidates());
 
-        #[cfg(target_os = "macos")]
-        {
-            candidates.extend(
-                [
-                    "/opt/homebrew/bin/python3",
-                    "/usr/local/bin/python3",
-                    "/opt/homebrew/opt/python/bin/python3",
-                    "/usr/local/opt/python/bin/python3",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-
-            if let Some(home) = workflow_core::dirs::home_dir() {
-                candidates.push(home.join(".local/bin/python3"));
-            }
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            candidates.extend(
-                ["/usr/local/bin/python3", "/usr/bin/python3"]
+        if Self::allow_system_python_fallback() {
+            #[cfg(target_os = "macos")]
+            {
+                candidates.extend(
+                    [
+                        "/opt/homebrew/bin/python3",
+                        "/usr/local/bin/python3",
+                        "/opt/homebrew/opt/python/bin/python3",
+                        "/usr/local/opt/python/bin/python3",
+                    ]
                     .into_iter()
                     .map(PathBuf::from),
-            );
+                );
 
-            if let Some(home) = workflow_core::dirs::home_dir() {
-                candidates.push(home.join(".local/bin/python3"));
-            }
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-                let base = PathBuf::from(local_app_data)
-                    .join("Programs")
-                    .join("Python");
-                candidates.extend([
-                    base.join("Python314").join("python.exe"),
-                    base.join("Python313").join("python.exe"),
-                    base.join("Python312").join("python.exe"),
-                    base.join("Python311").join("python.exe"),
-                    base.join("Python310").join("python.exe"),
-                ]);
+                if let Some(home) = workflow_core::dirs::home_dir() {
+                    candidates.push(home.join(".local/bin/python3"));
+                }
             }
 
-            if let Some(program_files) = std::env::var_os("ProgramFiles") {
-                let base = PathBuf::from(program_files).join("Python");
-                candidates.extend([
-                    base.join("Python314").join("python.exe"),
-                    base.join("Python313").join("python.exe"),
-                    base.join("Python312").join("python.exe"),
-                    base.join("Python311").join("python.exe"),
-                    base.join("Python310").join("python.exe"),
-                ]);
+            #[cfg(target_os = "linux")]
+            {
+                candidates.extend(
+                    ["/usr/local/bin/python3", "/usr/bin/python3"]
+                        .into_iter()
+                        .map(PathBuf::from),
+                );
+
+                if let Some(home) = workflow_core::dirs::home_dir() {
+                    candidates.push(home.join(".local/bin/python3"));
+                }
             }
 
-            if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
-                let base = PathBuf::from(program_files_x86).join("Python");
-                candidates.extend([
-                    base.join("Python314").join("python.exe"),
-                    base.join("Python313").join("python.exe"),
-                    base.join("Python312").join("python.exe"),
-                    base.join("Python311").join("python.exe"),
-                    base.join("Python310").join("python.exe"),
-                ]);
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                    let base = PathBuf::from(local_app_data)
+                        .join("Programs")
+                        .join("Python");
+                    candidates.extend([
+                        base.join("Python314").join("python.exe"),
+                        base.join("Python313").join("python.exe"),
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]);
+                }
+
+                if let Some(program_files) = std::env::var_os("ProgramFiles") {
+                    let base = PathBuf::from(program_files).join("Python");
+                    candidates.extend([
+                        base.join("Python314").join("python.exe"),
+                        base.join("Python313").join("python.exe"),
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]);
+                }
+
+                if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+                    let base = PathBuf::from(program_files_x86).join("Python");
+                    candidates.extend([
+                        base.join("Python314").join("python.exe"),
+                        base.join("Python313").join("python.exe"),
+                        base.join("Python312").join("python.exe"),
+                        base.join("Python311").join("python.exe"),
+                        base.join("Python310").join("python.exe"),
+                    ]);
+                }
+
+                candidates.extend(
+                    [
+                        "C:\\Python314\\python.exe",
+                        "C:\\Python313\\python.exe",
+                        "C:\\Python312\\python.exe",
+                        "C:\\Python311\\python.exe",
+                        "C:\\Python310\\python.exe",
+                        "C:\\Windows\\py.exe",
+                    ]
+                    .into_iter()
+                    .map(PathBuf::from),
+                );
             }
 
-            candidates.extend(
-                [
-                    "C:\\Python314\\python.exe",
-                    "C:\\Python313\\python.exe",
-                    "C:\\Python312\\python.exe",
-                    "C:\\Python311\\python.exe",
-                    "C:\\Python310\\python.exe",
-                    "C:\\Windows\\py.exe",
-                ]
-                .into_iter()
-                .map(PathBuf::from),
-            );
-        }
-
-        if let Some(path_python3) = Self::find_in_path("python3") {
-            candidates.push(path_python3);
-        }
-        if let Some(path_python) = Self::find_in_path("python") {
-            candidates.push(path_python);
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some(path_py) = Self::find_in_path("py") {
-                candidates.push(path_py);
+            if let Some(path_python3) = Self::find_in_path("python3") {
+                candidates.push(path_python3);
             }
-        }
+            if let Some(path_python) = Self::find_in_path("python") {
+                candidates.push(path_python);
+            }
 
-        candidates.extend(Self::discover_python_binaries_in_path());
+            #[cfg(windows)]
+            {
+                if let Some(path_py) = Self::find_in_path("py") {
+                    candidates.push(path_py);
+                }
+            }
+
+            candidates.extend(Self::discover_python_binaries_in_path());
+        }
 
         let mut ranked: Vec<(u32, u32, PathBuf)> = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -1118,6 +1202,11 @@ impl SelfHostedExplorerService {
     }
 
     fn python_runtime_install_hint() -> Option<&'static str> {
+        if !Self::allow_system_python_fallback() {
+            return Some(
+                "bundled Python runtime missing; provide ./python runtime next to the app or set KASPA_NG_PYTHON_RUNTIME_ROOT",
+            );
+        }
         #[cfg(target_os = "linux")]
         {
             return Some(
@@ -1150,7 +1239,11 @@ impl SelfHostedExplorerService {
         TcpListener::bind(addr).is_ok()
     }
 
-    fn child_is_running(child: &mut Option<Child>, process_name: &str, logs: &Arc<LogStore>) -> bool {
+    fn child_is_running(
+        child: &mut Option<Child>,
+        process_name: &str,
+        logs: &Arc<LogStore>,
+    ) -> bool {
         let Some(proc) = child.as_mut() else {
             return false;
         };
@@ -1185,8 +1278,11 @@ impl SelfHostedExplorerService {
     async fn wait_for_tcp_healthy(host: &str, port: u16, deadline: StdDuration) -> bool {
         let started = Instant::now();
         while started.elapsed() < deadline {
-            let connect = timeout(StdDuration::from_millis(900), TcpStream::connect((host, port)))
-                .await;
+            let connect = timeout(
+                StdDuration::from_millis(900),
+                TcpStream::connect((host, port)),
+            )
+            .await;
             if let Ok(Ok(_)) = connect {
                 return true;
             }

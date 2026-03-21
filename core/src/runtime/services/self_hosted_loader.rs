@@ -712,10 +712,8 @@ impl SelfHostedLoaderService {
     }
 
     async fn restart_explorer_rest(&self) {
-        self.logs.push(
-            "WARN",
-            "REST health check failed; restarting REST service",
-        );
+        self.logs
+            .push("WARN", "REST health check failed; restarting REST service");
         self.explorer_service.restart_rest();
     }
 
@@ -957,7 +955,10 @@ impl SelfHostedLoaderService {
                     socket_ready: false,
                 },
             );
-            self.maybe_log_ping("ping: postgres=ok indexer=ok k-indexer=waiting rest=waiting socket=waiting".to_string());
+            self.maybe_log_ping(
+                "ping: postgres=ok indexer=ok k-indexer=waiting rest=waiting socket=waiting"
+                    .to_string(),
+            );
             return;
         }
 
@@ -991,7 +992,9 @@ impl SelfHostedLoaderService {
         *self.indexer_boot_started_at.lock().unwrap() = None;
         self.explorer_service.enable(true);
         if !indexers_ready {
-            self.maybe_log_ping("ping: optional indexers are down; keeping rest/socket online".to_string());
+            self.maybe_log_ping(
+                "ping: optional indexers are down; keeping rest/socket online".to_string(),
+            );
         }
         let explorer_boot_started_at = {
             let mut guard = self.explorer_boot_started_at.lock().unwrap();

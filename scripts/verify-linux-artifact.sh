@@ -3,11 +3,12 @@ set -Eeuo pipefail
 
 ROOT="${1:?Usage: $0 <artifact-root>}"
 
-required_bins=(kaspa-ng stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
-required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader)
+required_bins=(stratum-bridge simply-kaspa-indexer K-webserver K-transaction-processor kasia-indexer)
+required_dirs=(kaspa-explorer-ng kaspa-rest-server kaspa-socket-server Loader python)
 
+[ -x "$ROOT/kaspa-ng" ] || { echo "Missing packaged executable: kaspa-ng" >&2; exit 1; }
 for f in "${required_bins[@]}"; do
-  [ -x "$ROOT/$f" ] || { echo "Missing packaged executable: $f" >&2; exit 1; }
+  [ -x "$ROOT/resources/$f" ] || { echo "Missing packaged executable: resources/$f" >&2; exit 1; }
 done
 
 for d in "${required_dirs[@]}"; do
@@ -39,5 +40,10 @@ if ldd "$ROOT/postgres/bin/postgres" 2>/dev/null | grep -q "not found"; then
 fi
 
 bash "$(dirname "$0")/verify-self-hosted-python-runtime.sh" "$ROOT"
+
+if [ ! -x "$ROOT/python/bin/python3" ] && [ ! -x "$ROOT/python/bin/python" ]; then
+  echo "Missing bundled Python runtime binary: python/bin/python3" >&2
+  exit 1
+fi
 
 echo "Linux artifact verification passed: $ROOT"

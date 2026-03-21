@@ -563,6 +563,16 @@ function Stage-PostgresRuntime {
     Invoke-Native -File $psExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $stageScript, "-RepoRoot", $RootDir, "-OutDir", "target\release\postgres") | Out-Null
 }
 
+function Stage-PythonRuntime {
+    $stageScript = Join-Path $RootDir "scripts\stage-python-runtime.ps1"
+    if (-not (Test-Path -LiteralPath $stageScript)) {
+        return
+    }
+
+    $psExe = if (Get-Command "pwsh" -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell.exe" }
+    Invoke-Native -File $psExe -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $stageScript, "-RepoRoot", $RootDir, "-OutDir", "target\release\python") | Out-Null
+}
+
 function Copy-BinaryIfExists {
     param(
         [string]$Bin,
@@ -570,6 +580,7 @@ function Copy-BinaryIfExists {
     )
 
     $candidates = @(
+        (Join-Path $RootDir ("target\release\resources\{0}" -f $Bin)),
         (Join-Path $RootDir ("target\release\{0}" -f $Bin)),
         (Join-Path $RootDir ("rusty-kaspa\target\release\{0}" -f $Bin)),
         (Join-Path $RootDir ("simply-kaspa-indexer\target\release\{0}" -f $Bin)),
@@ -623,6 +634,9 @@ function Package-AndVerify {
     }
     Copy-Item -LiteralPath $mainExe -Destination (Join-Path $rootPath "kaspa-ng.exe") -Force
 
+    $resourcesDir = Join-Path $rootPath "resources"
+    New-Item -ItemType Directory -Force -Path $resourcesDir | Out-Null
+
     foreach ($bin in @(
             "stratum-bridge.exe",
             "simply-kaspa-indexer.exe",
@@ -630,7 +644,7 @@ function Package-AndVerify {
             "K-transaction-processor.exe",
             "kasia-indexer.exe"
         )) {
-        Copy-BinaryIfExists -Bin $bin -Destination $rootPath
+        Copy-BinaryIfExists -Bin $bin -Destination $resourcesDir
     }
 
     $explorerRelease = Join-Path $RootDir "target\release\kaspa-explorer-ng"
@@ -656,6 +670,12 @@ function Package-AndVerify {
         throw "Missing staged PostgreSQL runtime: target\release\postgres"
     }
     Copy-Item -LiteralPath $postgresRelease -Destination (Join-Path $rootPath "postgres") -Recurse -Force
+
+    $pythonRelease = Join-Path $RootDir "target\release\python"
+    if (-not (Test-Path -LiteralPath $pythonRelease)) {
+        throw "Missing staged Python runtime: target\release\python"
+    }
+    Copy-Item -LiteralPath $pythonRelease -Destination (Join-Path $rootPath "python") -Recurse -Force
 
     $kRelease = Join-Path $RootDir "target\release\K\dist"
     $kLocal = Join-Path $RootDir "K\dist"
@@ -696,20 +716,23 @@ function Package-AndVerify {
         Copy-Item -LiteralPath $kasVaultLocal -Destination (Join-Path $dst "build") -Recurse -Force
     }
 
+    if (-not (Test-Path -LiteralPath (Join-Path $rootPath "kaspa-ng.exe"))) {
+        throw "Missing packaged binary: kaspa-ng.exe"
+    }
+
     foreach ($file in @(
-            "kaspa-ng.exe",
             "stratum-bridge.exe",
             "simply-kaspa-indexer.exe",
             "K-webserver.exe",
             "K-transaction-processor.exe",
             "kasia-indexer.exe"
         )) {
-        if (-not (Test-Path -LiteralPath (Join-Path $rootPath $file))) {
-            throw "Missing packaged binary: $file"
+        if (-not (Test-Path -LiteralPath (Join-Path $resourcesDir $file))) {
+            throw "Missing packaged binary: resources/$file"
         }
     }
 
-    foreach ($dir in @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader", "K", "Kasia", "KasVault", "postgres")) {
+    foreach ($dir in @("kaspa-explorer-ng", "kaspa-rest-server", "kaspa-socket-server", "Loader", "K", "Kasia", "KasVault", "postgres", "python")) {
         if (-not (Test-Path -LiteralPath (Join-Path $rootPath $dir))) {
             throw "Missing packaged directory: $dir"
         }
@@ -785,6 +808,9 @@ try {
 
         Invoke-LoggedStage -Description "==> [3b/5] Stage internal PostgreSQL runtime" -LogFile (Join-Path $LogDir "postgres-runtime-stage.log") -Action {
             Stage-PostgresRuntime
+        }
+        Invoke-LoggedStage -Description "==> [3c/5] Stage internal Python runtime" -LogFile (Join-Path $LogDir "python-runtime-stage.log") -Action {
+            Stage-PythonRuntime
         }
     }
     else {

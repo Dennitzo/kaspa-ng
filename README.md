@@ -26,8 +26,31 @@ You can find more information about this project at [https://aspectron.org/en/pr
 ## Releases
 
 - You can obtain the latest binary redistributables from the [Releases](https://github.com/aspectron/kaspa-ng/releases) page.
-- Linux binaries require a local Python runtime for self-hosted explorer services (`python3`, `python3-venv`, `python3-pip` on Debian/Ubuntu).
+- Native binaries expect a bundled local Python runtime at `./python` for self-hosted explorer services.
+- Temporary fallback to system Python is possible with `KASPA_NG_ALLOW_SYSTEM_PYTHON=1`.
 - You can access the official Web App online at [https://kaspa-ng.org](https://kaspa-ng.org).
+
+### Bundled Python Runtime Compatibility Matrix
+
+| Platform | Supported target versions | Python runtime policy |
+| --- | --- | --- |
+| macOS | Monterey (12) to Tahoe (26) | Bundle Python 3.10-3.13 (recommended: 3.12) in `python/` |
+| Linux | Debian/Ubuntu family | Bundle Python 3.10-3.13 (recommended: 3.12) in `python/` |
+| Windows | Windows 10 and Windows 11 | Bundle Python 3.10-3.13 (recommended: 3.12) in `python/` |
+
+Runtime staging commands:
+
+```bash
+# Unix/macOS
+bash ./scripts/fetch-python-runtime.sh
+bash ./scripts/stage-python-runtime.sh target/release/python
+```
+
+```powershell
+# Windows
+./scripts/fetch-python-runtime.ps1 -RepoRoot "$PWD"
+./scripts/stage-python-runtime.ps1 -RepoRoot "$PWD" -OutDir "target\release\python"
+```
 
 ## Building
 
@@ -42,7 +65,6 @@ sudo apt-get update
 sudo apt-get install \
   build-essential pkg-config curl ca-certificates git \
   libglib2.0-dev libatk1.0-dev libgtk-3-dev pkg-config \
-  python3 python3-venv python3-pip \
   libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
   libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev
 
@@ -59,13 +81,13 @@ sudo apt-get install nodejs
 # Verify
 node --version
 npm --version
-python3 --version
-python3 -m pip --version
+bash ./scripts/fetch-python-runtime.sh
+./python/bin/python3 --version
 
 # If existing venvs were created without pip, recreate/repair them
 rm -rf kaspa-rest-server/.venv kaspa-socket-server/.venv
-python3 -m venv kaspa-rest-server/.venv
-python3 -m venv kaspa-socket-server/.venv
+./python/bin/python3 -m venv kaspa-rest-server/.venv
+./python/bin/python3 -m venv kaspa-socket-server/.venv
 kaspa-rest-server/.venv/bin/python -m ensurepip --upgrade
 kaspa-socket-server/.venv/bin/python -m ensurepip --upgrade
 ```
@@ -106,8 +128,8 @@ cargo build --release
 
 ### macOS Intel chip x64
 ```bash
-env -u CC -u CXX -u AR -u RANLIB -u SDKROOT -u NPM cargo build --release
-KASPA_NG_SKIP_EXTERNAL_SYNC=1 MACOS_MIN_VERSION=12.0 ./scripts/macos-bundle.sh release
+KASIA_WASM_AUTO_FETCH=0 cargo build --release
+KASPA_NG_SKIP_EXTERNAL_SYNC=1 ./scripts/macos-bundle.sh release
 ```
 
 While the application is a static serve, you can not load it from the local file system due to CORS restrictions. Due to this, a web server is required. This application is designed to be built with [Trunk](https://trunkrs.dev/) and is served from the `dist/` folder.  This is a self-contained client-side application - once the application is loaded, the web server is no longer required.

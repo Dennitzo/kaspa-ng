@@ -24,23 +24,43 @@ choose_python() {
   local -a resolved_candidates=()
   local candidate resolved
 
+  if [[ -n "${KASPA_NG_PYTHON_RUNTIME_ROOT:-}" ]]; then
+    raw_candidates+=(
+      "${KASPA_NG_PYTHON_RUNTIME_ROOT}/bin/python3"
+      "${KASPA_NG_PYTHON_RUNTIME_ROOT}/bin/python"
+      "${KASPA_NG_PYTHON_RUNTIME_ROOT}/python.exe"
+      "${KASPA_NG_PYTHON_RUNTIME_ROOT}/bin/python.exe"
+      "${KASPA_NG_PYTHON_RUNTIME_ROOT}/Scripts/python.exe"
+    )
+  fi
+
   if [[ -n "${KASPA_NG_PYTHON_BIN:-}" ]]; then
     raw_candidates+=("${KASPA_NG_PYTHON_BIN}")
   fi
-  raw_candidates+=("python3" "python")
+  raw_candidates+=(
+    "$ROOT/python/bin/python3"
+    "$ROOT/python/bin/python"
+    "$ROOT/python/python.exe"
+    "$ROOT/python/bin/python.exe"
+    "$ROOT/python/Scripts/python.exe"
+  )
 
-  case "$(uname -s)" in
-    Linux)
-      raw_candidates+=("/usr/local/bin/python3" "/usr/bin/python3")
-      ;;
-    Darwin)
-      raw_candidates+=(
-        "/opt/homebrew/bin/python3"
-        "/usr/local/bin/python3"
-        "/usr/bin/python3"
-      )
-      ;;
-  esac
+  if [[ "${KASPA_NG_ALLOW_SYSTEM_PYTHON:-0}" == "1" ]] || [[ "${KASPA_NG_ALLOW_SYSTEM_PYTHON:-}" =~ ^([Tt][Rr][Uu][Ee]|[Yy][Ee][Ss])$ ]]; then
+    raw_candidates+=("python3" "python")
+
+    case "$(uname -s)" in
+      Linux)
+        raw_candidates+=("/usr/local/bin/python3" "/usr/bin/python3")
+        ;;
+      Darwin)
+        raw_candidates+=(
+          "/opt/homebrew/bin/python3"
+          "/usr/local/bin/python3"
+          "/usr/bin/python3"
+        )
+        ;;
+    esac
+  fi
 
   for candidate in "${raw_candidates[@]}"; do
     if [[ "$candidate" == */* ]]; then
@@ -120,7 +140,10 @@ require_file "$SOCKET_ROOT/Pipfile"
 
 PYTHON_BIN="$(choose_python || true)"
 if [[ -z "$PYTHON_BIN" ]]; then
-  echo "No compatible Python runtime (>=3.10) found for self-hosted services" >&2
+  echo "No compatible bundled Python runtime (>=3.10) found for self-hosted services" >&2
+  echo "Expected one of: \$ROOT/python/bin/python3 (Unix) or \$ROOT/python/python.exe (Windows)." >&2
+  echo "Set KASPA_NG_PYTHON_RUNTIME_ROOT or KASPA_NG_PYTHON_BIN to override." >&2
+  echo "Set KASPA_NG_ALLOW_SYSTEM_PYTHON=1 to temporarily allow system Python fallback." >&2
   exit 1
 fi
 
